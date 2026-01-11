@@ -9,8 +9,6 @@ Each worker processes a single circuit through the complete pipeline:
 3. Feature extraction
 4. Simulation
 5. Local storage
-
-Author: InferQ Pipeline System
 """
 
 import logging

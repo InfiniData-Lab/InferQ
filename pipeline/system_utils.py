@@ -4,11 +4,8 @@ System Utilities Module
 
 Provides system monitoring, cleanup, and resource management utilities
 for the high-performance quantum circuit pipeline.
-
-Author: InferQ Pipeline System
 """
 
-import os
 import time
 import logging
 import psutil

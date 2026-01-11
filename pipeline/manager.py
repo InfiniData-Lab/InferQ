@@ -5,8 +5,6 @@ Pipeline Manager Module
 Orchestrates the high-performance parallel quantum circuit processing pipeline.
 Manages worker processes, Azure uploads, system monitoring, and overall
 pipeline coordination.
-
-Author: InferQ Pipeline System
 """
 
 import time

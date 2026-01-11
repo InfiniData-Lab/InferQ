@@ -5,8 +5,6 @@ Azure Upload Manager Module
 Handles batch uploads of circuits to Azure storage with detailed logging
 and error handling. Provides efficient batch processing and comprehensive
 status reporting.
-
-Author: InferQ Pipeline System
 """
 
 import logging
