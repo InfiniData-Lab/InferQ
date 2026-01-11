@@ -7,7 +7,6 @@ from generators.lib.generator import Generator, BaseParams
 from generators.lib.parameters import (
     num_qbits,
     grover_target_bitstring,
-    grover_iterations,
     depth
 )
 from generators.algorithms.grover_no_ancilla.grover_no_ancilla import generate

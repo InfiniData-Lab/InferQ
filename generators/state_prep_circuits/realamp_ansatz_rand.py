@@ -2,7 +2,6 @@ from qiskit.circuit.library import RealAmplitudes as QiskitRealAmplitudes
 from qiskit.circuit import QuantumCircuit
 from generators.lib.generator import Generator, BaseParams
 from generators.lib.parameters import num_qbits, depth, random_parameter_values
-from utils.circuit_hash import compute_circuit_hash_simple
 import random
 import numpy as np
 class RealAmplitudes(Generator):

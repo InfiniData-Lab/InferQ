@@ -17,7 +17,6 @@ from generators.lib.parameters import (
     qnn_ansatz_type,
     qnn_reps,
 )
-from hashlib import sha256
 import random
 import numpy as np
 from utils.circuit_hash import compute_circuit_hash_simple
