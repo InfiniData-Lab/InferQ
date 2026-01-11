@@ -570,7 +570,7 @@ def benchmark_simulation_methods(
     Returns:
         Dictionary containing benchmark results and analysis
     """
-    from simulate import QuantumSimulator
+    from .simulate import QuantumSimulator
 
     simulator = QuantumSimulator(shots=shots, seed=seed)
     analyzer = SimulationAnalyzer()

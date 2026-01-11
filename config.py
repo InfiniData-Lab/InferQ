@@ -52,7 +52,7 @@ class PipelineConfig:
         "min_eval_qubits": 2,
         "max_eval_qubits": 6,
         "measure": False,
-        "seed": 2,
+        "seed": 4,
         "stopping_probability": 0.3,  # Higher probability to stop (shorter circuits)
         "max_generators": 5,  # Fewer generators for simpler circuits
         "max_circuit_size": 1500,  # Maximum total gates
@@ -106,7 +106,7 @@ class PipelineConfig:
 
     # Logging Configuration
     LOGGING = {
-        "level": "WARNING",  # Minimal for performance
+        "level": "INFO",  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
         "format": "%(asctime)s - %(levelname)s - %(message)s",
         "file_max_size_mb": 100,
         "backup_count": 5,
