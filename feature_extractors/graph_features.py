@@ -1,8 +1,5 @@
-from pathlib import Path
-from feature_extractors.graphs import *
-import json, hashlib
+from feature_extractors.graphs import IGGraphExtractor, GDGGraphExtractor
 from typing import Any
-import inspect
 from qiskit import QuantumCircuit
 from feature_extractors.static_features import FeatureExtracter
 
