@@ -1,129 +1,110 @@
-# InferQ Dataset – Contributor Guide (v2)
+# InferQ Dataset Generation Pipeline
 
-This README reflects the **current repo layout**
-and the **exact commands** you should run every day.
+InferQ is a high-performance framework designed for the large-scale generation, simulation, and analysis of quantum circuits. It features a parallelized pipeline capable of creating diverse quantum circuits (random, structured, algorithmic), simulating them using efficient backends, extracting features, and synchronizing data with Azure Blob & Table Storage.
 
-_Python package names, dir structure, and workflow have changed
-slightly compared to the first draft._
+## 🚀 Key Features
 
----
+*   **Multi-Generator Architecture**: Supports various circuit generation strategies including GHZ, W-State, Quantum Algorithms (QFT, QAOA, Grover), and random circuits.
+*   **High-Performance Pipeline**: utilized `multiprocessing` for parallel circuit generation and simulation.
+*   **Circuit Simulation**: Integrated with Qiskit for various simulation methods (Statevector, MPS, etc.).
+*   **Feature Extraction**: Automated extraction of static (graph-based) and dynamic (runtime) features from circuits.
+*   **Cloud Integration**: Built-in support for Azure Blob Storage (for circuit files) and Azure Table Storage (for metadata/features).
+*   **Duplicate Detection**: Intelligent hashing system to avoid processing duplicate circuits.
 
-## 0 TL;DR daily loop
+## 🛠️ Installation
 
-```bash
-cd inferq-dataset               # repo root (direnv auto‑activates .venv)
+### Prerequisites
+*   Python 3.12 or higher
+*   Git
 
-git pull                        # get latest code + .dvc pointers
-python scripts/sync_manifest.py # merge + pull newest MANIFEST.parquet
+### Setup
+1.  **Clone the repository**:
+    ```bash
+    git clone <repository-url>
+    cd InferQ
+    ```
 
-# --- add circuits -----------------------------------------------------
-python -m generator.build_ghz 256           # or any generator module
-python -m generator.build_random 128        # ← module form **required**
+2.  **Install dependencies**:
+    ```bash
+    pip install .
+    # OR
+    pip install -r requirements.txt
+    ```
 
-# track heavy binaries (.qpy → .dvc pointer)
-dvc add circuits/
+3.  **Environment Setup**:
+    Create a `.env` file in the project root with your configuration (primarily for Azure).
+    ```bash
+    # Example .env content
+    AZURE_STORAGE_CONNECTION_STRING="your_connection_string"
+    ```
+    You can load these variables using the provided script:
+    ```bash
+    source load_azure_env.sh
+    ```
 
-python generator/build_manifest.py          # refresh local manifest
+## 🏃 Usage
 
-git add circuits.dvc  \
-        MANIFEST.parquet
-
-git commit -m "Add new circuits"
-
-dvc push                                    # upload blobs → Azure
-python scripts/sync_manifest.py             # upload merged manifest
-
-git commit MANIFEST.parquet -m "Sync manifest"
-git push
-```
-
----
-
-## 1 Repo anatomy (current)
-
-```
-inferq-dataset/
-├── generator/             #   • build_ghz.py  (call with  python -m generator.build_ghz)
-│   │                      #   • … other generators …
-│   └── __init__.py        # makes it a *package* so -m works
-├── utils/                 #   • feature_extractors.py  (import paths unchanged)
-│   └── __init__.py
-├── scripts/
-│   └── sync_manifest.py   # merge local+remote MANIFEST.parquet
-├── circuits/              # one UUID dir per circuit
-│   └── <uuid>/            #   • circuit.qpy      (heavy, ignored by Git)
-│                          #   • circuit.qpy.dvc  (pointer, in Git)
-│                          #   • meta.json        (tiny, in Git)
-├── MANIFEST.parquet       # always tiny; overwritten by sync_script
-├── .dvc/                  # DVC config
-├── .gitignore             # ignores *.qpy only (not .dvc/.json)
-├── .dvcignore             # hides everything *except* circuits/**
-└── .envrc                 # direnv loads .env + activates .venv
-```
-
----
-
-## 2 One‑time setup (per machine)
+### Running the Pipeline (Recommended)
+The easiest way to run the pipeline is using the provided shell script wrapper, which handles logging and configuration.
 
 ```bash
-# install tooling
-brew install direnv git-lfs        # or apt/dnf/pacman
-uv pip install "dvc[azure]"        # inside any Python 3.12 env
-
-# shell hook
-echo 'eval "$(direnv hook bash)"' >> ~/.bashrc   # bash example
-
-# clone
-git clone git@github.com:inferq/inferq-dataset.git
-cd inferq-dataset
-uv venv --python 3.12
-source .venv/bin/activate
-uv pip sync                     # installs qiskit, pandas, azure libs
-
-direnv allow                    # loads .envrc => credentials + venv
+./scripts/run_parallel.sh [OPTIONS]
 ```
 
-Create `.env` (ignored by Git):
+**Options:**
+*   `--workers N`: Number of parallel worker processes (default: auto-detected)
+*   `--batch-size N`: Number of circuits per batch
+*   `--azure-interval N`: Upload to Azure after every N batches
+*   `--iterations N`: Maximum number of iterations (default: infinite)
 
+**Example:**
+```bash
+# Run with 5 workers, batch size of 20
+./scripts/run_parallel.sh --workers 5 --batch-size 20
 ```
-AZURE_STORAGE_ACCOUNT=inferqstorage
-AZURE_STORAGE_SAS_TOKEN=?sv=...
+
+### Running Manually (Python)
+You can also run the Python entry point directly:
+
+```bash
+python main_parallel.py
 ```
 
----
+### Project Structure
 
-## 3 Running generators **the right way**
+```text
+InferQ/
+├── generators/           # Quantum circuit generation logic (QFT, GHZ, Random, etc.)
+├── simulators/           # Qiskit-based simulation wrappers
+├── feature_extractors/   # Static and dynamic feature extraction
+├── pipeline/             # Core pipeline orchestration (Manager, Worker, System Utils)
+├── utils/                # Helper utilities (Azure, Hashing, Checkpoints)
+├── scripts/              # Shell scripts for running and maintenance
+├── config.py             # Centralized configuration
+├── main.py               # Single process entry point
+├── main_parallel.py      # Multi-process entry point (Production)
+└── pyproject.toml        # Project dependencies and metadata
+```
 
-Because `generator/` is a **package**, always invoke modules, e.g.:  
-`python -m generator.build_ghz 1000` rather than pointing to the file path.
-This guarantees Python adds the project root to `sys.path` so
-`import utils.feature_extractors` works.
+## ⚙️ Configuration
 
-_(If you really want the shebang style, add `#!/usr/bin/env python` to the
-script, `chmod +x`, and call `./generator/build_ghz.py 256`.)_
+The pipeline behavior is controlled by `config.py`. key configurations include:
+*   **System**: CPU cores, worker counts.
+*   **Generation**: Min/Max qubits, depth, gate sets.
+*   **Simulation**: Timeout, methods.
+*   **Storage**: paths for local checkpoints and output.
 
----
+## ☁️ Azure Integration
 
-## 4 Workflow details
+The pipeline is designed to sync with Azure.
+*   **Blob Storage**: Stores the `.qpy` circuit files.
+*   **Table Storage**: Stores metadata and extracted features.
 
-| Stage                       | Command(s)                           | Notes                      |
-| --------------------------- | ------------------------------------ | -------------------------- |
-| **Generate circuit(s)**     | `python -m generator...`             | creates `<uuid>/` folders  |
-| **Track with DVC**          | `dvc add circuits/*/circuit.qpy`     | writes `.dvc` pointers     |
-| **Refresh manifest**        | `python generator/build_manifest.py` | local only                 |
-| **Commit light files**      | `git add …` + `git commit`           | `.qpy` _not_ in Git        |
-| **Upload heavy blobs**      | `dvc push`                           | to Azure Blob `inferq-dvc` |
-| **Merge → upload manifest** | `python scripts/sync_manifest.py`    | overwrites remote copy     |
-| **Push code**               | `git push`                           | done                       |
+Use `scripts/upload_circuits_to_azure.py` or the built-in pipeline integration to manage uploads.
 
----
+## 🔍 Development
 
-## 5 Common pitfalls & fixes
-
-| Error                                               | Fix                                                                          |
-| --------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `ModuleNotFoundError: utils` when running generator | Use `python -m generator.<name>` from repo root or export `PYTHONPATH=$PWD`. |
-| `bad DVC file name … is git‑ignored`                | Edit `.gitignore`: ignore `**/*.qpy` only; keep `.dvc` & `.json`.            |
-| `dvc push` 403 forbidden                            | Check `AZURE_STORAGE_SAS_TOKEN` / rotate SAS.                                |
-
----
+To run environment tests:
+```bash
+./test-env-scripts/run_all_tests.sh
+```
