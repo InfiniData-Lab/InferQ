@@ -245,14 +245,14 @@ def list_circuits_from_table(table_client: TableClient, limit: int = 100) -> lis
         for entity in entities:
             if count >= limit:
                 break
-
+            metadata=entity.metadata
             circuit_info = {
                 "qpy_sha256": entity["RowKey"],
                 "num_qubits": entity.get("num_qubits"),
                 "circuit_depth": entity.get("circuit_depth"),
                 "circuit_size": entity.get("circuit_size"),
                 "serialization_method": entity.get("serialization_method"),
-                "timestamp": entity.get("Timestamp"),
+                "timestamp": metadata["timestamp"] if metadata else None,
             }
             circuits.append(circuit_info)
             count += 1
