@@ -6,10 +6,14 @@ import logging
 import shutil
 from tqdm import tqdm
 from urllib.parse import urlparse
+from pathlib import Path
 import qiskit.qpy
 
 # Add project root to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# This is needed because the script is inside scripts/azure/
+project_root = str(Path(__file__).resolve().parent.parent.parent)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from utils.azure_connection import AzureConnection
 from utils.blob_storage import download_circuit_blob
@@ -172,6 +176,11 @@ def download_circuits(data_dir, output_dir, limit=None):
 
 if __name__ == "__main__":
     config = PipelineConfig()
+    
+    # Define default output directory relative to project root
+    project_root_path = Path(__file__).resolve().parent.parent.parent
+    default_output_dir = project_root_path / "data" / "downloaded_circuits_from_metadata"
+    default_data_dir = project_root_path / "data" / "fetched_circuit_metadata"
 
     parser = argparse.ArgumentParser(
         description="Download circuits from Azure Blob Storage based on fetched metadata."
@@ -185,7 +194,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--data-dir",
         type=str,
-        default="fetched_data",
+        default=str(default_data_dir),
         help="Directory containing parquet files with circuit metadata.",
     )
     parser.add_argument(
@@ -203,15 +212,14 @@ if __name__ == "__main__":
 
     # Interactive prompts if arguments are not provided
     if output_dir is None:
-        default_dir = str(config.circuits_dir)
         try:
             user_input = input(
-                f"Enter output directory [default: {default_dir}]: "
+                f"Enter output directory [default: {str(default_output_dir)}]: "
             ).strip()
-            output_dir = user_input if user_input else default_dir
+            output_dir = user_input if user_input else str(default_output_dir)
         except EOFError:
             # Handle non-interactive environments gracefully
-            output_dir = default_dir
+            output_dir = str(default_output_dir)
 
     if limit is None:
         try:

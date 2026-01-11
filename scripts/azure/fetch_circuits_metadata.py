@@ -1,5 +1,13 @@
 import os
 import sys
+from pathlib import Path
+
+# Add project root to sys.path to allow importing utils
+# This is needed because the script is inside scripts/azure/
+project_root = str(Path(__file__).resolve().parent.parent.parent)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import argparse
 import json
 import pandas as pd
@@ -13,11 +21,11 @@ from utils.azure_connection import AzureConnection
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("fetch_circuits.log")],
+    handlers=[logging.StreamHandler(), logging.FileHandler("fetch_circuits_metadata.log")],
 )
 logger = logging.getLogger(__name__)
 
-OUTPUT_DIR = "fetched_data"
+OUTPUT_DIR = "data/fetched_circuit_metadata"
 CHECKPOINT_FILE = os.path.join(OUTPUT_DIR, "checkpoint.json")
 PAGE_SIZE = 1000  # Azure Table Storage limit is 1000
 
