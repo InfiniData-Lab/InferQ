@@ -47,6 +47,10 @@ class PipelineConfig:
         "min_qubits": 1,
         "max_depth": 200,  # Reduced depth limit
         "min_depth": 1,
+        "min_reps": 1,
+        "max_reps": 5,
+        "min_eval_qubits": 2,
+        "max_eval_qubits": 6,
         "measure": False,
         "seed": 2,
         "stopping_probability": 0.3,  # Higher probability to stop (shorter circuits)
@@ -151,6 +155,18 @@ class PipelineConfig:
             ),
             "min_depth": self.get_env_or_default(
                 "MIN_DEPTH", self.CIRCUIT_GENERATION["min_depth"], int
+            ),
+            "min_reps": self.get_env_or_default(
+                "MIN_REPS", self.CIRCUIT_GENERATION["min_reps"], int
+            ),
+            "max_reps": self.get_env_or_default(
+                "MAX_REPS", self.CIRCUIT_GENERATION["max_reps"], int
+            ),
+            "min_eval_qubits": self.get_env_or_default(
+                "MIN_EVAL_QUBITS", self.CIRCUIT_GENERATION["min_eval_qubits"], int
+            ),
+            "max_eval_qubits": self.get_env_or_default(
+                "MAX_EVAL_QUBITS", self.CIRCUIT_GENERATION["max_eval_qubits"], int
             ),
             "measure": self.get_env_or_default(
                 "MEASURE", self.CIRCUIT_GENERATION["measure"], bool
