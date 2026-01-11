@@ -5,15 +5,14 @@ from azure.core.credentials import AzureNamedKeyCredential
 from typing import List, Dict, Any
 from tqdm import tqdm
 from itertools import islice
-# --- Configuration (Keep your values here) ---
+
 # using variables from .env file in same directory
 from dotenv import load_dotenv
 import os
 load_dotenv()
 STORAGE_ACCOUNT_NAME = os.getenv("AZURE_STORAGE_ACCOUNT")
 STORAGE_ACCOUNT_KEY = os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
-TABLE_NAME = "circuits"  # Replace with your actual table name
-# --- Main Logic ---
+TABLE_NAME = "circuits" 
 
 def fetch_table_data(account_name: str, account_key: str, table_name: str, row_limit: int = 100) -> List[Dict[str, Any]]:
     """
@@ -26,7 +25,7 @@ def fetch_table_data(account_name: str, account_key: str, table_name: str, row_l
     table_url = f"https://{account_name}.table.core.windows.net"
     
     try:
-        # 🟢 THE FIX: Wrap the account key in the required credential object
+        # Wrap the account key in the required credential object
         credential_object = AzureNamedKeyCredential(
             name=account_name,
             key=account_key
@@ -53,7 +52,6 @@ def fetch_table_data(account_name: str, account_key: str, table_name: str, row_l
             entities_list.append(dict(entity))
         
         print(f"Successfully fetched {len(entities_list)} entities.")
-        # print(entities_list)
         # Let us store in a csv file
         df = pd.DataFrame(entities_list)
         df.to_csv(f"{table_name}_data{row_limit}.csv", index=False)

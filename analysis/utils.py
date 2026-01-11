@@ -178,6 +178,127 @@ def plot_best_method_hists(METHODS, FEATURES, df_clean):
     plt.tight_layout()
     plt.show()
 
+def PlotHistPercentBest(df_clean, FEATURES, METHODS):
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import math
+
+    features = FEATURES
+    classes = df_clean["best_method"].unique()
+
+    n_cols = 4
+    n_rows = math.ceil(len(features) / n_cols)
+
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(5 * n_cols, 3.8 * n_rows),
+        squeeze=False
+    )
+
+    for ax, feat in zip(axes.flat, features):
+        data = df_clean[[feat, "best_method"]].dropna()
+
+        # --- Bin feature (use quantiles for stability) ---
+        data["bin"] = pd.cut(data[feat], bins=5)
+
+        # --- Counts per bin & class ---
+        bin_class_counts = (
+            data
+            .groupby(["bin", "best_method"])
+            .size()
+            .unstack(fill_value=0)
+        )
+
+        # --- Percentages per bin ---
+        bin_percentages = bin_class_counts.div(
+            bin_class_counts.sum(axis=1),
+            axis=0
+        )
+
+        x = np.arange(len(bin_percentages))
+        bottom = np.zeros(len(bin_percentages))
+
+        # --- Plot stacked bars ---
+        for cls in bin_percentages.columns:
+            ax.bar(
+                x,
+                bin_percentages[cls],
+                bottom=bottom,
+                label=cls
+            )
+            bottom += bin_percentages[cls].values
+
+        # --- Annotate bin counts ---
+        bin_totals = bin_class_counts.sum(axis=1).values
+        for i, total in enumerate(bin_totals):
+            ax.text(
+                i,
+                0.99,
+                f"n={int(total)}",
+                ha="center",
+                va="top",
+                fontsize=8,
+                rotation=90,
+                color="black"
+            )
+
+
+        ax.set_title(feat)
+        ax.set_ylim(0, 1.1)
+        ax.set_yticks([0, 0.5, 1])
+        ax.set_yticklabels(["0%", "50%", "100%"])
+        ax.set_xticks([])
+
+    # Remove empty subplots
+    for ax in axes.flat[len(features):]:
+        ax.remove()
+
+    # Single legend
+    handles, labels = axes.flat[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=len(labels))
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.show()
+
+def PlotHeatMapAvg(FEATURES, METHODS, df_clean):
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    matrix = pd.DataFrame(index=FEATURES, columns=METHODS, dtype=float)
+
+    for method in METHODS:
+        subset = df_clean[df_clean["best_method"] == method]
+        for feature in FEATURES:
+            print(feature)
+            mx, mi = subset[feature].max(),subset[feature].min()
+            if mx - mi > 0:
+                matrix.loc[feature, method] = (subset[feature].mean()-mi)/(mx-mi)
+            else:
+                matrix.loc[feature, method] = 0.0
+
+    # --- Min–max normalize per feature (row-wise) ---
+    matrix_norm = matrix.copy()
+
+    # --- Plot heatmap ---
+    plt.figure(figsize=(11, 6))
+    sns.heatmap(
+        matrix_norm,
+        cmap="viridis",
+        annot=True,
+        fmt=".2f",
+        linewidths=0.5
+    )
+
+    plt.title("Relative Method Performance (Conditioned on Best Method)")
+    plt.xlabel("Method")
+    plt.ylabel("Feature")
+    plt.tight_layout()
+    plt.show()
+    
 def load_all_parquet_files(fetched_data_dir: str = "../fetched_data") -> pd.DataFrame:
     """
     Load and combine all parquet files from the fetched_data directory into a single DataFrame.
