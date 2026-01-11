@@ -48,7 +48,7 @@ class PipelineConfig:
         "max_depth": 200,  # Reduced depth limit
         "min_depth": 1,
         "measure": False,
-        "seed": 0,
+        "seed": 2,
         "stopping_probability": 0.3,  # Higher probability to stop (shorter circuits)
         "max_generators": 5,  # Fewer generators for simpler circuits
         "max_circuit_size": 1500,  # Maximum total gates
@@ -223,29 +223,6 @@ class PipelineConfig:
             ),
         }
 
-    def apply_performance_optimizations(self):
-        """Apply system-level performance optimizations."""
-        # Set thread limits to avoid oversubscription
-        thread_count = str(self.PERFORMANCE["numpy_threads"])
-        os.environ["OMP_NUM_THREADS"] = thread_count
-        os.environ["OPENBLAS_NUM_THREADS"] = thread_count
-        os.environ["MKL_NUM_THREADS"] = thread_count
-        os.environ["NUMEXPR_NUM_THREADS"] = thread_count
-
-        # Unbuffered Python output
-        os.environ["PYTHONUNBUFFERED"] = "1"
-
-        # Garbage collection optimization
-        import gc
-
-        gc.set_threshold(self.PERFORMANCE["gc_threshold"])
-
-        # Process priority (Unix systems only)
-        try:
-            os.nice(self.PERFORMANCE["process_priority"])
-        except (OSError, AttributeError):
-            pass  # Not supported on all systems
-
     def get_azure_config(self):
         """Get Azure configuration."""
         return {
@@ -341,11 +318,6 @@ def get_storage_config():
 def get_azure_config():
     """Get Azure configuration."""
     return config.get_azure_config()
-
-
-def apply_optimizations():
-    """Apply performance optimizations."""
-    config.apply_performance_optimizations()
 
 
 if __name__ == "__main__":

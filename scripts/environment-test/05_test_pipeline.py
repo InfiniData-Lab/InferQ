@@ -38,7 +38,6 @@ def test_config_import():
             get_circuit_config, 
             get_simulation_config, 
             get_storage_config,
-            apply_optimizations
         )
         print("   ✅ Configuration module imported")
         
@@ -51,9 +50,6 @@ def test_config_import():
         print(f"   ✅ Simulation config: {len(simulation_config)} parameters")
         print(f"   ✅ Storage config: {len(storage_config)} parameters")
         
-        # Apply optimizations
-        apply_optimizations()
-        print("   ✅ Performance optimizations applied")
         
         return True, (circuit_config, simulation_config, storage_config)
         

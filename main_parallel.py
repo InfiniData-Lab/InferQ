@@ -23,10 +23,9 @@ import multiprocessing as mp
 import numpy as np
 
 # Import centralized configuration
-from config import config, apply_optimizations
+from config import config
 
-# Apply performance optimizations early
-apply_optimizations()
+
 
 # Suppress numpy array printing to stdout
 np.set_printoptions(suppress=True, threshold=0)

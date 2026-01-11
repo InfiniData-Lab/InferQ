@@ -28,10 +28,12 @@ def extract_features(circuit: QuantumCircuit):
         # Initialize feature extractors
         logger.debug("Initializing feature extractors...")
         feature_extractor = FeatureExtracter(circuit=circuit)
-        # graph_feature_extractor = GraphFeatureExtracter(circuit=circuit, feature_extractor=feature_extractor)
-        graph_feature_extractor = IGGraphExtractor(circuit=circuit, feature_extractor=feature_extractor)
+        
+        # Main extractors
         static_feature_extractor = StaticFeatureExtractor(circuit=circuit, feature_extractor=feature_extractor)
+        graph_feature_extractor = GraphFeatureExtracter(circuit=circuit, feature_extractor=feature_extractor)
         dynamic_feature_extractor = DynamicFeatureExtractor(circuit=circuit, feature_extractor=feature_extractor)
+        
         logger.debug("✓ Feature extractors initialized")
         
         # Extract features
@@ -39,7 +41,7 @@ def extract_features(circuit: QuantumCircuit):
         features = static_feature_extractor.extractAllFeatures()
         logger.debug(f"✓ Static features extracted: {len(features)} features")
         
-        logger.debug("Extracting graph features...")
+        logger.debug("Extracting graph features (IG + GDG)...")
         graph_features = graph_feature_extractor.extractAllFeatures()
         features.update(graph_features)
         logger.debug(f"✓ Graph features extracted: {len(graph_features)} features")

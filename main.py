@@ -1,6 +1,6 @@
 from generators.circuit_merger import CircuitMerger
 from generators.lib.generator import BaseParams
-from config import get_circuit_config, get_simulation_config, get_storage_config, apply_optimizations,get_azure_config
+from config import get_circuit_config, get_simulation_config, get_storage_config,get_azure_config
 
 from utils.save_utils import (
     save_circuit_locally,
@@ -145,7 +145,6 @@ def run_extraction_pipeline(circuitMerger: CircuitMerger, quantumSimulator: Quan
 
 def main():
     # Apply performance optimizations
-    apply_optimizations()
     
     logger.info("🚀 Starting Quantum Circuit Processing Application")
     logger.info("=" * 80)
