@@ -109,14 +109,6 @@ class PipelineConfig:
         "console_output": True,
     }
 
-    # Performance Optimization
-    PERFORMANCE = {
-        "numpy_threads": 4,
-        "gc_threshold": 1000,
-        "process_priority": -5,  # Higher priority (Unix)
-        "memory_limit_percent": 80,
-    }
-
     def get_env_or_default(self, key, default=None, type_cast=None):
         """Get environment variable or return default."""
         value = os.getenv(key, default)
