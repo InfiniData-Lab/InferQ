@@ -193,6 +193,38 @@ class StaticFeatureExtractor():
         idling_score = sum((depth - usage) for usage in qubit_usage) / (num_qubits * depth)
         self.extracted_features["idling_score"] = idling_score
         return {"idling_score": idling_score}
+
+    def getQuantumLocalityRatio(self):
+        '''
+        This measure the ratio between number of gates acting on local qubits vs long ditance ones. So if gates act on qubits that are close to each other, the locality ratio will be high.
+        Returns:
+            dict: {"locality_ratio": float}
+        '''
+        if "locality_ratio" in self.extracted_features:
+            return {"locality_ratio": self.extracted_features["locality_ratio"]}
+        if not self.circuit:
+            self.extracted_features["locality_ratio"] = 0.0
+            return {"locality_ratio": 0.0}
+        num_qubits = self.circuit.num_qubits
+        if num_qubits < 2:
+            self.extracted_features["locality_ratio"] = 0.0
+            return {"locality_ratio": 0.0}
+        # for each gate, extracting the qubit indices
+        # then check if they are all adjacent qubits. If not, then it is a long distance gate
+        long_distance_gates = 0
+        local_gates = 0
+        for gate in self.circuit.data:
+            qubits = [int(str(qubit).split("index=")[1].split(")")[0].split(">")[0]) for qubit in gate.qubits]
+            if len(qubits) < 2:
+                local_gates += 1
+                continue
+            if all(abs(qubits[i] - qubits[i + 1]) == 1 for i in range(len(qubits) - 1)):
+                local_gates += 1
+            else:
+                long_distance_gates += 1
+        locality_ratio = local_gates / (local_gates + long_distance_gates) if (local_gates + long_distance_gates) > 0 else 0.0
+        self.extracted_features["locality_ratio"] = locality_ratio
+        return {"locality_ratio": locality_ratio}
     
         
 
@@ -221,6 +253,7 @@ class StaticFeatureExtractor():
             ("depth", self.getQiskitCircuitDepth),
             ("density_score", self.getDensityScore),
             ("idling_score", self.getIdlingScore),
+            ("locality_ratio", self.getQuantumLocalityRatio),
         ]
         is_main = sys.argv[0].endswith("extract.py")
         for key, method in feature_methods:

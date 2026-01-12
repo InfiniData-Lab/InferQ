@@ -8,7 +8,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class ResultExtractor:
+class DynamicFeatureExtractor:
     def _extract_simulation_data(
         self, result: Result, method: SimulationMethod, qc: QuantumCircuit
     ) -> Dict[str, Any]:

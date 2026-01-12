@@ -14,11 +14,11 @@ from .lib.infiniquantum import (
     _execute_infiniquantum_simulation, 
     INFINI_QUANTUM_AVAILABLE
 )
-from .lib.result_extractor import ResultExtractor
+from .lib.dynamic_feature_extractor import DynamicFeatureExtractor
 
 logger = logging.getLogger(__name__)
 
-class QuantumSimulator(ResultExtractor):
+class QuantumSimulator(DynamicFeatureExtractor):
     """
     A comprehensive quantum circuit simulator supporting multiple simulation methods.
 
