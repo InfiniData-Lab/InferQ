@@ -47,8 +47,12 @@ class PipelineConfig:
         "min_qubits": 1,
         "max_depth": 200,  # Reduced depth limit
         "min_depth": 1,
+        "min_reps": 1,
+        "max_reps": 5,
+        "min_eval_qubits": 2,
+        "max_eval_qubits": 6,
         "measure": False,
-        "seed": 0,
+        "seed": 4,
         "stopping_probability": 0.3,  # Higher probability to stop (shorter circuits)
         "max_generators": 5,  # Fewer generators for simpler circuits
         "max_circuit_size": 1500,  # Maximum total gates
@@ -102,19 +106,11 @@ class PipelineConfig:
 
     # Logging Configuration
     LOGGING = {
-        "level": "WARNING",  # Minimal for performance
+        "level": "INFO",  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
         "format": "%(asctime)s - %(levelname)s - %(message)s",
         "file_max_size_mb": 100,
         "backup_count": 5,
         "console_output": True,
-    }
-
-    # Performance Optimization
-    PERFORMANCE = {
-        "numpy_threads": 4,
-        "gc_threshold": 1000,
-        "process_priority": -5,  # Higher priority (Unix)
-        "memory_limit_percent": 80,
     }
 
     def get_env_or_default(self, key, default=None, type_cast=None):
@@ -159,6 +155,18 @@ class PipelineConfig:
             ),
             "min_depth": self.get_env_or_default(
                 "MIN_DEPTH", self.CIRCUIT_GENERATION["min_depth"], int
+            ),
+            "min_reps": self.get_env_or_default(
+                "MIN_REPS", self.CIRCUIT_GENERATION["min_reps"], int
+            ),
+            "max_reps": self.get_env_or_default(
+                "MAX_REPS", self.CIRCUIT_GENERATION["max_reps"], int
+            ),
+            "min_eval_qubits": self.get_env_or_default(
+                "MIN_EVAL_QUBITS", self.CIRCUIT_GENERATION["min_eval_qubits"], int
+            ),
+            "max_eval_qubits": self.get_env_or_default(
+                "MAX_EVAL_QUBITS", self.CIRCUIT_GENERATION["max_eval_qubits"], int
             ),
             "measure": self.get_env_or_default(
                 "MEASURE", self.CIRCUIT_GENERATION["measure"], bool
@@ -230,29 +238,6 @@ class PipelineConfig:
                 "MAX_STORAGE_GB", self.STORAGE["max_local_storage_gb"], int
             ),
         }
-
-    def apply_performance_optimizations(self):
-        """Apply system-level performance optimizations."""
-        # Set thread limits to avoid oversubscription
-        thread_count = str(self.PERFORMANCE["numpy_threads"])
-        os.environ["OMP_NUM_THREADS"] = thread_count
-        os.environ["OPENBLAS_NUM_THREADS"] = thread_count
-        os.environ["MKL_NUM_THREADS"] = thread_count
-        os.environ["NUMEXPR_NUM_THREADS"] = thread_count
-
-        # Unbuffered Python output
-        os.environ["PYTHONUNBUFFERED"] = "1"
-
-        # Garbage collection optimization
-        import gc
-
-        gc.set_threshold(self.PERFORMANCE["gc_threshold"])
-
-        # Process priority (Unix systems only)
-        try:
-            os.nice(self.PERFORMANCE["process_priority"])
-        except (OSError, AttributeError):
-            pass  # Not supported on all systems
 
     def get_azure_config(self):
         """Get Azure configuration."""
@@ -349,11 +334,6 @@ def get_storage_config():
 def get_azure_config():
     """Get Azure configuration."""
     return config.get_azure_config()
-
-
-def apply_optimizations():
-    """Apply performance optimizations."""
-    config.apply_performance_optimizations()
 
 
 if __name__ == "__main__":

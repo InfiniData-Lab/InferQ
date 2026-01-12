@@ -26,3 +26,5 @@ pipeline.log
 venv
 
 *.csv
+*.log
+data/

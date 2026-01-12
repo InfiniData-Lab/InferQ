@@ -23,7 +23,13 @@ Functions:
 """
 
 from .simulate import QuantumSimulator, SimulationMethod
-from .simulation_utils import SimulationAnalyzer, SimulationMetrics, benchmark_simulation_methods
+from .lib.metrics import SimulationMetrics
+from .lib.analyzer import SimulationAnalyzer
+from .lib.processor import (
+    process_simulation_data_for_features, 
+    extract_essential_simulation_data
+)
+from .lib.benchmark import benchmark_simulation_methods
 
 __all__ = [
     'QuantumSimulator',

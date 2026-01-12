@@ -299,14 +299,14 @@ def PlotHeatMapAvg(FEATURES, METHODS, df_clean):
     plt.tight_layout()
     plt.show()
     
-def load_all_parquet_files(fetched_data_dir: str = "../fetched_data") -> pd.DataFrame:
+def load_all_parquet_files(fetched_metadata_dir: str = "../data/fetched_circuit_metadata") -> pd.DataFrame:
     """
-    Load and combine all parquet files from the fetched_data directory into a single DataFrame.
+    Load and combine all parquet files from the fetched_circuit_metadata directory into a single DataFrame.
     
     Parameters:
     -----------
-    fetched_data_dir : str, optional
-        Path to the directory containing parquet files. Default is "../fetched_data"
+    fetched_metadata_dir : str, optional
+        Path to the directory containing parquet files. Default is "../data/fetched_circuit_metadata"
         
     Returns:
     --------
@@ -317,16 +317,16 @@ def load_all_parquet_files(fetched_data_dir: str = "../fetched_data") -> pd.Data
     import glob
     
     # Get the full path
-    if not os.path.isabs(fetched_data_dir):
+    if not os.path.isabs(fetched_metadata_dir):
         # If relative path, make it relative to the analysis directory
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        fetched_data_dir = os.path.join(current_dir, fetched_data_dir)
+        fetched_metadata_dir = os.path.join(current_dir, fetched_metadata_dir)
     
     # Find all parquet files
-    parquet_files = glob.glob(os.path.join(fetched_data_dir, "*.parquet"))
+    parquet_files = glob.glob(os.path.join(fetched_metadata_dir, "*.parquet"))
     
     if not parquet_files:
-        raise FileNotFoundError(f"No parquet files found in {fetched_data_dir}")
+        raise FileNotFoundError(f"No parquet files found in {fetched_metadata_dir}")
     
     print(f"Found {len(parquet_files)} parquet files to load...")
     

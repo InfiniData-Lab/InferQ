@@ -15,6 +15,9 @@ from pathlib import Path
 import qiskit.qpy
 from tqdm import tqdm
 
+# Add project root to path for imports
+sys.path.append(str(Path(__file__).parent.parent.parent))
+
 # Import Azure utilities
 from utils.azure_connection import AzureConnection
 from utils.blob_storage import upload_circuit_blob

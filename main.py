@@ -1,6 +1,6 @@
 from generators.circuit_merger import CircuitMerger
 from generators.lib.generator import BaseParams
-from config import get_circuit_config, get_simulation_config, get_storage_config, apply_optimizations,get_azure_config
+from config import get_circuit_config, get_simulation_config, get_storage_config, get_azure_config, config
 
 from utils.save_utils import (
     save_circuit_locally,
@@ -29,8 +29,12 @@ logging.getLogger('azure.storage.blob').setLevel(logging.WARNING)
 logging.getLogger('azure.data.tables').setLevel(logging.WARNING)
 logging.getLogger('azure.core').setLevel(logging.WARNING)
 
-# Configure main logger - reduced verbosity for HPC
-logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
+# Configure main logger - use level from config
+logging_config = config.LOGGING
+logging.basicConfig(
+    level=getattr(logging, logging_config['level'].upper(), logging.INFO),
+    format=logging_config['format']
+)
 logger = logging.getLogger(__name__)
 
 def run_extraction_pipeline(circuitMerger: CircuitMerger, quantumSimulator: QuantumSimulator, azure_conn: AzureConnection = None):
@@ -78,7 +82,7 @@ def run_extraction_pipeline(circuitMerger: CircuitMerger, quantumSimulator: Quan
     logger.info("\nSTEP 3.5: Processing Simulation Data")
     logger.info("-" * 30)
     try:
-        from simulators.simulation_utils import process_simulation_data_for_features
+        from simulators import process_simulation_data_for_features
         combined_features = process_simulation_data_for_features(res, extracted_features)
     except Exception as e:
         logger.error(f"Simulation data processing failed: {e}")
@@ -145,7 +149,6 @@ def run_extraction_pipeline(circuitMerger: CircuitMerger, quantumSimulator: Quan
 
 def main():
     # Apply performance optimizations
-    apply_optimizations()
     
     logger.info("🚀 Starting Quantum Circuit Processing Application")
     logger.info("=" * 80)

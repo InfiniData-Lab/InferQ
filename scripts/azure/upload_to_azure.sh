@@ -4,6 +4,12 @@
 
 set -e  # Exit on error
 
+# Get directory of this script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+PROJECT_ROOT="$SCRIPT_DIR/../.."
+UPLOAD_SCRIPT="$SCRIPT_DIR/upload_circuits_to_azure.py"
+TEST_SCRIPT="$SCRIPT_DIR/test_azure_upload_connection.py"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -17,7 +23,13 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 
 # Check if .env file exists
-if [ ! -f .env ]; then
+# Look for .env in project root first, then current directory
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    ENV_FILE="$PROJECT_ROOT/.env"
+elif [ -f ".env" ]; then
+    ENV_FILE=".env"
+    echo -e "${YELLOW}Using .env from current directory${NC}"
+else
     echo -e "${RED}✗ Error: .env file not found${NC}"
     echo "Please create a .env file with your Azure credentials."
     echo "See .env.example or UPLOAD_CIRCUITS_README.md for details."
@@ -25,14 +37,14 @@ if [ ! -f .env ]; then
 fi
 
 # Source the .env file to load Azure credentials
-echo -e "${BLUE}Loading Azure credentials from .env...${NC}"
-source .env
+echo -e "${BLUE}Loading Azure credentials from $ENV_FILE...${NC}"
+source "$ENV_FILE"
 echo -e "${GREEN}✓ Credentials loaded${NC}"
 echo ""
 
 # Test Azure connection first
 echo -e "${BLUE}Testing Azure connection...${NC}"
-if python test_azure_upload_connection.py; then
+if python "$TEST_SCRIPT"; then
     echo -e "${GREEN}✓ Azure connection successful${NC}"
     echo ""
 else
@@ -55,12 +67,12 @@ case $choice in
     1)
         echo ""
         echo -e "${BLUE}Running dry run...${NC}"
-        python upload_circuits_to_azure.py --dry-run --verbose
+        python "$UPLOAD_SCRIPT" --dry-run --verbose
         ;;
     2)
         echo ""
         echo -e "${BLUE}Uploading new circuits only...${NC}"
-        python upload_circuits_to_azure.py --verbose
+        python "$UPLOAD_SCRIPT" --verbose
         ;;
     3)
         echo ""
@@ -69,7 +81,7 @@ case $choice in
         if [ "$confirm" = "yes" ]; then
             echo ""
             echo -e "${BLUE}Uploading all circuits (force mode)...${NC}"
-            python upload_circuits_to_azure.py --force --verbose
+            python "$UPLOAD_SCRIPT" --force --verbose
         else
             echo -e "${YELLOW}Upload cancelled${NC}"
             exit 0
@@ -84,7 +96,7 @@ case $choice in
         if [ "$confirm" = "yes" ]; then
             echo ""
             echo -e "${BLUE}Uploading circuits and deleting local folders...${NC}"
-            python upload_circuits_to_azure.py --delete-after-upload --verbose
+            python "$UPLOAD_SCRIPT" --delete-after-upload --verbose
         else
             echo -e "${YELLOW}Upload cancelled${NC}"
             exit 0

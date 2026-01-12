@@ -9,8 +9,6 @@ Each worker processes a single circuit through the complete pipeline:
 3. Feature extraction
 4. Simulation
 5. Local storage
-
-Author: InferQ Pipeline System
 """
 
 import logging
@@ -26,7 +24,7 @@ from config import get_circuit_config, get_simulation_config, get_storage_config
 from utils.save_utils import save_circuit_locally
 from feature_extractors.extractors import extract_features
 from simulators.simulate import QuantumSimulator
-from simulators.simulation_utils import process_simulation_data_for_features
+from simulators import process_simulation_data_for_features
 from utils.duplicate_detector import is_circuit_duplicate, initialize_duplicate_detection
 
 def setup_worker_signal_handling():

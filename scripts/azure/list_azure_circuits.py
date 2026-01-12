@@ -9,7 +9,16 @@ This script helps you:
 """
 
 import logging
+import sys
+import os
 from pathlib import Path
+
+# Add project root to sys.path to allow importing utils
+# This is needed because the script is inside scripts/azure/
+project_root = str(Path(__file__).resolve().parent.parent.parent)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from utils.azure_connection import AzureConnection
 from utils.table_storage import list_circuits_from_table
 from config import get_storage_config
@@ -53,9 +62,15 @@ def list_azure_circuits(limit=100):
             qubits = circuit.get('num_qubits', 'N/A')
             depth = circuit.get('circuit_depth', 'N/A')
             size = circuit.get('circuit_size', 'N/A')
-            timestamp = circuit.get('timestamp', 'N/A')
             
-            print(f"{hash_short:<20} {qubits:<8} {depth:<8} {size:<8} {timestamp}")
+            # Format timestamp nicely
+            timestamp = circuit.get('timestamp')
+            if hasattr(timestamp, 'strftime'):
+                timestamp_str = timestamp.strftime('%Y-%m-%d %H:%M')
+            else:
+                timestamp_str = str(timestamp) if timestamp else 'N/A'
+            
+            print(f"{hash_short:<20} {qubits:<8} {depth:<8} {size:<8} {timestamp_str}")
         
         print("=" * 80)
         
@@ -184,10 +199,32 @@ def main():
     
     args = parser.parse_args()
     
-    # If no arguments provided, show comparison by default
+    # If no arguments provided, enter interactive mode
     if not any([args.list, args.compare, args.check]):
-        compare_storage()
-        print("\nUse --help to see other options")
+        print("\nChange default action to interactive mode:")
+        print("1. List circuits in Azure Table Storage")
+        print("2. Compare local vs Azure storage")
+        print("3. Check for specific circuit hash")
+        
+        try:
+            choice = input("\nSelect an operation (1-3) [default: 1]: ").strip()
+            
+            if choice == '2':
+                compare_storage()
+            elif choice == '3':
+                circuit_hash = input("Enter circuit hash: ").strip()
+                if circuit_hash:
+                    check_circuit_exists(circuit_hash)
+                else:
+                    print("No hash provided.")
+            else:
+                # Default to 1 (List)
+                limit_str = input(f"Enter limit [default: {args.limit}]: ").strip()
+                limit = int(limit_str) if limit_str.isdigit() else args.limit
+                list_azure_circuits(limit=limit)
+                
+        except (KeyboardInterrupt, EOFError):
+            print("\nOperation cancelled.")
         return
     
     if args.list:

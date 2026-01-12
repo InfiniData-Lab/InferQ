@@ -23,10 +23,9 @@ import multiprocessing as mp
 import numpy as np
 
 # Import centralized configuration
-from config import config, apply_optimizations
+from config import config
 
-# Apply performance optimizations early
-apply_optimizations()
+
 
 # Suppress numpy array printing to stdout
 np.set_printoptions(suppress=True, threshold=0)
@@ -53,7 +52,7 @@ verbose_loggers = [
     'qiskit', 'qiskit.passmanager', 'qiskit.passmanager.base_tasks', 'qiskit.compiler', 'qiskit.transpiler', 'qiskit_aer',
     'azure.core', 'azure.storage', 'azure.data.tables', 'azure.storage.blob',
     'azure.core.pipeline.policies.http_logging_policy',
-    'simulators.simulate', 'simulators.simulation_utils',
+    'simulators.simulate', 'simulators.lib.infiniquantum', 'simulators.lib.result_extractor',
     'feature_extractors.extractors', 'feature_extractors.static_features',
     'feature_extractors.graph_features', 'feature_extractors.dynamic_features', 'feature_extractors.graphs',
     'generators.circuit_merger', 'utils.local_storage', 'utils.table_storage',
