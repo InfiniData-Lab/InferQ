@@ -1,5 +1,6 @@
 from typing import Dict, Any, List
 import logging
+from feature_extractors.sql_analyzer import SQLFeatureExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,21 @@ def process_simulation_data_for_features(
              # Special handling for InfiniQuantum renaming and flattening
              prefix = "infinidata_quantum" if method == "infiniquantum" else method
              _flatten_benchmark_results(prefix, result["benchmark_results"], combined_features)
+
+        # 2.5 Extract SQL Features if present
+        if "sql_query" in result:
+             try:
+                sql_features, join_edges = SQLFeatureExtractor.extract_sql_features(result["sql_query"])
+                prefix = "infinidata_quantum" if method == "infiniquantum" else method
+                
+                # Add SQL features
+                for feat_name, count in sql_features.items():
+                    combined_features[f"{prefix}_sql_{feat_name}"] = count
+                    
+                # Add join complexity
+                combined_features[f"{prefix}_sql_num_joins"] = len(join_edges)
+             except Exception as e:
+                logger.error(f"Failed to extract SQL features for method {method}: {e}")
 
         # 3. Extract Specific Scalar Metrics from Data
         # We look in 'data' and backward-compatible 'simulation_data' locations

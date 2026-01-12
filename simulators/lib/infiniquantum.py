@@ -141,13 +141,13 @@ def _execute_infiniquantum_simulation(qc, **kwargs):
                     processed_results[method] = data
 
         execution_time = time.time() - start_time
-        
         return {
             "success": True,
             "method": "infiniquantum",
             "benchmark_results": processed_results,
             "execution_time": execution_time,
             "backend_name": "InfiniQuantumSim",
+            "sql_query": iqs_qc.to_query()
         }
 
     except Exception as e:
