@@ -33,20 +33,23 @@ class QuantumSimulator(ResultExtractor):
         seed: Optional[int] = None,
         timeout_seconds: Optional[int] = None,
         device: str = "CPU",
+        infiniquantum_config: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize the quantum simulator.
-
+        
         Args:
             shots: Number of shots for sampling-based simulations
             seed: Random seed for reproducible results
             timeout_seconds: Maximum time allowed for simulation (in seconds)
             device: Device to run simulations on ("CPU" or "GPU")
+            infiniquantum_config: Configuration for InfiniQuantumSim
         """
         self.shots = shots
         self.seed = seed
         self.timeout_seconds = timeout_seconds
         self.device = device
+        self.infiniquantum_config = infiniquantum_config or {}
         self.simulators = {}
         self._initialize_simulators()
 
@@ -366,6 +369,14 @@ class QuantumSimulator(ResultExtractor):
         """
         Run simulation using InfiniQuantumSim benchmark.
         """
+        # Inject configuration
+        if self.infiniquantum_config:
+            if "oom" not in kwargs and "omit_methods" in self.infiniquantum_config:
+                kwargs["oom"] = self.infiniquantum_config["omit_methods"]
+            if "n_runs" not in kwargs:
+                # kwargs["n_runs"] = self.infiniquantum_config.get("n_runs", 1)
+                pass
+
         if not self.timeout_seconds:
             return _execute_infiniquantum_simulation(qc, **kwargs)
 

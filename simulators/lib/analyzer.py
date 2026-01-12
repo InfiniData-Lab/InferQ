@@ -45,7 +45,10 @@ class SimulationAnalyzer:
                     metric.actual_method = data["actual_method"]
 
                 if "probabilities" in data:
-                    metric.entropy = self._calculate_entropy(data["probabilities"])
+                    metric.shannon_entropy = self._calculate_entropy(data["probabilities"])
+                
+                if "von_neumann_entropy" in data:
+                    metric.von_neumann_entropy = data["von_neumann_entropy"]
             else:
                 metric = SimulationMetrics(
                     method=method,
@@ -165,6 +168,6 @@ class SimulationAnalyzer:
         p = np.vstack([p0, p1])
         p = np.clip(p, 1e-12, 1)
         S = -np.sum(p * np.log2(p), axis=0)
-        return S
+        return list(S)
 
 
