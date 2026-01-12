@@ -31,7 +31,7 @@ metadata.
 Features
 ~~~~~~~~
 * Choose one of Qiskit’s standard ansatz templates
-  (``"real_amplitudes"``, ``"efficient_su2"``, ``"two_local"``, ``"su2"``) **or**
+  (``"RealAmplitudes"``, ``"EfficientSU2"``, ``"TwoLocal"``) **or**
   pass your own :class:`~qiskit.circuit.QuantumCircuit`.
 * Control depth via ``reps`` and entanglement pattern via ``entanglement``.
 * Optionally embed measurement gates so the circuit is executable as‑is.
@@ -40,7 +40,7 @@ Example – 6‑qubit RealAmplitudes ansatz
 --------------------------------------
 ```python
 from vqe import generate
-qc, params = generate(n=6, ansatz="real_amplitudes", reps=2)
+qc, params = generate(n=6, ansatz="RealAmplitudes", reps=2)
 print(qc.draw())
 ```
 
@@ -50,7 +50,7 @@ API
 vqe.generate(
     *,
     n: int,                        # number of qubits
-    ansatz: str | QuantumCircuit = "real_amplitudes",
+    ansatz: str | QuantumCircuit = "RealAmplitudes",
     reps: int = 1,
     entanglement: str | list[str] = "full",
     parameter_prefix: str = "θ",
@@ -66,10 +66,9 @@ values into an optimiser.
 
 # Mapping from string → ansatz class ------------------------------------------------
 _ANSATZ_MAP = {
-    "real_amplitudes": RealAmplitudes,
-    "efficient_su2": EfficientSU2,
-    "two_local": TwoLocal,
-    "su2": EfficientSU2,  # alias
+    "RealAmplitudes": RealAmplitudes,
+    "EfficientSU2": EfficientSU2,
+    "TwoLocal": TwoLocal,
 }
 
 
@@ -101,7 +100,7 @@ class VQEGenerator(Generator):
     def generate(
         self,
         n: int,
-        ansatz: Union[str, QuantumCircuit] = "real_amplitudes",
+        ansatz: Union[str, QuantumCircuit] = "RealAmplitudes",
         reps: int = 1,
         entanglement: Union[str, List[str]] = "full",
         parameter_prefix: str = "θ",
@@ -136,12 +135,11 @@ class VQEGenerator(Generator):
         if isinstance(ansatz, QuantumCircuit):
             template: QuantumCircuit = ansatz
         else:
-            key = ansatz.lower()
-            if key not in _ANSATZ_MAP:
+            if ansatz not in _ANSATZ_MAP:
                 raise ValueError(
                     f"Unknown ansatz '{ansatz}'. Choose from {list(_ANSATZ_MAP)} or supply a circuit."
                 )
-            cls = _ANSATZ_MAP[key]
+            cls = _ANSATZ_MAP[ansatz]
             if issubclass(cls, NLocal):
                 template = cls(
                     num_qubits=n,

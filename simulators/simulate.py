@@ -14,11 +14,11 @@ from .lib.infiniquantum import (
     _execute_infiniquantum_simulation, 
     INFINI_QUANTUM_AVAILABLE
 )
-from .lib.result_extractor import ResultExtractor
+from .lib.dynamic_feature_extractor import DynamicFeatureExtractor
 
 logger = logging.getLogger(__name__)
 
-class QuantumSimulator(ResultExtractor):
+class QuantumSimulator(DynamicFeatureExtractor):
     """
     A comprehensive quantum circuit simulator supporting multiple simulation methods.
 
@@ -33,20 +33,23 @@ class QuantumSimulator(ResultExtractor):
         seed: Optional[int] = None,
         timeout_seconds: Optional[int] = None,
         device: str = "CPU",
+        infiniquantum_config: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize the quantum simulator.
-
+        
         Args:
             shots: Number of shots for sampling-based simulations
             seed: Random seed for reproducible results
             timeout_seconds: Maximum time allowed for simulation (in seconds)
             device: Device to run simulations on ("CPU" or "GPU")
+            infiniquantum_config: Configuration for InfiniQuantumSim
         """
         self.shots = shots
         self.seed = seed
         self.timeout_seconds = timeout_seconds
         self.device = device
+        self.infiniquantum_config = infiniquantum_config or {}
         self.simulators = {}
         self._initialize_simulators()
 
@@ -366,36 +369,17 @@ class QuantumSimulator(ResultExtractor):
         """
         Run simulation using InfiniQuantumSim benchmark.
         """
-        if not self.timeout_seconds:
-            return _execute_infiniquantum_simulation(qc, **kwargs)
+        # Inject configuration
+        if self.infiniquantum_config:
+            if "oom" not in kwargs and "omit_methods" in self.infiniquantum_config:
+                kwargs["oom"] = self.infiniquantum_config["omit_methods"]
+            if "n_runs" not in kwargs:
+                kwargs["n_runs"] = self.infiniquantum_config.get("n_runs", 1)
 
-        result_queue = multiprocessing.Queue()
-        p = multiprocessing.Process(
-            target=_wrapper_run_iqs, args=(qc, kwargs, result_queue)
-        )
-        p.start()
-        p.join(self.timeout_seconds)
+        if self.timeout_seconds:
+            kwargs["timeout"] = self.timeout_seconds
 
-        if p.is_alive():
-            p.terminate()
-            p.join()
-            logger.warning(f"InfiniQuantumSim simulation timed out after {self.timeout_seconds}s")
-            return {
-                "success": False,
-                "error": f"InfiniQuantumSim timed out after {self.timeout_seconds}s",
-                "method": "infiniquantum",
-                "skipped": True
-            }
-
-        if result_queue.empty():
-            logger.warning("InfiniQuantumSim process failed silently")
-            return {
-                "success": False,
-                "error": "InfiniQuantumSim process failed silently",
-                "method": "infiniquantum"
-            }
-            
-        return result_queue.get()
+        return _execute_infiniquantum_simulation(qc, **kwargs)
     
     def get_available_methods(self) -> list:
         return [method.value for method in SimulationMethod]

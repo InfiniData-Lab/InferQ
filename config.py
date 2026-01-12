@@ -82,11 +82,17 @@ class PipelineConfig:
     SIMULATION = {
         "shots": None,  # Exact simulation
         "seed": 0,
-        "timeout_seconds": 30,
+        "timeout_seconds": 5,
         "max_qubits_statevector": 20,  # Conservative limit for statevector
         "max_qubits_unitary": 20,  # Conservative limit for unitary/density matrix
         "max_qubits_mps": 20,
         "max_circuit_size": 1000,  # Skip circuits with too many gates
+        "infiniquantum": {
+             "omit_methods": [], # Methods to skip. E.g. ["psql", "sqlite"]
+             # Available methods: "psql", "sqlite", "ducksql", "eqc"
+             "run_benchmark": True,
+             "n_runs": 5
+        }
     }
 
     # Storage Configuration
@@ -211,6 +217,23 @@ class PipelineConfig:
             "max_circuit_size": self.get_env_or_default(
                 "SIM_MAX_CIRCUIT_SIZE", self.SIMULATION["max_circuit_size"], int
             ),
+            "infiniquantum": {
+                "omit_methods": self.get_env_or_default(
+                    "IQ_OMIT_METHODS", 
+                    self.SIMULATION["infiniquantum"]["omit_methods"], 
+                    lambda x: x.split(",") if isinstance(x, str) else x # Allow comma-separated string from env
+                ),
+                "run_benchmark": self.get_env_or_default(
+                    "IQ_RUN_BENCHMARK",
+                    self.SIMULATION["infiniquantum"]["run_benchmark"],
+                    bool
+                ),
+                "n_runs": self.get_env_or_default(
+                    "IQ_N_RUNS",
+                    self.SIMULATION["infiniquantum"]["n_runs"],
+                    int
+                )
+            }
         }
 
     def get_storage_config(self):

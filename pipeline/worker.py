@@ -73,7 +73,8 @@ def run_single_pipeline(worker_id: int, seed_offset: int, existing_session_hashe
         quantum_simulator = QuantumSimulator(
             seed=sim_seed,
             shots=simulation_config['shots'],
-            timeout_seconds=simulation_config['timeout_seconds']
+            timeout_seconds=simulation_config['timeout_seconds'],
+            infiniquantum_config=simulation_config.get('infiniquantum')
         )
         
         # Step 1: Generate circuit

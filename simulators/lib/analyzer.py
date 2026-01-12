@@ -45,7 +45,10 @@ class SimulationAnalyzer:
                     metric.actual_method = data["actual_method"]
 
                 if "probabilities" in data:
-                    metric.entropy = self._calculate_entropy(data["probabilities"])
+                    metric.shannon_entropy = self._calculate_entropy(data["probabilities"])
+                
+                if "von_neumann_entropy" in data:
+                    metric.von_neumann_entropy = data["von_neumann_entropy"]
             else:
                 metric = SimulationMetrics(
                     method=method,
@@ -151,4 +154,20 @@ class SimulationAnalyzer:
     
     def _calculate_sparsity(self, probabilities: np.ndarray, atol: float = 1e-10) -> float:
         return float(np.count_nonzero(probabilities > atol) / len(probabilities))
+
+    def _calculate_von_neumann_entropy(self, statevector: np.ndarray) -> np.ndarray:
+        """Vectorized per-qubit von Neumann entropy (very fast)."""
+        n = int(np.log2(len(statevector)))
+        # Convert statevector to probabilities
+        probs = np.abs(statevector)**2
+        # Create a 2^n x n binary index array
+        bits = ((np.arange(2**n)[:, None] >> np.arange(n-1, -1, -1)) & 1)
+        # Sum probabilities where bit=0 and bit=1 per qubit
+        p0 = np.sum(probs[:, None] * (bits == 0), axis=0)
+        p1 = np.sum(probs[:, None] * (bits == 1), axis=0)
+        p = np.vstack([p0, p1])
+        p = np.clip(p, 1e-12, 1)
+        S = -np.sum(p * np.log2(p), axis=0)
+        return list(S)
+
 

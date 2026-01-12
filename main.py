@@ -200,7 +200,8 @@ def main():
         quantumSimulator = QuantumSimulator(
             seed=simulation_config['seed'], 
             shots=simulation_config['shots'],
-            timeout_seconds=simulation_config['timeout_seconds']
+            timeout_seconds=simulation_config['timeout_seconds'],
+            infiniquantum_config=simulation_config.get('infiniquantum')
         )
         logger.info("✓ Quantum simulator initialized")
     except Exception as e:
