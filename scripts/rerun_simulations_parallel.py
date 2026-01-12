@@ -18,6 +18,7 @@ from utils.table_storage import update_circuit_metadata_in_table
 from utils.checkpoint_writer import AsyncCheckpointWriter
 from simulators.simulate import QuantumSimulator, SimulationMethod
 from config import PipelineConfig
+from feature_extractors.sql_analyzer import SQLFeatureExtractor
 
 # Setup logging
 logging.basicConfig(
@@ -101,19 +102,30 @@ def process_circuit_file(file_path, mode, simulator):
                         data = result.get("data", {})
                         if "entropy" in data:
                             updates[f"{prefix}_entropy"] = data["entropy"]
-                        if "sparsity" in data:
-                            updates[f"{prefix}_sparsity"] = data["sparsity"]
+                        # if "sparsity" in data:
+                        #     updates[f"{prefix}_sparsity"] = data["sparsity"]
                         if result.get("method") == "automatic":
                             updates["automatic_method"] = data["actual_method"]
                         
-                        # Handle InfiniQuantumSim benchmark results if present in 'all' mode
-                        if method_name == "infiniquantum" and "benchmark_results" in result:
-                            for bench_method, bench_data in result["benchmark_results"].items():
-                                if isinstance(bench_data, dict):
-                                    if "memory_avg_mb" in bench_data:
-                                        updates[f"rdbms_{bench_method}_memory_mb"] = bench_data["memory_avg_mb"]
-                                    if "time_avg_s" in bench_data:
-                                        updates[f"rdbms_{bench_method}_time_s"] = bench_data["time_avg_s"]
+                        # Handle InfiniQuantumSim benchmark results and SQL analysis if present in 'all' mode
+                        if method_name == "infiniquantum":
+                            if "benchmark_results" in result:
+                                for bench_method, bench_data in result["benchmark_results"].items():
+                                    if isinstance(bench_data, dict):
+                                        if "memory_avg_mb" in bench_data:
+                                            updates[f"rdbms_{bench_method}_memory_mb"] = bench_data["memory_avg_mb"]
+                                        if "time_avg_s" in bench_data:
+                                            updates[f"rdbms_{bench_method}_time_s"] = bench_data["time_avg_s"]
+                            
+                            # Extract SQL Features
+                            if "sql_query" in result:
+                                try:
+                                    sql_features, join_edges = SQLFeatureExtractor.extract_sql_features(result["sql_query"])
+                                    for feat_name, count in sql_features.items():
+                                        updates[f"infinidata_quantum_sql_{feat_name}"] = count
+                                    updates[f"infinidata_quantum_sql_num_joins"] = len(join_edges)
+                                except Exception as e:
+                                    logger.error(f"Failed to extract SQL features: {e}")
 
             elif any(r.get("skipped", False) for r in results.values()):
                 skipped_flag = True
@@ -123,12 +135,10 @@ def process_circuit_file(file_path, mode, simulator):
 
         elif mode == "rdbms":
             # Run only InfiniQuantumSim
-            # Enable DuckDB by excluding it from oom list (skip list)
-            # We skip psql and sqlite by default as they might not be configured
+            # Configuration is handled by the simulator instance via PipelineConfig
             result = simulator._run_simulation(
                 qc, 
-                SimulationMethod.INFINI_QUANTUM, 
-                oom=["psql", "eqc"]
+                SimulationMethod.INFINI_QUANTUM
             )
             
             if result.get("success", False):
@@ -142,6 +152,16 @@ def process_circuit_file(file_path, mode, simulator):
                                 updates[f"rdbms_{bench_method}_memory_mb"] = bench_data["memory_avg_mb"]
                             if "time_avg_s" in bench_data:
                                 updates[f"rdbms_{bench_method}_time_s"] = bench_data["time_avg_s"]
+                
+                # Extract SQL Features for rdbms mode
+                if "sql_query" in result:
+                    try:
+                        sql_features, join_edges = SQLFeatureExtractor.extract_sql_features(result["sql_query"])
+                        for feat_name, count in sql_features.items():
+                            updates[f"infinidata_quantum_sql_{feat_name}"] = count
+                        updates[f"infinidata_quantum_sql_num_joins"] = len(join_edges)
+                    except Exception as e:
+                        logger.error(f"Failed to extract SQL features: {e}")
             elif result.get("skipped"):
                 skipped_flag = True
                 error_msg = result.get("error")
@@ -178,7 +198,8 @@ def process_folder(folder_path, mode, processed_hashes, checkpoints_dir):
         # Initialize Simulator once per folder/worker
         sim_config = PipelineConfig.SIMULATION
         simulator = QuantumSimulator(
-            timeout_seconds=sim_config.get("timeout_seconds", 60)
+            timeout_seconds=sim_config.get("timeout_seconds", 60),
+            infiniquantum_config=sim_config.get("infiniquantum")
         )
 
         # Initialize Azure Connection once per folder/worker
