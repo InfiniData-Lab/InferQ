@@ -82,7 +82,7 @@ def run_extraction_pipeline(circuitMerger: CircuitMerger, quantumSimulator: Quan
     logger.info("\nSTEP 3.5: Processing Simulation Data")
     logger.info("-" * 30)
     try:
-        from simulators.simulation_utils import process_simulation_data_for_features
+        from simulators import process_simulation_data_for_features
         combined_features = process_simulation_data_for_features(res, extracted_features)
     except Exception as e:
         logger.error(f"Simulation data processing failed: {e}")

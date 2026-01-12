@@ -3,7 +3,7 @@ import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.result import Result
 from .types import SimulationMethod
-from simulators.simulation_utils import SimulationAnalyzer
+from .analyzer import SimulationAnalyzer
 import logging
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ class ResultExtractor:
 
     def _calculate_entropy(self, probabilities: np.ndarray) -> float:
         """
-        Calculate von Neumann entropy using the existing simulation_utils function.
+        Calculate von Neumann entropy using the existing analyzer function.
 
         Args:
             probabilities: Array of probabilities

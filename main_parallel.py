@@ -52,7 +52,7 @@ verbose_loggers = [
     'qiskit', 'qiskit.passmanager', 'qiskit.passmanager.base_tasks', 'qiskit.compiler', 'qiskit.transpiler', 'qiskit_aer',
     'azure.core', 'azure.storage', 'azure.data.tables', 'azure.storage.blob',
     'azure.core.pipeline.policies.http_logging_policy',
-    'simulators.simulate', 'simulators.simulation_utils',
+    'simulators.simulate', 'simulators.lib.infiniquantum', 'simulators.lib.result_extractor',
     'feature_extractors.extractors', 'feature_extractors.static_features',
     'feature_extractors.graph_features', 'feature_extractors.dynamic_features', 'feature_extractors.graphs',
     'generators.circuit_merger', 'utils.local_storage', 'utils.table_storage',
