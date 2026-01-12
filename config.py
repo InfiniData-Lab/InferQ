@@ -82,15 +82,16 @@ class PipelineConfig:
     SIMULATION = {
         "shots": None,  # Exact simulation
         "seed": 0,
-        "timeout_seconds": 30,
+        "timeout_seconds": 5,
         "max_qubits_statevector": 20,  # Conservative limit for statevector
         "max_qubits_unitary": 20,  # Conservative limit for unitary/density matrix
         "max_qubits_mps": 20,
         "max_circuit_size": 1000,  # Skip circuits with too many gates
         "infiniquantum": {
-             "omit_methods": ["psql","ducksql"], # Methods to skip. E.g. ["psql", "sqlite"]
+             "omit_methods": ["psql"], # Methods to skip. E.g. ["psql", "sqlite"]
              # Available methods: "psql", "sqlite", "ducksql", "eqc"
-             "run_benchmark": True
+             "run_benchmark": True,
+             "n_runs": 5
         }
     }
 
@@ -226,6 +227,11 @@ class PipelineConfig:
                     "IQ_RUN_BENCHMARK",
                     self.SIMULATION["infiniquantum"]["run_benchmark"],
                     bool
+                ),
+                "n_runs": self.get_env_or_default(
+                    "IQ_N_RUNS",
+                    self.SIMULATION["infiniquantum"]["n_runs"],
+                    int
                 )
             }
         }

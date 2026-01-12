@@ -98,9 +98,10 @@ def _execute_infiniquantum_simulation(qc, **kwargs):
         # Default to skipping database methods unless explicitly requested
         # This prevents connection errors if DBs are not set up
         oom = kwargs.get("oom", ["psql", "sqlite", "ducksql", "eqc"])
+        timeout = kwargs.get("timeout", None)
         
         logger.info(f"Running InfiniQuantumSim benchmark with {n_runs} runs...")
-        benchmark_results = iqs_qc.benchmark_ciruit_performance(n_runs, oom=oom)
+        benchmark_results = iqs_qc.benchmark_ciruit_performance(n_runs, oom=oom, timeout_seconds=timeout)
         
         # Process results
         processed_results = {}

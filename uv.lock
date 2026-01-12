@@ -1294,7 +1294,7 @@ requires-dist = [
 [[package]]
 name = "infiniquantumsim"
 version = "0.1.0"
-source = { git = "https://github.com/andreiilinescu/Infinidata-rdbms-simulator.git#58207dea413ec2873655f22696c8d0f846bbd921" }
+source = { git = "https://github.com/andreiilinescu/Infinidata-rdbms-simulator.git#5772801a4faf13028968c43f5c3b4c094715380b" }
 dependencies = [
     { name = "duckdb" },
     { name = "jupyter-client" },
