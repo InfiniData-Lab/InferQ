@@ -7,6 +7,11 @@ Azure credentials are configured correctly.
 
 import logging
 import sys
+from pathlib import Path
+
+# Add project root to path for imports
+sys.path.append(str(Path(__file__).parent.parent.parent))
+
 from utils.azure_connection import AzureConnection
 
 # Configure logging
