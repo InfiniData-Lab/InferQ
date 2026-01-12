@@ -96,7 +96,6 @@ dependencies = [
     "pyyaml==6.0.2",
     "qiskit==2.0.1",
     "qiskit-aer==0.17.0",
-    "qiskit-aer-gpu; sys_platform == 'linux'",
     "requests==2.32.3",
     "retworkx==0.16.0",
     "rich==14.0.0",
