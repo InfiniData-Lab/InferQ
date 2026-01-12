@@ -26,13 +26,13 @@ class GraphFeatureExtracter():
         iggraph = IGGraphExtractor(circuit=self.circuit, feature_extractor=self.feature_extractor)
         ig_features = iggraph.extractAllFeatures()
         
-        # 2. Gate Dependency Graph Features
-        gdggraph = GDGGraphExtractor(circuit=self.circuit, feature_extractor=self.feature_extractor)
-        gdg_features = gdggraph.extractAllFeatures()
+        # # 2. Gate Dependency Graph Features
+        # gdggraph = GDGGraphExtractor(circuit=self.circuit, feature_extractor=self.feature_extractor)
+        # gdg_features = gdggraph.extractAllFeatures()
 
         # Update the local reference (though they should share the same dict via feature_extractor)
         self.extracted_features.update(ig_features)
-        self.extracted_features.update(gdg_features)
+        # self.extracted_features.update(gdg_features)
         
         return self.extracted_features
 
