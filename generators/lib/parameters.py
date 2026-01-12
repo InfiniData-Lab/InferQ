@@ -537,10 +537,10 @@ def vqe_ansatz_type(seed: int = None) -> str:
         seed: Random seed for reproducibility.
 
     Returns:
-        str: Ansatz type ('real_amplitudes', 'efficient_su2', 'two_local', 'su2').
+        str: Ansatz type ('RealAmplitudes', 'EfficientSU2', 'TwoLocal').
     """
   
-    ansatz_types = ["real_amplitudes", "efficient_su2", "two_local", "su2"]
+    ansatz_types = ["RealAmplitudes", "EfficientSU2", "TwoLocal"]
     return random.choice(ansatz_types)
 
 
