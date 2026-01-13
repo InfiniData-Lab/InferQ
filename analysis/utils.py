@@ -298,6 +298,38 @@ def PlotHeatMapAvg(FEATURES, METHODS, df_clean):
     plt.ylabel("Feature")
     plt.tight_layout()
     plt.show()
+
+import math
+from sklearn.metrics import ConfusionMatrixDisplay, accuracy_score
+def PlotConfusionReports(y_test, predictions_dict, methods):
+    n_models = len(predictions_dict)
+    n_rows = math.ceil(np.sqrt(n_models))
+    n_cols = math.ceil(n_models / n_rows)
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
+    axes = np.array(axes).reshape(-1)
+
+    for ax, (model_name, y_pred) in zip(axes, predictions_dict.items()):
+        acc = accuracy_score(y_test, y_pred)
+
+        ConfusionMatrixDisplay.from_predictions(
+            y_test,
+            y_pred,
+            labels=methods,
+            display_labels=methods,
+            normalize="true",
+            ax=ax,
+            xticks_rotation=45
+        )
+
+        ax.set_title(f"{model_name}\nAccuracy: {acc:.3f}")
+
+    for ax in axes[len(predictions_dict):]:
+        ax.axis("off")
+
+    plt.tight_layout()
+    plt.show()
+
     
 def load_all_parquet_files(fetched_metadata_dir: str = "../data/fetched_circuit_metadata") -> pd.DataFrame:
     """
