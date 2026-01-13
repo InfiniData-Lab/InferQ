@@ -52,7 +52,8 @@ class PipelineOrchestrator:
                      process_folder_func,
                      num_workers: int = None,
                      limit: int = None,
-                     verbose: bool = False) -> int:
+                     verbose: bool = False,
+                     **kwargs) -> int:
         """
         Run pipeline in parallel across multiple workers.
         
@@ -61,6 +62,7 @@ class PipelineOrchestrator:
             num_workers: Number of worker processes
             limit: Maximum number of circuits to process
             verbose: Enable verbose logging
+            **kwargs: Additional arguments to pass to process_folder_func (e.g., mode, checkpoints_dir)
             
         Returns:
             Total number of circuits updated
@@ -91,10 +93,15 @@ class PipelineOrchestrator:
                     folder_path = os.path.join(self.circuits_dir, folder_name)
                     folder_processed = processed_buckets.get(folder_name, set())
                     
+                    # Build args tuple with folder info and any extra kwargs
+                    args = (folder_path, folder_processed)
+                    if kwargs:
+                        # Add kwargs values in consistent order
+                        args = args + tuple(kwargs.values())
+                    
                     future = executor.submit(
                         process_folder_func,
-                        folder_path,
-                        folder_processed
+                        args
                     )
                     future_to_folder[future] = folder_name
                 

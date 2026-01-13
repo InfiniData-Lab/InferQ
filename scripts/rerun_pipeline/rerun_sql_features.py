@@ -36,20 +36,18 @@ logging.getLogger("qiskit.passmanager.base_tasks").setLevel(logging.WARNING)
 logging.getLogger("qiskit.compiler.transpiler").setLevel(logging.WARNING)
 
 
-def process_folder_wrapper(folder_path: str, processed_hashes: set, 
-                          checkpoints_dir: str) -> list:
+def process_folder_wrapper(args):
     """
     Wrapper function for processing a folder with SQL feature extraction.
     This runs in a worker process.
     
     Args:
-        folder_path: Path to folder
-        processed_hashes: Set of processed hashes
-        checkpoints_dir: Checkpoint directory
+        args: Tuple of (folder_path, processed_hashes, checkpoints_dir)
         
     Returns:
         List of results
     """
+    folder_path, processed_hashes, checkpoints_dir = args
     try:
         # Initialize components in worker process
         azure_conn = AzureConnection()
@@ -172,13 +170,10 @@ def main():
     checkpoint_manager = CheckpointManager(checkpoints_dir)
     orchestrator = PipelineOrchestrator(circuits_dir, checkpoint_manager, table_client)
     
-    # Create wrapper with bound parameters
-    def process_folder_bound(folder_path, processed_hashes):
-        return process_folder_wrapper(folder_path, processed_hashes, checkpoints_dir)
-    
-    # Run pipeline
+    # Run pipeline with checkpoints_dir passed through
     total_updated = orchestrator.run_parallel(
-        process_folder_bound,
+        process_folder_wrapper,
+        checkpoints_dir=checkpoints_dir,
         num_workers=workers,
         limit=limit,
         verbose=verbose
