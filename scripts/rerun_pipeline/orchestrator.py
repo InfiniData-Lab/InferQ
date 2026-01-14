@@ -124,10 +124,15 @@ class PipelineOrchestrator:
                             if limit and total_updated >= limit:
                                 break
                             
+                            # Count both successful updates and skipped circuits (both are checkpointed)
                             if result.get("table_updated", False):
                                 total_updated += 1
                                 if verbose:
                                     logger.info(f"Success: {result['hash']}")
+                            elif result.get("skipped", False):
+                                total_updated += 1
+                                if verbose:
+                                    logger.info(f"Skipped: {result['hash']} - {result.get('error')}")
                             elif result.get("error") and verbose:
                                 logger.warning(f"Failed {result['hash']}: {result['error']}")
                         
@@ -142,6 +147,7 @@ class PipelineOrchestrator:
         except KeyboardInterrupt:
             logger.info("Interrupted by user. Stopping...")
             executor.shutdown(wait=False, cancel_futures=True)
+            raise  # Re-raise to allow caller to handle
         
-        logger.info(f"Pipeline complete. Total circuits updated: {total_updated}")
+        logger.info(f"Pipeline complete. Total circuits processed: {total_updated}")
         return total_updated

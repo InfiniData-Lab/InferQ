@@ -192,6 +192,16 @@ def process_folder_wrapper(args):
 
 def main():
     """Main entry point"""
+    import signal
+    import sys
+    
+    # Set up signal handler for clean Ctrl+C exit
+    def signal_handler(sig, frame):
+        print("\n\nInterrupted by user. Exiting...")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    
     config = PipelineConfig()
     
     parser = argparse.ArgumentParser(
@@ -351,20 +361,24 @@ def main():
     orchestrator = PipelineOrchestrator(circuits_dir, checkpoint_manager, table_client)
     
     # Run pipeline with dynamic feature extraction parameters
-    total_updated = orchestrator.run_parallel(
-        process_folder_wrapper,
-        checkpoints_dir=checkpoints_dir,
-        max_qubits=max_qubits,
-        max_depth=max_depth,
-        num_workers=workers,
-        limit=limit,
-        verbose=verbose
-    )
-    
-    logger.info(f"Dynamic feature extraction complete. Total circuits updated: {total_updated}")
-    print(f"\n{'='*60}")
-    print(f"COMPLETED: {total_updated} circuits updated with dynamic features")
-    print(f"{'='*60}\n")
+    try:
+        total_updated = orchestrator.run_parallel(
+            process_folder_wrapper,
+            checkpoints_dir=checkpoints_dir,
+            max_qubits=max_qubits,
+            max_depth=max_depth,
+            num_workers=workers,
+            limit=limit,
+            verbose=verbose
+        )
+        
+        logger.info(f"Dynamic feature extraction complete. Total circuits processed: {total_updated}")
+        print(f"\n{'='*60}")
+        print(f"COMPLETED: {total_updated} circuits processed (updated/skipped)")
+        print(f"{'='*60}\n")
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user. Exiting...")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
