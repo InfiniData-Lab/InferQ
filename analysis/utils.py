@@ -299,6 +299,23 @@ def PlotHeatMapAvg(FEATURES, METHODS, df_clean):
     plt.tight_layout()
     plt.show()
 
+def PlotCorrelationMatrix(df_clean, FEATURES, figsize=(14, 12)):
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    corr = df_clean[FEATURES].corr()
+
+    # Plot
+    plt.figure(figsize=figsize)
+    sns.heatmap(corr, cmap="coolwarm", center=0, linewidths=0.5,
+            annot=True, fmt=".2f", annot_kws={"size": 12})
+
+    plt.title("Pairwise Feature Correlation Heatmap")
+    plt.tight_layout()
+    plt.show()
+
 import math
 from sklearn.metrics import ConfusionMatrixDisplay, accuracy_score
 def PlotConfusionReports(y_test, predictions_dict, methods):
