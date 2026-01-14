@@ -41,14 +41,18 @@ logging.getLogger("qiskit.compiler.transpiler").setLevel(logging.WARNING)
 class DynamicFeatureProcessor(CircuitProcessor):
     """Processes circuits to extract dynamic features using statevector simulation"""
     
-    def __init__(self, simulator):
+    def __init__(self, simulator, max_qubits=None, max_depth=None):
         """
         Initialize with a QuantumSimulator instance.
         
         Args:
             simulator: Initialized QuantumSimulator
+            max_qubits: Maximum qubit count to process (None = no limit)
+            max_depth: Maximum circuit depth to process (None = no limit)
         """
         self.simulator = simulator
+        self.max_qubits = max_qubits
+        self.max_depth = max_depth
     
     def process_circuit_file(self, file_path: str) -> dict:
         """
@@ -69,6 +73,29 @@ class DynamicFeatureProcessor(CircuitProcessor):
             error_msg = None
             
             logger.info(f"Processing dynamic features for circuit {circuit_hash}")
+            
+            # Check circuit size limits
+            if self.max_qubits is not None and qc.num_qubits > self.max_qubits:
+                logger.info(f"Skipping circuit {circuit_hash}: {qc.num_qubits} qubits exceeds limit of {self.max_qubits}")
+                return {
+                    "hash": circuit_hash,
+                    "success": False,
+                    "skipped": True,
+                    "updates": {},
+                    "error": f"Circuit has {qc.num_qubits} qubits, exceeds limit of {self.max_qubits}",
+                    "file_path": file_path,
+                }
+            
+            if self.max_depth is not None and qc.depth() > self.max_depth:
+                logger.info(f"Skipping circuit {circuit_hash}: depth {qc.depth()} exceeds limit of {self.max_depth}")
+                return {
+                    "hash": circuit_hash,
+                    "success": False,
+                    "skipped": True,
+                    "updates": {},
+                    "error": f"Circuit depth {qc.depth()} exceeds limit of {self.max_depth}",
+                    "file_path": file_path,
+                }
             
             # Run statevector simulation with save_statevector to extract dynamic features
             from simulators.lib.types import SimulationMethod
@@ -129,12 +156,12 @@ def process_folder_wrapper(args):
     This runs in a worker process.
     
     Args:
-        args: Tuple of (folder_path, processed_hashes, checkpoints_dir)
+        args: Tuple of (folder_path, processed_hashes, checkpoints_dir, max_qubits, max_depth)
         
     Returns:
         List of results
     """
-    folder_path, processed_hashes, checkpoints_dir = args
+    folder_path, processed_hashes, checkpoints_dir, max_qubits, max_depth = args
     try:
         # Initialize components in worker process
         from simulators.simulate import QuantumSimulator
@@ -148,7 +175,7 @@ def process_folder_wrapper(args):
         table_client = azure_conn.circuits_table_client
         
         checkpoint_manager = CheckpointManager(checkpoints_dir)
-        circuit_processor = DynamicFeatureProcessor(simulator)
+        circuit_processor = DynamicFeatureProcessor(simulator, max_qubits, max_depth)
         
         folder_processor = FolderProcessor(
             circuit_processor,
@@ -193,6 +220,14 @@ def main():
     parser.add_argument(
         "--skip-confirmation", action="store_true",
         help="Skip confirmation prompt before starting."
+    )
+    parser.add_argument(
+        "--max-qubits", type=int, default=None,
+        help="Maximum qubit count to process (circuits with more qubits will be skipped)."
+    )
+    parser.add_argument(
+        "--max-depth", type=int, default=None,
+        help="Maximum circuit depth to process (circuits with greater depth will be skipped)."
     )
     
     args = parser.parse_args()
@@ -241,6 +276,37 @@ def main():
     
     verbose = args.verbose
     
+    # Get circuit limits
+    max_qubits = args.max_qubits
+    if max_qubits is None:
+        try:
+            user_input = input(
+                "Enter maximum qubit count (or press Enter for no limit): "
+            ).strip()
+            if user_input:
+                try:
+                    max_qubits = int(user_input)
+                except ValueError:
+                    print("Invalid number. No qubit limit will be applied.")
+                    max_qubits = None
+        except EOFError:
+            pass
+    
+    max_depth = args.max_depth
+    if max_depth is None:
+        try:
+            user_input = input(
+                "Enter maximum circuit depth (or press Enter for no limit): "
+            ).strip()
+            if user_input:
+                try:
+                    max_depth = int(user_input)
+                except ValueError:
+                    print("Invalid number. No depth limit will be applied.")
+                    max_depth = None
+        except EOFError:
+            pass
+    
     # Display configuration
     print("\n" + "="*60)
     print("DYNAMIC FEATURES EXTRACTION CONFIGURATION")
@@ -251,6 +317,8 @@ def main():
     print(f"Source: statevector_saved simulation data")
     print(f"Workers: {workers}")
     print(f"Checkpoints Directory: {checkpoints_dir}")
+    print(f"Max Qubits: {max_qubits if max_qubits is not None else 'No limit'}")
+    print(f"Max Depth: {max_depth if max_depth is not None else 'No limit'}")
     print(f"Verbose: {verbose}")
     print("="*60 + "\n")
     
@@ -286,6 +354,8 @@ def main():
     total_updated = orchestrator.run_parallel(
         process_folder_wrapper,
         checkpoints_dir=checkpoints_dir,
+        max_qubits=max_qubits,
+        max_depth=max_depth,
         num_workers=workers,
         limit=limit,
         verbose=verbose
