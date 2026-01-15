@@ -48,14 +48,22 @@ class CircuitProcessor:
 class SimulationProcessor(CircuitProcessor):
     """Processes circuits using quantum simulation"""
     
-    def __init__(self, simulator):
+    def __init__(self, simulator, min_qubits=None, max_qubits=None, min_depth=None, max_depth=None):
         """
         Initialize with a QuantumSimulator instance.
         
         Args:
             simulator: Initialized QuantumSimulator
+            min_qubits: Minimum qubit count to process (None = no limit)
+            max_qubits: Maximum qubit count to process (None = no limit)
+            min_depth: Minimum circuit depth to process (None = no limit)
+            max_depth: Maximum circuit depth to process (None = no limit)
         """
         self.simulator = simulator
+        self.min_qubits = min_qubits
+        self.max_qubits = max_qubits
+        self.min_depth = min_depth
+        self.max_depth = max_depth
     
     def process_circuit_file(self, file_path: str, mode: str) -> dict:
         """
@@ -70,6 +78,52 @@ class SimulationProcessor(CircuitProcessor):
         """
         try:
             qc, circuit_hash, _ = self.load_circuit_from_file(file_path)
+            
+            # Check circuit size limits
+            if self.min_qubits is not None and qc.num_qubits < self.min_qubits:
+                logger.debug(f"Skipping circuit {circuit_hash}: {qc.num_qubits} qubits below limit of {self.min_qubits}")
+                return {
+                    "hash": circuit_hash,
+                    "success": False,
+                    "skipped": True,
+                    "updates": {},
+                    "error": f"Circuit has {qc.num_qubits} qubits, below limit of {self.min_qubits}",
+                    "file_path": file_path,
+                }
+
+            if self.max_qubits is not None and qc.num_qubits > self.max_qubits:
+                logger.debug(f"Skipping circuit {circuit_hash}: {qc.num_qubits} qubits exceeds limit of {self.max_qubits}")
+                return {
+                    "hash": circuit_hash,
+                    "success": False,
+                    "skipped": True,
+                    "updates": {},
+                    "error": f"Circuit has {qc.num_qubits} qubits, exceeds limit of {self.max_qubits}",
+                    "file_path": file_path,
+                }
+            
+            circuit_depth = qc.depth()
+            if self.min_depth is not None and circuit_depth < self.min_depth:
+                logger.debug(f"Skipping circuit {circuit_hash}: depth {circuit_depth} below limit of {self.min_depth}")
+                return {
+                    "hash": circuit_hash,
+                    "success": False,
+                    "skipped": True,
+                    "updates": {},
+                    "error": f"Circuit depth {circuit_depth} below limit of {self.min_depth}",
+                    "file_path": file_path,
+                }
+
+            if self.max_depth is not None and circuit_depth > self.max_depth:
+                logger.debug(f"Skipping circuit {circuit_hash}: depth {circuit_depth} exceeds limit of {self.max_depth}")
+                return {
+                    "hash": circuit_hash,
+                    "success": False,
+                    "skipped": True,
+                    "updates": {},
+                    "error": f"Circuit depth {circuit_depth} exceeds limit of {self.max_depth}",
+                    "file_path": file_path,
+                }
             
             updates = {}
             success_flag = False
@@ -235,6 +289,21 @@ class SimulationProcessor(CircuitProcessor):
 class SQLFeatureProcessor(CircuitProcessor):
     """Processes circuits to extract SQL features only"""
     
+    def __init__(self, min_qubits=None, max_qubits=None, min_depth=None, max_depth=None):
+        """
+        Initialize SQL feature processor.
+        
+        Args:
+            min_qubits: Minimum qubit count to process (None = no limit)
+            max_qubits: Maximum qubit count to process (None = no limit)
+            min_depth: Minimum circuit depth to process (None = no limit)
+            max_depth: Maximum circuit depth to process (None = no limit)
+        """
+        self.min_qubits = min_qubits
+        self.max_qubits = max_qubits
+        self.min_depth = min_depth
+        self.max_depth = max_depth
+
     def process_circuit_file(self, file_path: str) -> dict:
         """
         Process a circuit file to extract SQL features.
@@ -247,6 +316,53 @@ class SQLFeatureProcessor(CircuitProcessor):
         """
         try:
             qc, circuit_hash, _ = self.load_circuit_from_file(file_path)
+            
+            # Check circuit size limits
+            if self.min_qubits is not None and qc.num_qubits < self.min_qubits:
+                logger.debug(f"Skipping circuit {circuit_hash}: {qc.num_qubits} qubits below limit of {self.min_qubits}")
+                return {
+                    "hash": circuit_hash,
+                    "success": False,
+                    "skipped": True,
+                    "updates": {},
+                    "error": f"Circuit has {qc.num_qubits} qubits, below limit of {self.min_qubits}",
+                    "file_path": file_path,
+                }
+
+            if self.max_qubits is not None and qc.num_qubits > self.max_qubits:
+                logger.debug(f"Skipping circuit {circuit_hash}: {qc.num_qubits} qubits exceeds limit of {self.max_qubits}")
+                return {
+                    "hash": circuit_hash,
+                    "success": False,
+                    "skipped": True,
+                    "updates": {},
+                    "error": f"Circuit has {qc.num_qubits} qubits, exceeds limit of {self.max_qubits}",
+                    "file_path": file_path,
+                }
+            
+            circuit_depth = qc.depth()
+            if self.min_depth is not None and circuit_depth < self.min_depth:
+                logger.debug(f"Skipping circuit {circuit_hash}: depth {circuit_depth} below limit of {self.min_depth}")
+                return {
+                    "hash": circuit_hash,
+                    "success": False,
+                    "skipped": True,
+                    "updates": {},
+                    "error": f"Circuit depth {circuit_depth} below limit of {self.min_depth}",
+                    "file_path": file_path,
+                }
+
+            if self.max_depth is not None and circuit_depth > self.max_depth:
+                logger.debug(f"Skipping circuit {circuit_hash}: depth {circuit_depth} exceeds limit of {self.max_depth}")
+                return {
+                    "hash": circuit_hash,
+                    "success": False,
+                    "skipped": True,
+                    "updates": {},
+                    "error": f"Circuit depth {circuit_depth} exceeds limit of {self.max_depth}",
+                    "file_path": file_path,
+                }
+
             logger.info(f"Extracting SQL features for circuit {circuit_hash}")
             
             result = self._extract_sql_features(qc, circuit_hash)

@@ -43,12 +43,12 @@ def process_folder_wrapper(args):
     This runs in a worker process.
     
     Args:
-        args: Tuple of (folder_path, processed_hashes, mode, checkpoints_dir)
+        args: Tuple of (folder_path, processed_hashes, mode, checkpoints_dir, min_qubits, max_qubits, min_depth, max_depth)
         
     Returns:
         List of results
     """
-    folder_path, processed_hashes, mode, checkpoints_dir = args
+    folder_path, processed_hashes, mode, checkpoints_dir, min_qubits, max_qubits, min_depth, max_depth = args
     try:
         # Initialize components in worker process
         sim_config = PipelineConfig.SIMULATION
@@ -61,7 +61,13 @@ def process_folder_wrapper(args):
         table_client = azure_conn.circuits_table_client
         
         checkpoint_manager = CheckpointManager(checkpoints_dir)
-        circuit_processor = SimulationProcessor(simulator)
+        circuit_processor = SimulationProcessor(
+            simulator,
+            min_qubits=min_qubits,
+            max_qubits=max_qubits,
+            min_depth=min_depth,
+            max_depth=max_depth
+        )
         
         folder_processor = FolderProcessor(
             circuit_processor,
@@ -107,6 +113,22 @@ def main():
     parser.add_argument(
         "--workers", type=int, default=None, 
         help="Number of worker processes."
+    )
+    parser.add_argument(
+        "--min-qubits", type=int, default=None,
+        help="Minimum number of qubits."
+    )
+    parser.add_argument(
+        "--max-qubits", type=int, default=None,
+        help="Maximum number of qubits."
+    )
+    parser.add_argument(
+        "--min-depth", type=int, default=None,
+        help="Minimum circuit depth."
+    )
+    parser.add_argument(
+        "--max-depth", type=int, default=None,
+        help="Maximum circuit depth."
     )
     
     args = parser.parse_args()
@@ -163,6 +185,67 @@ def main():
         except:
             workers = None
     
+    # Get circuit limits
+    min_qubits = args.min_qubits
+    if min_qubits is None:
+        try:
+            user_input = input(
+                "Enter minimum qubit count (or press Enter for no limit): "
+            ).strip()
+            if user_input:
+                try:
+                    min_qubits = int(user_input)
+                except ValueError:
+                    print("Invalid number. No minimum qubit limit will be applied.")
+                    min_qubits = None
+        except EOFError:
+            pass
+
+    max_qubits = args.max_qubits
+    if max_qubits is None:
+        try:
+            user_input = input(
+                "Enter maximum qubit count (or press Enter for no limit): "
+            ).strip()
+            if user_input:
+                try:
+                    max_qubits = int(user_input)
+                except ValueError:
+                    print("Invalid number. No maximum qubit limit will be applied.")
+                    max_qubits = None
+        except EOFError:
+            pass
+
+    min_depth = args.min_depth
+    if min_depth is None:
+        try:
+            user_input = input(
+                "Enter minimum circuit depth (or press Enter for no limit): "
+            ).strip()
+            if user_input:
+                try:
+                    min_depth = int(user_input)
+                except ValueError:
+                    print("Invalid number. No minimum depth limit will be applied.")
+                    min_depth = None
+        except EOFError:
+            pass
+
+    max_depth = args.max_depth
+    if max_depth is None:
+        try:
+            user_input = input(
+                "Enter maximum circuit depth (or press Enter for no limit): "
+            ).strip()
+            if user_input:
+                try:
+                    max_depth = int(user_input)
+                except ValueError:
+                    print("Invalid number. No maximum depth limit will be applied.")
+                    max_depth = None
+        except EOFError:
+            pass
+
     verbose = args.verbose
     
     # Display configuration
@@ -171,6 +254,10 @@ def main():
     print(f"Mode: {mode}")
     print(f"Workers: {workers}")
     print(f"Checkpoints Directory: {checkpoints_dir}")
+    print(f"Min Qubits: {min_qubits if min_qubits is not None else 'No limit'}")
+    print(f"Max Qubits: {max_qubits if max_qubits is not None else 'No limit'}")
+    print(f"Min Depth: {min_depth if min_depth is not None else 'No limit'}")
+    print(f"Max Depth: {max_depth if max_depth is not None else 'No limit'}")
     
     # Validate circuits directory
     if not os.path.exists(circuits_dir):
@@ -195,6 +282,10 @@ def main():
         process_folder_wrapper,
         mode=mode,
         checkpoints_dir=checkpoints_dir,
+        min_qubits=min_qubits,
+        max_qubits=max_qubits,
+        min_depth=min_depth,
+        max_depth=max_depth,
         num_workers=workers,
         limit=limit,
         verbose=verbose
