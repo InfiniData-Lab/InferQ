@@ -401,3 +401,41 @@ def load_all_parquet_files(fetched_metadata_dir: str = "../data/fetched_circuit_
     print(f"DataFrame shape: {combined_df.shape}")
     
     return combined_df
+
+
+def clean_dataframe(df, cols_to_drop):
+    """
+    Drops specified columns, reports NaN statistics, and returns cleaned DataFrame.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input DataFrame to clean
+    cols_to_drop : str or list
+        Column name or list of column names to drop
+
+    Returns
+    -------
+    pandas.DataFrame
+        Cleaned DataFrame
+    """
+    print("CLEANING DATAFRAME")
+
+    # Drop columns
+    df_clean = df.drop(columns=cols_to_drop, errors="ignore")
+
+    # Total rows after drop
+    total_rows = len(df_clean)
+
+    # Count rows with any NaN
+    rows_with_nan = df_clean.isna().any(axis=1).sum()
+
+    # Count rows without any NaN
+    rows_without_nan = df_clean.notna().all(axis=1).sum()
+
+    print(f"Total rows: {total_rows}")
+    print(f"Rows with at least one NaN: {rows_with_nan}")
+    print(f"Rows with no NaNs: {rows_without_nan}")
+    print("CLEANING DONE")
+
+    return df_clean
