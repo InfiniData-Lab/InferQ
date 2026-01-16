@@ -147,7 +147,7 @@ class SimulationAnalyzer:
         return "\n".join(report)
 
     def _calculate_entropy(self, probabilities: np.ndarray) -> float:
-        """Calculate von Neumann entropy."""
+        """Calculate Shannon entropy."""
         probs = probabilities + 1e-16
         entropy = -np.sum(probs * np.log2(probs))
         return float(entropy)
