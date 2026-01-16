@@ -320,8 +320,15 @@ import math
 from sklearn.metrics import ConfusionMatrixDisplay, accuracy_score
 def PlotConfusionReports(y_test, predictions_dict, methods):
     n_models = len(predictions_dict)
-    n_rows = math.ceil(np.sqrt(n_models))
-    n_cols = math.ceil(n_models / n_rows)
+    # n_cols = math.ceil(math.sqrt(n_models))
+    # n_rows = math.ceil(n_models / n_cols)
+    if n_models <= 3:
+        n_rows = 1
+        n_cols = n_models
+    else:
+        n_cols = math.ceil(math.sqrt(n_models))
+        n_rows = math.ceil(n_models / n_cols)
+
 
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
     axes = np.array(axes).reshape(-1)
