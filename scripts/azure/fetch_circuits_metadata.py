@@ -21,7 +21,7 @@ from utils.azure_connection import AzureConnection
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("fetch_circuits_metadata.log")],
+    handlers=[logging.FileHandler("fetch_circuits_metadata.log")],
 )
 logger = logging.getLogger(__name__)
 
@@ -79,8 +79,21 @@ def fetch_circuit_by_id(circuit_id):
         return None
 
 
-def fetch_data():
+def fetch_data(export_csv: bool = False):
     ensure_output_dir()
+
+    # Use project_root to ensure we target the correct analysis folder
+    analysis_dir = os.path.join(project_root, "analysis")
+    csv_output_path = os.path.join(analysis_dir, "fetched_circuits.csv")
+    
+    if export_csv:
+        if not os.path.exists(analysis_dir):
+            os.makedirs(analysis_dir)
+        # If starting fresh (no checkpoint) or if we want to ensure clean state, 
+        # we might want to delete existing CSV. 
+        # However, to be safe with checkpoints, we rely on append mode.
+        # But if it's a new run (no checkpoint loaded later), we should probably reset it?
+        # Logic below handles checking checkpoint.
 
     checkpoint = load_checkpoint()
     continuation_token = None
@@ -91,11 +104,16 @@ def fetch_data():
         continuation_token = checkpoint.get("continuation_token")
         file_counter = checkpoint.get("file_counter", 0)
         total_rows = checkpoint.get("total_rows", 0)
-        logger.info(
-            f"Resuming from checkpoint. File counter: {file_counter}, Rows fetched so far: {total_rows}"
-        )
+        resume_msg = f"Resuming from checkpoint. File counter: {file_counter}, Rows fetched so far: {total_rows}"
+        logger.info(resume_msg)
+        print(resume_msg)
     else:
         logger.info("Starting new fetch job.")
+        print("Starting new fetch job.")
+        # If new job and exporting to CSV, clean up old CSV
+        if export_csv and os.path.exists(csv_output_path):
+            os.remove(csv_output_path)
+            logger.info(f"Removed old CSV file: {csv_output_path}")
 
     try:
         azure_conn = AzureConnection()
@@ -141,6 +159,12 @@ def fetch_data():
             df.to_parquet(output_file, index=False)
             logger.info(f"Saved {len(rows)} rows to {output_file}")
 
+            if export_csv:
+                # Append to CSV
+                # Check if file exists to determine if header is needed
+                header = not os.path.exists(csv_output_path)
+                df.to_csv(csv_output_path, mode="a", index=False, header=header)
+
             total_rows += len(rows)
             file_counter += 1
 
@@ -152,11 +176,13 @@ def fetch_data():
             else:
                 # No more pages
                 logger.info("Fetching complete. No more continuation token.")
+                print("Fetching complete. No more continuation token.")
                 if os.path.exists(CHECKPOINT_FILE):
                     os.remove(CHECKPOINT_FILE)
                 break
 
         logger.info(f"Total rows fetched: {total_rows}")
+        print(f"Total rows fetched: {total_rows}")
 
     except Exception as e:
         logger.error(f"Error occurred during fetch: {e}")
@@ -178,6 +204,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Fetch all circuits with pagination and checkpointing.",
     )
+    parser.add_argument(
+        "--csv",
+        action="store_true",
+        help="Export all fetched data to a CSV file in 'analysis/' folder.",
+    )
 
     args = parser.parse_args()
 
@@ -190,7 +221,9 @@ if __name__ == "__main__":
         try:
             choice = input("Enter your choice (1/2): ").strip()
             if choice == "1":
-                fetch_data()
+                csv_input = input("Do you want to export everything to a CSV in analysis folder? (y/n): ").strip().lower()
+                export_csv_flag = csv_input == 'y'
+                fetch_data(export_csv=export_csv_flag)
             elif choice == "2":
                 circuit_id = input("Enter Circuit ID (RowKey): ").strip()
                 if circuit_id:
@@ -206,4 +239,4 @@ if __name__ == "__main__":
         fetch_circuit_by_id(args.id)
     
     elif args.all:
-        fetch_data()
+        fetch_data(export_csv=args.csv)
