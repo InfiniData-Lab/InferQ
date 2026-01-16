@@ -30,3 +30,9 @@ venv
 data/
 
 .DS_Store
+
+!rdbms_all_methods_training_data.parquet
+!estimator_training_data.parquet
+!rdbms_no_psql_methods_training_data.parquet
+!rdbms_training_data.parquet
+!selector_training_data.parquet
