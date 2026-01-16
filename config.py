@@ -43,17 +43,17 @@ class PipelineConfig:
 
     # Circuit Generation
     CIRCUIT_GENERATION = {
-        "max_qubits": 30,  # Further reduced for faster processing
+        "max_qubits": 15,  # Further reduced for faster processing
         "min_qubits": 1,
-        "max_depth": 200,  # Reduced depth limit
+        "max_depth": 100,  # Reduced depth limit
         "min_depth": 1,
         "min_reps": 1,
         "max_reps": 5,
-        "min_eval_qubits": 2,
+        "min_eval_qubits": 1,
         "max_eval_qubits": 6,
         "measure": False,
-        "seed": 4,
-        "stopping_probability": 0.3,  # Higher probability to stop (shorter circuits)
+        "seed": 1,
+        "stopping_probability": 0.2,  # Higher probability to stop (shorter circuits)
         "max_generators": 5,  # Fewer generators for simpler circuits
         "max_circuit_size": 1500,  # Maximum total gates
     }
@@ -98,7 +98,7 @@ class PipelineConfig:
     # Storage Configuration
     STORAGE = {
         "local_circuits_dir": "circuits",
-        "absolute_storage_path": "/Users/andreiilinescu/Projects/InferQ",  # If set, use this as base path instead of project root
+        "absolute_storage_path": "/Users/user/Projects/InferQ",  # If set, use this as base path instead of project root
         "cache_file": "circuit_hashes_cache.json",
         "max_local_storage_gb": 50,
     }
