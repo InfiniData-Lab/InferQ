@@ -130,7 +130,7 @@ dependencies = [
     "wcwidth==0.2.13",
     "yarl==1.20.0",
     "zc-lockfile==3.0.post1",
-    "infiniquantumsim @ git+https://github.com/andreiilinescu/Infinidata-rdbms-simulator.git",
+    "infiniquantumsim @ {path:= ../infiniquantumsim}", # Local package dependency: https://anonymous.4open.science/r/Infinidata-rdbms-simulator-2320/README.md
     "sqlglot>=28.5.0",
     "xgboost>=3.1.3",
 ]
