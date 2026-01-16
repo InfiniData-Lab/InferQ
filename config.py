@@ -43,17 +43,17 @@ class PipelineConfig:
 
     # Circuit Generation
     CIRCUIT_GENERATION = {
-        "max_qubits": 15,  # Further reduced for faster processing
+        "max_qubits": 30,  # Further reduced for faster processing
         "min_qubits": 1,
-        "max_depth": 100,  # Reduced depth limit
+        "max_depth": 200,  # Reduced depth limit
         "min_depth": 1,
         "min_reps": 1,
         "max_reps": 5,
-        "min_eval_qubits": 1,
+        "min_eval_qubits": 2,
         "max_eval_qubits": 6,
         "measure": False,
-        "seed": 1,
-        "stopping_probability": 0.2,  # Higher probability to stop (shorter circuits)
+        "seed": 4,
+        "stopping_probability": 0.3,  # Higher probability to stop (shorter circuits)
         "max_generators": 5,  # Fewer generators for simpler circuits
         "max_circuit_size": 1500,  # Maximum total gates
     }
