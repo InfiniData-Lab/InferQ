@@ -4,6 +4,7 @@ import argparse
 import pandas as pd
 import logging
 import shutil
+import json
 from tqdm import tqdm
 from urllib.parse import urlparse
 from pathlib import Path
@@ -23,7 +24,7 @@ from config import PipelineConfig
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("download_circuits.log")],
+    handlers=[logging.FileHandler("download_circuits.log")],
 )
 logger = logging.getLogger(__name__)
 
@@ -76,9 +77,24 @@ def download_circuits(data_dir, output_dir, limit=None):
 
     logger.info(f"Found {len(parquet_files)} parquet files.")
 
+    # Load checkpoint
+    checkpoint_file = os.path.join(output_dir, "checkpoint.json")
+    processed_parquet_files = set()
+    if os.path.exists(checkpoint_file):
+        try:
+            with open(checkpoint_file, "r") as f:
+                data = json.load(f)
+                processed_parquet_files = set(data.get("processed_parquet_files", []))
+            logger.info(f"Loaded checkpoint. {len(processed_parquet_files)} parquet files already processed.")
+        except Exception as e:
+            logger.warning(f"Failed to load checkpoint: {e}")
+
     count = 0
 
-    for p_file in parquet_files:
+    for p_file in tqdm(parquet_files, desc="Processing parquet files", unit="file"):
+        if p_file in processed_parquet_files:
+            continue
+
         if limit and count >= limit:
             break
 
@@ -170,6 +186,15 @@ def download_circuits(data_dir, output_dir, limit=None):
             except Exception as e:
                 logger.error(f"Failed to download/save circuit {blob_path}: {e}")
                 continue
+
+        # Checkpoint: If we finished the file fully and didn't hit the limit
+        if not (limit and count >= limit):
+            processed_parquet_files.add(p_file)
+            try:
+                with open(checkpoint_file, "w") as f:
+                    json.dump({"processed_parquet_files": list(processed_parquet_files)}, f)
+            except Exception as e:
+                logger.warning(f"Failed to save checkpoint: {e}")
 
     logger.info(f"Download complete. Total circuits processed: {count}")
 
