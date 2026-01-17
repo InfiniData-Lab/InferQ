@@ -27,7 +27,9 @@ venv
 
 *.csv
 *.log
-data/
+data/*
+!data/fetched_circuit_metadata/
+!data/fetched_circuit_metadata/*.parquet
 
 .DS_Store
 
