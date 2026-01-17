@@ -98,7 +98,7 @@ class PipelineConfig:
     # Storage Configuration
     STORAGE = {
         "local_circuits_dir": "circuits",
-        "absolute_storage_path": "/Users/andreiilinescu/Projects/InferQ",  # If set, use this as base path instead of project root
+        "absolute_storage_path": "/Users/user/Projects/InferQ",  # If set, use this as base path instead of project root
         "cache_file": "circuit_hashes_cache.json",
         "max_local_storage_gb": 50,
     }
