@@ -57,7 +57,7 @@ def download_blobs(container_url, download_path):
 
 if __name__ == "__main__":
     # URL provided by user
-    CONTAINER_URL = "https://inferqstorage.blob.core.windows.net/circuits"
+    CONTAINER_URL: str = None  # Replace with actual public container URL
     
     # Default download location relative to script execution or fixed path
     # Using a folder in the current directory or user specified

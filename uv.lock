@@ -1136,7 +1136,6 @@ requires-dist = [
     { name = "gto", specifier = "==1.7.2" },
     { name = "hydra-core", specifier = "==1.3.2" },
     { name = "idna", specifier = "==3.10" },
-    { name = "infiniquantumsim", git = "https://github.com/andreiilinescu/Infinidata-rdbms-simulator.git" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "isodate", specifier = "==0.7.2" },
     { name = "iterative-telemetry", specifier = "==0.0.10" },
@@ -1216,20 +1215,7 @@ requires-dist = [
     { name = "zc-lockfile", specifier = "==3.0.post1" },
 ]
 
-[[package]]
-name = "infiniquantumsim"
-version = "0.1.0"
-source = { git = "https://github.com/andreiilinescu/Infinidata-rdbms-simulator.git#0cd6c22ba1b1fd8fd9253f519dc19d99432f46b7" }
-dependencies = [
-    { name = "dotenv" },
-    { name = "duckdb" },
-    { name = "jupyter-client" },
-    { name = "jupyter-core" },
-    { name = "numpy" },
-    { name = "opt-einsum" },
-    { name = "psycopg2-binary" },
-    { name = "pytest" },
-]
+
 
 [[package]]
 name = "iniconfig"
