@@ -13,7 +13,7 @@ class IQSGateWrapper:
         self.qubits = qubits
 
 try:
-    from InfiniQuantumSim.TLtensor import QuantumCircuit as IQSQuantumCircuit, Gate as IQSGate
+    from InfiniQuantumSim.TLtensor import QuantumCircuit as IQSQuantumCircuit, Gate as IQSGate, INDICES
     import InfiniQuantumSim.mps as iqs_mps
     INFINI_QUANTUM_AVAILABLE = True
 except ImportError as e:
@@ -160,6 +160,93 @@ def _execute_infiniquantum_simulation(qc, **kwargs):
             "method": "infiniquantum",
             "execution_time": time.time() - start_time
         }
+
+
+def extract_sql(qc, circuit_hash: str, sql_only:bool=False) -> dict:
+        """Extract SQL features from a quantum circuit"""
+        from feature_extractors.sql_analyzer import SQLFeatureExtractor
+        
+        try:
+            if not INFINI_QUANTUM_AVAILABLE:
+                return {
+                    "hash": circuit_hash,
+                    "success": False,
+                    "skipped": False,
+                    "updates": {},
+                    "error": "InfiniQuantumSim not installed"
+                }
+            
+            # Transpile to ensure we only have 1 and 2 qubit gates
+            transpiled_qc = transpile(qc, basis_gates=['u', 'cx', 'id', 'rz', 'sx', 'x'], optimization_level=2)
+            num_qubits = transpiled_qc.num_qubits
+            
+            # Check if circuit is too large
+            estimated_indices = num_qubits + 3 * len(transpiled_qc.data)
+            if estimated_indices >= len(INDICES):
+                logger.warning(f"Skipping {circuit_hash}: Circuit too large (indices limit)")
+                return {
+                    "hash": circuit_hash,
+                    "success": False,
+                    "skipped": True,
+                    "updates": {},
+                    "error": "Circuit too large for InfiniQuantumSim"
+                }
+            
+            # Create IQS circuit
+            iqs_qc = IQSQuantumCircuit(num_qubits=num_qubits)
+            
+            # Add gates to IQS circuit
+            for instruction in transpiled_qc.data:
+                op = instruction.operation
+                qubits = [transpiled_qc.find_bit(q).index for q in instruction.qubits]
+                
+                if op.name in ['barrier', 'measure']:
+                    continue
+                
+                matrix = op.to_matrix()
+                
+                if len(qubits) == 1:
+                    tensor = matrix
+                elif len(qubits) == 2:
+                    tensor = matrix.reshape(2, 2, 2, 2)
+                else:
+                    raise ValueError(f"Unsupported operation {op.name} on {len(qubits)} qubits")
+                
+                gate_name = f"{op.name}_{id(op)}" if len(op.params) > 0 else op.name
+                gate = IQSGate(qubits, tensor, name=gate_name, two_qubit_gate=(len(qubits) == 2))
+                iqs_qc.add_gate(gate)
+            
+            # Generate SQL query and extract features
+            sql_query = iqs_qc.to_query()
+            if sql_only:
+                return sql_query
+            sql_features, join_edges = SQLFeatureExtractor.extract_sql_features(sql_query)
+            
+            # Prepare updates
+            updates = {}
+            for feat_name, count in sql_features.items():
+                updates[f"infinidata_quantum_sql_{feat_name}"] = count
+            updates["infinidata_quantum_sql_num_joins"] = len(join_edges)
+            
+            return {
+                "hash": circuit_hash,
+                "success": True,
+                "skipped": False,
+                "updates": updates,
+                "error": None
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to extract SQL features for {circuit_hash}: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return {
+                "hash": circuit_hash,
+                "success": False,
+                "skipped": False,
+                "updates": {},
+                "error": str(e)
+            }
 
 
 def _wrapper_run_iqs(qc, kwargs, q):
