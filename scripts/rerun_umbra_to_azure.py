@@ -74,10 +74,11 @@ def run_umbra_simulation(circuit: QuantumCircuit, timeout: int, n_runs: int = 5)
     """
     try:
         # Run InfiniQuantumSim with only umbra (omit all other backends)
-        # Adjust the oom list based on what backends you want to skip
+        # Keep only umbra by omitting all other backends
+        # Note: Backend names use hyphens, not underscores
         result = _execute_infiniquantum_simulation(
             circuit,
-            oom=["psql", "sqlite", "ducksql", "eqc", "np_mps", "np_one_shot"],  # Omit everything except umbra
+            oom=["psql", "sqlite", "ducksql", "eqc", "np-mps", "np-one-shot"],  # Omit everything except umbra
             n_runs=n_runs,
             timeout=timeout
         )
