@@ -12,6 +12,7 @@ import logging
 import pandas as pd
 from tqdm import tqdm
 import multiprocessing
+import numpy as np
 
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -32,6 +33,21 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 logging.getLogger("qiskit.passmanager.base_tasks").setLevel(logging.WARNING)
 logging.getLogger("qiskit.compiler.transpiler").setLevel(logging.WARNING)
+
+
+def convert_numpy_types(value):
+    """Convert numpy types to Python native types for Azure Table Storage."""
+    if isinstance(value, (np.integer, np.int64, np.int32)):
+        return int(value)
+    elif isinstance(value, (np.floating, np.float64, np.float32)):
+        return float(value)
+    elif isinstance(value, np.ndarray):
+        return value.tolist()
+    elif isinstance(value, dict):
+        return {k: convert_numpy_types(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [convert_numpy_types(v) for v in value]
+    return value
 
 
 def load_circuit_from_disk(circuit_hash, circuits_base_dir):
@@ -136,11 +152,11 @@ def process_circuit(circuit_hash, circuits_dir, azure_conn, timeout, n_runs):
                             time_key = f"rdbms_{entity_method}_time_s"
 
                             if "time_avg_s" in bench_data:
-                                entity[time_key] = bench_data["time_avg_s"]
+                                entity[time_key] = convert_numpy_types(bench_data["time_avg_s"])
                                 updates_made.append(f"{bench_method}_time")
 
                             if "memory_avg_mb" in bench_data:
-                                entity[memory_key] = bench_data["memory_avg_mb"]
+                                entity[memory_key] = convert_numpy_types(bench_data["memory_avg_mb"])
                                 updates_made.append(f"{bench_method}_memory")
 
                 # Extract SQL features (only if not already present)
@@ -151,11 +167,11 @@ def process_circuit(circuit_hash, circuits_dir, azure_conn, timeout, n_runs):
                         for feat_name, count in sql_features.items():
                             sql_key = f"infinidata_quantum_sql_{feat_name}"
                             if entity.get(sql_key) is None:
-                                entity[sql_key] = count
+                                entity[sql_key] = convert_numpy_types(count)
                                 updates_made.append(f"sql_{feat_name}")
 
                         if entity.get("infinidata_quantum_sql_num_joins") is None:
-                            entity["infinidata_quantum_sql_num_joins"] = len(join_edges)
+                            entity["infinidata_quantum_sql_num_joins"] = convert_numpy_types(len(join_edges))
                             updates_made.append("sql_num_joins")
                     except Exception as e:
                         logger.error(f"Failed to extract SQL features for {circuit_hash}: {e}")
@@ -315,23 +331,14 @@ def main():
     # Process circuits
     logger.info(f"Starting infiniquantum simulation on {len(circuit_hashes)} circuits...")
 
-    if workers == 1:
-        # Single-threaded processing
-        azure_conn = AzureConnection()
+    # Single-threaded processing
+    azure_conn = AzureConnection()
 
-        results = []
-        for circuit_hash in tqdm(circuit_hashes, desc="Processing circuits"):
-            result = process_circuit(circuit_hash, circuits_dir, azure_conn, timeout, n_runs)
-            results.append(result)
-    else:
-        # Multi-processing
-        with multiprocessing.Pool(processes=workers) as pool:
-            args_list = [(circuit_hash, circuits_dir, timeout, n_runs) for circuit_hash in circuit_hashes]
-            results = list(tqdm(
-                pool.imap(process_circuit_wrapper, args_list),
-                total=len(circuit_hashes),
-                desc="Processing circuits"
-            ))
+    results = []
+    for circuit_hash in tqdm(circuit_hashes, desc="Processing circuits"):
+        result = process_circuit(circuit_hash, circuits_dir, azure_conn, timeout, n_runs)
+        results.append(result)
+
 
     # Summarize results
     successful = sum(1 for _, success, _ in results if success)
