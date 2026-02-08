@@ -12,7 +12,6 @@ import logging
 import pandas as pd
 from tqdm import tqdm
 import multiprocessing
-from io import BytesIO
 
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -36,12 +35,41 @@ logging.getLogger("qiskit.passmanager.base_tasks").setLevel(logging.WARNING)
 logging.getLogger("qiskit.compiler.transpiler").setLevel(logging.WARNING)
 
 
-def process_circuit(circuit_hash, azure_conn, simulator):
+def load_circuit_from_disk(circuit_hash, circuits_base_dir):
     """
-    Process a single circuit: fetch from Azure, run infiniquantum simulation, update results.
+    Load a circuit from disk using its hash.
 
     Args:
-        circuit_hash: Hash of the circuit to process
+        circuit_hash: The hash of the circuit (RowKey)
+        circuits_base_dir: Base directory where circuits are stored
+
+    Returns:
+        QuantumCircuit object
+    """
+    from pathlib import Path
+
+    circuits_base_dir = Path(circuits_base_dir)
+    # Circuits are organized in subdirectories based on first 2 chars of hash
+    subdir = circuit_hash[:2]
+    circuit_path = circuits_base_dir / subdir / f"{circuit_hash}.qpy"
+
+    if not circuit_path.exists():
+        raise FileNotFoundError(f"Circuit file not found: {circuit_path}")
+
+    with open(circuit_path, 'rb') as f:
+        circuits = qiskit.qpy.load(f)
+        qc = circuits[0] if isinstance(circuits, list) else circuits
+
+    return qc
+
+
+def process_circuit(circuit_hash, circuits_dir, azure_conn, simulator):
+    """
+    Process a single circuit: load from disk, run infiniquantum simulation, update results.
+
+    Args:
+        circuit_hash: Hash of the circuit to process (RowKey)
+        circuits_dir: Directory containing circuit files
         azure_conn: Azure connection instance
         simulator: QuantumSimulator instance
 
@@ -60,20 +88,11 @@ def process_circuit(circuit_hash, azure_conn, simulator):
             logger.error(f"Failed to fetch entity for hash {circuit_hash}: {e}")
             return (circuit_hash, False, f"Failed to fetch entity: {e}")
 
-        # Download circuit from blob storage
-        blob_path = entity.get("BlobPath")
-        if not blob_path:
-            logger.error(f"No BlobPath for circuit {circuit_hash}")
-            return (circuit_hash, False, "No BlobPath in entity")
-
+        # Load circuit from local disk
         try:
-            blob_data = azure_conn.download_circuit(blob_path)
-            # Deserialize using QPY format
-            buf = BytesIO(blob_data)
-            circuits = qiskit.qpy.load(buf)
-            circuit = circuits[0] if isinstance(circuits, list) else circuits
+            circuit = load_circuit_from_disk(circuit_hash, circuits_dir)
         except Exception as e:
-            logger.error(f"Failed to load circuit {circuit_hash} from blob: {e}")
+            logger.error(f"Failed to load circuit {circuit_hash} from disk: {e}")
             return (circuit_hash, False, f"Failed to load circuit: {e}")
 
         # Check which RDBMS methods are already present
@@ -162,7 +181,7 @@ def process_circuit(circuit_hash, azure_conn, simulator):
 
 def process_circuit_wrapper(args):
     """Wrapper for multiprocessing pool."""
-    circuit_hash, sim_config = args
+    circuit_hash, circuits_dir, sim_config = args
 
     # Initialize components in worker process
     simulator = QuantumSimulator(
@@ -171,7 +190,7 @@ def process_circuit_wrapper(args):
     )
     azure_conn = AzureConnection()
 
-    return process_circuit(circuit_hash, azure_conn, simulator)
+    return process_circuit(circuit_hash, circuits_dir, azure_conn, simulator)
 
 
 def main():
@@ -182,7 +201,11 @@ def main():
     parser.add_argument(
         "--parquet-file", type=str,
         default="analysis/training_data/rdbms_training_data.parquet",
-        help="Path to parquet file containing circuit hashes."
+        help="Path to parquet file containing circuit hashes (RowKey column)."
+    )
+    parser.add_argument(
+        "--circuits-dir", type=str, default=None,
+        help="Directory containing circuit QPY files."
     )
     parser.add_argument(
         "--limit", type=int, default=None,
@@ -199,32 +222,45 @@ def main():
 
     args = parser.parse_args()
 
+    # Get circuits directory
+    circuits_dir = args.circuits_dir
+    if circuits_dir is None:
+        from config import PipelineConfig
+        config = PipelineConfig()
+        circuits_dir = str(config.circuits_dir)
+
     # Determine number of workers
     workers = args.workers
     if workers is None:
         workers = max(1, multiprocessing.cpu_count() - 1)
 
     print(f"Parquet file: {args.parquet_file}")
+    print(f"Circuits directory: {circuits_dir}")
     print(f"Workers: {workers}")
     print(f"Limit: {args.limit if args.limit else 'All'}")
     print(f"Skip existing: {args.skip_existing}")
 
+    # Validate circuits directory
+    if not os.path.exists(circuits_dir):
+        logger.error(f"Circuits directory not found: {circuits_dir}")
+        return
+
     # Load parquet file
     try:
         df = pd.read_parquet(args.parquet_file)
-        logger.info(f"Loaded {len(df)} circuits from parquet file")
+        logger.info(f"Loaded {len(df)} rows from parquet file")
     except Exception as e:
         logger.error(f"Failed to load parquet file: {e}")
         return
 
-    # Extract circuit hashes
-    if 'CircuitHash' not in df.columns:
-        logger.error("Parquet file does not contain 'CircuitHash' column")
+    # Extract circuit hashes (RowKey)
+    if 'RowKey' not in df.columns:
+        logger.error("Parquet file does not contain 'RowKey' column")
         logger.info(f"Available columns: {df.columns.tolist()}")
         return
 
-    circuit_hashes = df['CircuitHash'].unique().tolist()
-    logger.info(f"Found {len(circuit_hashes)} unique circuit hashes")
+    circuit_hashes = df['RowKey'].unique().tolist()
+    logger.info(f"Found {len(circuit_hashes)} unique circuit hashes (RowKey)")
 
     # Apply limit if specified
     if args.limit:
@@ -278,12 +314,12 @@ def main():
 
         results = []
         for circuit_hash in tqdm(circuit_hashes, desc="Processing circuits"):
-            result = process_circuit(circuit_hash, azure_conn, simulator)
+            result = process_circuit(circuit_hash, circuits_dir, azure_conn, simulator)
             results.append(result)
     else:
         # Multi-processing
         with multiprocessing.Pool(processes=workers) as pool:
-            args_list = [(circuit_hash, sim_config) for circuit_hash in circuit_hashes]
+            args_list = [(circuit_hash, circuits_dir, sim_config) for circuit_hash in circuit_hashes]
             results = list(tqdm(
                 pool.imap(process_circuit_wrapper, args_list),
                 total=len(circuit_hashes),
