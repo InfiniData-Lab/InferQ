@@ -17,8 +17,7 @@ import multiprocessing
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from utils.azure_connection import AzureConnection
-from simulators.simulate import QuantumSimulator
-from config import PipelineConfig
+from simulators.lib.infiniquantum import _execute_infiniquantum_simulation
 import qiskit.qpy
 
 # Setup logging
@@ -63,7 +62,7 @@ def load_circuit_from_disk(circuit_hash, circuits_base_dir):
     return qc
 
 
-def process_circuit(circuit_hash, circuits_dir, azure_conn, simulator):
+def process_circuit(circuit_hash, circuits_dir, azure_conn, timeout, n_runs):
     """
     Process a single circuit: load from disk, run infiniquantum simulation, update results.
 
@@ -71,17 +70,18 @@ def process_circuit(circuit_hash, circuits_dir, azure_conn, simulator):
         circuit_hash: Hash of the circuit to process (RowKey)
         circuits_dir: Directory containing circuit files
         azure_conn: Azure connection instance
-        simulator: QuantumSimulator instance
+        timeout: Timeout in seconds for simulation
+        n_runs: Number of runs to average for benchmarking
 
     Returns:
         tuple: (circuit_hash, success_bool, error_message_or_none)
     """
     try:
         # Get circuit entity from Azure Table
-        table_client = azure_conn.circuits_table_client
+        table_client = azure_conn.get_circuits_table_client()
         try:
             entity = table_client.get_entity(
-                partition_key="QuantumCircuit",
+                partition_key="circuits",
                 row_key=circuit_hash
             )
         except Exception as e:
@@ -115,7 +115,12 @@ def process_circuit(circuit_hash, circuits_dir, azure_conn, simulator):
 
         # Run infiniquantum simulation, omitting methods that already exist
         try:
-            sim_result = simulator.simulate_infiniquantum(circuit, oom=existing_methods)
+            sim_result = _execute_infiniquantum_simulation(
+                circuit,
+                oom=existing_methods,
+                n_runs=n_runs,
+                timeout=timeout
+            )
 
             if sim_result.get("success"):
                 updates_made = []
@@ -181,16 +186,12 @@ def process_circuit(circuit_hash, circuits_dir, azure_conn, simulator):
 
 def process_circuit_wrapper(args):
     """Wrapper for multiprocessing pool."""
-    circuit_hash, circuits_dir, sim_config = args
+    circuit_hash, circuits_dir, timeout, n_runs = args
 
     # Initialize components in worker process
-    simulator = QuantumSimulator(
-        timeout_seconds=sim_config.get("timeout_seconds", 60),
-        infiniquantum_config=sim_config.get("infiniquantum")
-    )
     azure_conn = AzureConnection()
 
-    return process_circuit(circuit_hash, circuits_dir, azure_conn, simulator)
+    return process_circuit(circuit_hash, circuits_dir, azure_conn, timeout, n_runs)
 
 
 def main():
@@ -219,6 +220,14 @@ def main():
         "--skip-existing", action="store_true",
         help="Skip circuits that already have infiniquantum results."
     )
+    parser.add_argument(
+        "--timeout", type=int, default=60,
+        help="Timeout in seconds for each simulation."
+    )
+    parser.add_argument(
+        "--n-runs", type=int, default=5,
+        help="Number of runs to average for benchmarking."
+    )
 
     args = parser.parse_args()
 
@@ -234,9 +243,14 @@ def main():
     if workers is None:
         workers = max(1, multiprocessing.cpu_count() - 1)
 
+    timeout = args.timeout
+    n_runs = args.n_runs
+
     print(f"Parquet file: {args.parquet_file}")
     print(f"Circuits directory: {circuits_dir}")
     print(f"Workers: {workers}")
+    print(f"Timeout: {timeout}s")
+    print(f"N runs: {n_runs}")
     print(f"Limit: {args.limit if args.limit else 'All'}")
     print(f"Skip existing: {args.skip_existing}")
 
@@ -277,7 +291,7 @@ def main():
         for circuit_hash in tqdm(circuit_hashes, desc="Checking existing results"):
             try:
                 entity = table_client.get_entity(
-                    partition_key="QuantumCircuit",
+                    partition_key="circuits",
                     row_key=circuit_hash
                 )
                 # Check if any RDBMS method has already succeeded
@@ -298,28 +312,21 @@ def main():
         logger.info("No circuits to process")
         return
 
-    # Get simulation config
-    sim_config = PipelineConfig.SIMULATION
-
     # Process circuits
     logger.info(f"Starting infiniquantum simulation on {len(circuit_hashes)} circuits...")
 
     if workers == 1:
         # Single-threaded processing
         azure_conn = AzureConnection()
-        simulator = QuantumSimulator(
-            timeout_seconds=sim_config.get("timeout_seconds", 60),
-            infiniquantum_config=sim_config.get("infiniquantum")
-        )
 
         results = []
         for circuit_hash in tqdm(circuit_hashes, desc="Processing circuits"):
-            result = process_circuit(circuit_hash, circuits_dir, azure_conn, simulator)
+            result = process_circuit(circuit_hash, circuits_dir, azure_conn, timeout, n_runs)
             results.append(result)
     else:
         # Multi-processing
         with multiprocessing.Pool(processes=workers) as pool:
-            args_list = [(circuit_hash, circuits_dir, sim_config) for circuit_hash in circuit_hashes]
+            args_list = [(circuit_hash, circuits_dir, timeout, n_runs) for circuit_hash in circuit_hashes]
             results = list(tqdm(
                 pool.imap(process_circuit_wrapper, args_list),
                 total=len(circuit_hashes),
