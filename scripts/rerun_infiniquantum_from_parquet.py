@@ -244,6 +244,10 @@ def main():
         "--n-runs", type=int, default=5,
         help="Number of runs to average for benchmarking."
     )
+    parser.add_argument(
+        "--start-from", type=str, default=None,
+        help="Circuit hash to start processing from (inclusive). Skips all hashes before it in the list."
+    )
 
     args = parser.parse_args()
 
@@ -268,6 +272,7 @@ def main():
     print(f"Timeout: {timeout}s")
     print(f"N runs: {n_runs}")
     print(f"Limit: {args.limit if args.limit else 'All'}")
+    print(f"Start from: {args.start_from if args.start_from else 'Beginning'}")
     print(f"Skip existing: {args.skip_existing}")
 
     # Validate circuits directory
@@ -291,6 +296,16 @@ def main():
 
     circuit_hashes = df['RowKey'].unique().tolist()
     logger.info(f"Found {len(circuit_hashes)} unique circuit hashes (RowKey)")
+
+    # Start from a specific hash if specified
+    if args.start_from:
+        if args.start_from in circuit_hashes:
+            start_idx = circuit_hashes.index(args.start_from)
+            circuit_hashes = circuit_hashes[start_idx:]
+            logger.info(f"Starting from hash {args.start_from} at index {start_idx} ({len(circuit_hashes)} circuits remaining)")
+        else:
+            logger.error(f"Hash {args.start_from} not found in parquet file")
+            return
 
     # Apply limit if specified
     if args.limit:
