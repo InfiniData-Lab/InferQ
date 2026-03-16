@@ -30,7 +30,8 @@ venv
 data/*
 !data/metadata/
 !data/metadata/*.parquet
-
+!data/extremes
+!data/extremes/*.qpy
 .DS_Store
 
 !rdbms_all_methods_training_data.parquet
