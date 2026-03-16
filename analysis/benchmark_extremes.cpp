@@ -2,54 +2,35 @@
  * benchmark_extremes.cpp
  *
  * Benchmark Qiskit Aer simulation methods directly through the C++ interface.
- * Reads Qobj JSON files produced by benchmark_extremes.py and passes them to
- * AER::Controller, measuring wall time (std::chrono) and peak RSS memory
- * (getrusage).
+ * Reads Qobj JSON files produced by benchmark_extremes.py, builds AER::Circuit
+ * objects and AER::Config, then calls AER::controller_execute<AER::Controller>.
  *
  * ── PREREQUISITES ──────────────────────────────────────────────────────────
  *
- *  1. Clone qiskit-aer at the same version used by the Python environment:
+ *  sudo apt install nlohmann-json3-dev libopenblas-dev
  *
- *       git clone https://github.com/Qiskit/qiskit-aer.git
- *       cd qiskit-aer && git checkout 0.17
+ *  git clone https://github.com/Qiskit/qiskit-aer.git
+ *  cd qiskit-aer && git checkout 0.17
  *
- *  2. Install its C++ dependencies (OpenBLAS / Accelerate, LAPACK, spdlog).
- *     On macOS with Homebrew:
- *       brew install openblas spdlog nlohmann-json
+ * ── COMPILATION (from inside the qiskit-aer directory) ─────────────────────
  *
- * ── COMPILATION ────────────────────────────────────────────────────────────
+ *  export AER_SRC=$(pwd)/src
  *
- *  Set AER_SRC to the cloned repo's src/ directory, then:
- *
- *  macOS (Accelerate):
- *    g++ -std=c++17 -O2 \
- *        -I${AER_SRC} \
- *        -I${AER_SRC}/third-party/spdlog/include \
- *        -I${AER_SRC}/third-party/nlohmann \
- *        -I${AER_SRC}/third-party/pybind11/include \
- *        -DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_OFF \
- *        -DAER_DISABLE_GDR \
- *        benchmark_extremes.cpp \
- *        -o benchmark_extremes \
- *        -framework Accelerate
- *
- *  Linux (OpenBLAS):
- *    g++ -std=c++17 -O2 \
- *        -I${AER_SRC} \
- *        -I${AER_SRC}/third-party/spdlog/include \
- *        -I${AER_SRC}/third-party/nlohmann \
- *        -DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_OFF \
- *        -DAER_DISABLE_GDR \
- *        benchmark_extremes.cpp \
- *        -o benchmark_extremes \
- *        -lopenblas -lpthread
+ *  g++ -std=c++17 -O2 \
+ *      -I${AER_SRC} \
+ *      -I${AER_SRC}/third-party/spdlog/include \
+ *      -DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_OFF \
+ *      -DAER_DISABLE_GDR \
+ *      ../benchmark_extremes.cpp \
+ *      -o benchmark_extremes \
+ *      -lopenblas -lpthread
  *
  * ── USAGE ──────────────────────────────────────────────────────────────────
  *
  *  Run the Python script first to generate the Qobj JSON files:
  *    uv run python analysis/benchmark_extremes.py
  *
- *  Then:
+ *  Then (from the InferQ project root or anywhere):
  *    ./benchmark_extremes path/to/data/extremes/
  *
  * ───────────────────────────────────────────────────────────────────────────
@@ -62,24 +43,26 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <sys/resource.h>
 #include <vector>
 
-// nlohmann/json – exposed via qiskit-aer's framework wrapper
-#include "framework/json.hpp"
-
-// Aer C++ controller – the single entry-point for all simulation methods
+// Aer headers
 #include "controllers/aer_controller.hpp"
+#include "controllers/controller_execute.hpp"
+#include "framework/circuit.hpp"
+#include "framework/config.hpp"
+#include "framework/json.hpp"
+#include "noise/noise_model.hpp"
 
 namespace fs = std::filesystem;
-using json   = nlohmann::json;
 
 // ---------------------------------------------------------------------------
-// Helper: read a whole file into a string
+// Helper: read whole file into string
 // ---------------------------------------------------------------------------
-static std::string read_file(const fs::path& p)
+static std::string read_file(const fs::path &p)
 {
     std::ifstream f(p);
     if (!f.is_open())
@@ -90,8 +73,7 @@ static std::string read_file(const fs::path& p)
 }
 
 // ---------------------------------------------------------------------------
-// Helper: peak RSS since process start (KB)
-//   macOS: ru_maxrss is bytes; Linux: ru_maxrss is kilobytes
+// Helper: peak RSS (KB) — macOS returns bytes, Linux returns KB
 // ---------------------------------------------------------------------------
 static long peak_rss_kb()
 {
@@ -110,7 +92,7 @@ static long peak_rss_kb()
 struct BenchResult {
     std::string circuit;
     std::string method;
-    std::string mode;       // "multi" | "single"
+    std::string mode;
     double      wall_s{};
     long        rss_before_kb{};
     long        rss_after_kb{};
@@ -119,69 +101,107 @@ struct BenchResult {
 };
 
 // ---------------------------------------------------------------------------
-// Run one Qobj JSON string through AerController and time it
+// Build AER::Config from the Qobj JSON "config" section
+// ---------------------------------------------------------------------------
+static AER::Config make_config(const json_t &qobj_cfg, const std::string &method, bool single_core)
+{
+    AER::Config cfg;
+
+    cfg.method = method;
+
+    if (qobj_cfg.contains("shots"))
+        cfg.shots = qobj_cfg["shots"].get<uint_t>();
+
+    if (qobj_cfg.contains("memory_slots"))
+        cfg.memory_slots = qobj_cfg["memory_slots"].get<uint_t>();
+
+    if (qobj_cfg.contains("n_qubits"))
+        cfg.n_qubits.value(qobj_cfg["n_qubits"].get<uint_t>());
+
+    if (single_core) {
+        cfg.max_parallel_threads.value(1u);
+        cfg.max_parallel_experiments.value(1u);
+        cfg.max_parallel_shots.value(1u);
+    }
+
+    return cfg;
+}
+
+// ---------------------------------------------------------------------------
+// Run one Qobj JSON file and time it
 // ---------------------------------------------------------------------------
 static BenchResult run_qobj(
-    const std::string& circuit_label,
-    const std::string& method,
-    const std::string& mode,
-    const std::string& qobj_str)
+    const std::string &circuit_label,
+    const std::string &method,
+    const std::string &mode,
+    const fs::path    &json_path)
 {
     BenchResult res;
     res.circuit = circuit_label;
     res.method  = method;
     res.mode    = mode;
 
-    res.rss_before_kb = peak_rss_kb();
+    // Parse JSON
+    json_t qobj;
+    try {
+        qobj = json_t::parse(read_file(json_path));
+    } catch (const std::exception &e) {
+        res.status = std::string("JSON parse error: ") + e.what();
+        return res;
+    }
 
+    const json_t &qobj_cfg    = qobj["config"];
+    const json_t &experiments  = qobj["experiments"];
+    bool single_core = (mode == "single");
+
+    // Build circuits
+    std::vector<std::shared_ptr<AER::Circuit>> circuits;
+    try {
+        for (const auto &exp : experiments)
+            circuits.push_back(std::make_shared<AER::Circuit>(exp, qobj_cfg));
+    } catch (const std::exception &e) {
+        res.status = std::string("Circuit build error: ") + e.what();
+        return res;
+    }
+
+    AER::Config          config     = make_config(qobj_cfg, method, single_core);
+    AER::Noise::NoiseModel noise_model; // empty — no noise
+
+    res.rss_before_kb = peak_rss_kb();
     auto t_start = std::chrono::high_resolution_clock::now();
 
     try {
-        // AER::Controller::execute() accepts the Qobj JSON as a string
-        // and returns a JSON-serialised Result.
-        AER::Controller controller;
-        std::string result_str = controller.execute(qobj_str);
+        AER::Result result = AER::controller_execute<AER::Controller>(
+            circuits, noise_model, config);
 
-        auto t_end   = std::chrono::high_resolution_clock::now();
-        res.wall_s   = std::chrono::duration<double>(t_end - t_start).count();
-        res.rss_after_kb = peak_rss_kb();
+        auto t_end        = std::chrono::high_resolution_clock::now();
+        res.wall_s        = std::chrono::duration<double>(t_end - t_start).count();
+        res.rss_after_kb  = peak_rss_kb();
 
-        // Parse result to check success
-        auto result_json = json::parse(result_str);
-
-        // The top-level status field and per-experiment success flags
-        std::string top_status = result_json.value("status", "UNKNOWN");
-        bool exp_ok = true;
-        if (result_json.contains("results") && result_json["results"].is_array()) {
-            for (auto& exp : result_json["results"]) {
-                if (!exp.value("success", false)) {
-                    exp_ok = false;
-                    break;
-                }
-            }
+        res.success = (result.status == AER::Result::Status::completed);
+        switch (result.status) {
+            case AER::Result::Status::completed:       res.status = "COMPLETED";   break;
+            case AER::Result::Status::partial_completed: res.status = "PARTIAL";   break;
+            case AER::Result::Status::error:           res.status = "ERROR: " + result.message; break;
+            default:                                   res.status = "UNKNOWN";     break;
         }
 
-        res.success = (top_status == "COMPLETED" || top_status == "PARTIAL COMPLETED")
-                      && exp_ok;
-        res.status  = top_status;
-
-    } catch (const std::exception& e) {
-        auto t_end   = std::chrono::high_resolution_clock::now();
-        res.wall_s   = std::chrono::duration<double>(t_end - t_start).count();
+    } catch (const std::exception &e) {
+        auto t_end       = std::chrono::high_resolution_clock::now();
+        res.wall_s       = std::chrono::duration<double>(t_end - t_start).count();
         res.rss_after_kb = peak_rss_kb();
-        res.success  = false;
-        res.status   = std::string("EXCEPTION: ") + e.what();
+        res.status       = std::string("EXCEPTION: ") + e.what();
     }
 
     return res;
 }
 
 // ---------------------------------------------------------------------------
-// Print a formatted table of results
+// Print formatted table
 // ---------------------------------------------------------------------------
-static void print_table(const std::vector<BenchResult>& results)
+static void print_table(const std::vector<BenchResult> &results)
 {
-    const std::string sep(95, '-');
+    const std::string sep(92, '-');
     std::cout << "\n" << sep << "\n"
               << std::left
               << std::setw(8)  << "circuit"
@@ -189,101 +209,83 @@ static void print_table(const std::vector<BenchResult>& results)
               << std::setw(8)  << "mode"
               << std::setw(12) << "wall_s"
               << std::setw(14) << "rss_delta_KB"
-              << std::setw(8)  << "ok"
-              << "\n" << sep << "\n";
+              << "ok\n"
+              << sep << "\n";
 
-    for (const auto& r : results) {
-        long rss_delta = r.rss_after_kb - r.rss_before_kb;
-
+    for (const auto &r : results) {
+        long delta = r.rss_after_kb - r.rss_before_kb;
         std::cout << std::left
                   << std::setw(8)  << r.circuit
                   << std::setw(26) << r.method
                   << std::setw(8)  << r.mode
                   << std::fixed << std::setprecision(6)
                   << std::setw(12) << r.wall_s
-                  << std::setw(14) << rss_delta
-                  << std::setw(8)  << (r.success ? "YES" : "NO")
-                  << "\n";
-
+                  << std::setw(14) << delta
+                  << (r.success ? "YES" : "NO") << "\n";
         if (!r.success)
-            std::cout << "         " << r.status << "\n";
+            std::cout << "         >> " << r.status << "\n";
     }
     std::cout << sep << "\n";
 }
 
 // ---------------------------------------------------------------------------
-// Save full results to CSV
+// Save full results CSV
 // ---------------------------------------------------------------------------
-static void save_csv(
-    const std::vector<BenchResult>& results,
-    const fs::path& out_path)
+static void save_csv(const std::vector<BenchResult> &results, const fs::path &out)
 {
-    std::ofstream f(out_path);
+    std::ofstream f(out);
     f << "circuit,method,mode,wall_s,rss_delta_KB,success,status\n";
-    for (const auto& r : results) {
-        long rss_delta = r.rss_after_kb - r.rss_before_kb;
-        f << r.circuit   << ","
-          << r.method    << ","
-          << r.mode      << ","
+    for (const auto &r : results) {
+        f << r.circuit << "," << r.method << "," << r.mode << ","
           << std::fixed << std::setprecision(6) << r.wall_s << ","
-          << rss_delta   << ","
+          << (r.rss_after_kb - r.rss_before_kb) << ","
           << (r.success ? "true" : "false") << ","
           << "\"" << r.status << "\"\n";
     }
-    std::cout << "Results saved to " << out_path << "\n";
+    std::cout << "Results  -> " << out << "\n";
 }
 
 // ---------------------------------------------------------------------------
-// Save summary CSV: one row per circuit+method, multi vs single side by side
+// Save summary CSV: one row per circuit+method, multi vs single side-by-side
 // ---------------------------------------------------------------------------
-static void save_summary_csv(
-    const std::vector<BenchResult>& results,
-    const fs::path& out_path)
+static void save_summary_csv(const std::vector<BenchResult> &results, const fs::path &out)
 {
-    // Build a map: (circuit, method) -> {multi, single} result
-    struct Pair { const BenchResult* multi = nullptr; const BenchResult* single = nullptr; };
-    std::map<std::pair<std::string,std::string>, Pair> lookup;
+    struct Pair { const BenchResult *multi = nullptr; const BenchResult *single = nullptr; };
+    std::map<std::pair<std::string, std::string>, Pair> lookup;
 
-    for (const auto& r : results) {
+    for (const auto &r : results) {
         auto key = std::make_pair(r.circuit, r.method);
         if (r.mode == "multi")  lookup[key].multi  = &r;
         if (r.mode == "single") lookup[key].single = &r;
     }
 
-    std::ofstream f(out_path);
-    f << "circuit,method,"
-      << "wall_s_multi,rss_delta_KB_multi,"
-      << "wall_s_single,rss_delta_KB_single\n";
-
-    // Emit in the same order as results (first appearance of each key)
-    std::vector<std::pair<std::string,std::string>> order;
-    for (const auto& r : results) {
+    // Preserve insertion order
+    std::vector<std::pair<std::string, std::string>> order;
+    for (const auto &r : results) {
         auto key = std::make_pair(r.circuit, r.method);
         if (std::find(order.begin(), order.end(), key) == order.end())
             order.push_back(key);
     }
 
-    for (const auto& key : order) {
-        const auto& p = lookup[key];
-        // Skip if either run failed or is missing
+    std::ofstream f(out);
+    f << "circuit,method,wall_s_multi,rss_delta_KB_multi,wall_s_single,rss_delta_KB_single\n";
+
+    for (const auto &key : order) {
+        const auto &p = lookup[key];
         if (!p.multi || !p.single || !p.multi->success || !p.single->success)
             continue;
-
         f << key.first << "," << key.second << ","
           << std::fixed << std::setprecision(6)
-          << p.multi->wall_s  << ","
-          << (p.multi->rss_after_kb  - p.multi->rss_before_kb)  << ","
-          << p.single->wall_s << ","
-          << (p.single->rss_after_kb - p.single->rss_before_kb) << "\n";
+          << p.multi->wall_s  << "," << (p.multi->rss_after_kb  - p.multi->rss_before_kb)  << ","
+          << p.single->wall_s << "," << (p.single->rss_after_kb - p.single->rss_before_kb) << "\n";
     }
-
-    std::cout << "Summary saved to " << out_path << "\n";
+    std::cout << "Summary  -> " << out << "\n";
 }
 
 // ---------------------------------------------------------------------------
-// Entry point
+// main
 // ---------------------------------------------------------------------------
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <data/extremes/dir>\n";
@@ -296,18 +298,17 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    // Circuit labels (must match what benchmark_extremes.py exported)
-    const std::vector<std::string> labels   = {"win_1", "win_2", "lose_1", "lose_2"};
-    const std::vector<std::string> methods  = {"statevector", "density_matrix", "matrix_product_state"};
-    const std::vector<std::string> modes    = {"multi", "single"};
+    const std::vector<std::string> labels  = {"win_1", "win_2", "lose_1", "lose_2"};
+    const std::vector<std::string> methods = {"statevector", "density_matrix", "matrix_product_state"};
+    const std::vector<std::string> modes   = {"multi", "single"};
 
     std::vector<BenchResult> all_results;
 
-    for (const auto& label : labels) {
+    for (const auto &label : labels) {
         std::cout << "\n=== Circuit: " << label << " ===\n";
 
-        for (const auto& method : methods) {
-            for (const auto& mode : modes) {
+        for (const auto &method : methods) {
+            for (const auto &mode : modes) {
 
                 fs::path json_path = data_dir / (label + "_" + method + "_" + mode + "_qobj.json");
 
@@ -316,29 +317,17 @@ int main(int argc, char* argv[])
                     continue;
                 }
 
-                std::string qobj_str;
-                try {
-                    qobj_str = read_file(json_path);
-                } catch (const std::exception& e) {
-                    std::cerr << "  [ERROR] " << e.what() << "\n";
-                    continue;
-                }
-
-                auto res = run_qobj(label, method, mode, qobj_str);
+                auto res = run_qobj(label, method, mode, json_path);
                 all_results.push_back(res);
 
-                char mark = res.success ? '+' : '-';
                 if (res.success) {
-                    std::cout << "  [" << mark << "] ["
-                              << std::left << std::setw(26) << method
+                    std::cout << "  [+] [" << std::left << std::setw(26) << method
                               << "][" << std::setw(6) << mode << "] "
                               << "wall=" << std::fixed << std::setprecision(4) << res.wall_s << "s  "
                               << "rss_delta=" << (res.rss_after_kb - res.rss_before_kb) << "KB\n";
                 } else {
-                    std::cout << "  [" << mark << "] ["
-                              << std::left << std::setw(26) << method
-                              << "][" << std::setw(6) << mode << "] "
-                              << res.status << "\n";
+                    std::cout << "  [-] [" << std::left << std::setw(26) << method
+                              << "][" << std::setw(6) << mode << "] " << res.status << "\n";
                 }
             }
         }
@@ -346,10 +335,8 @@ int main(int argc, char* argv[])
 
     print_table(all_results);
 
-    fs::path csv_out     = data_dir / "benchmark_extremes_cpp_results.csv";
-    fs::path summary_out = data_dir / "benchmark_extremes_cpp_summary.csv";
-    save_csv(all_results, csv_out);
-    save_summary_csv(all_results, summary_out);
+    save_csv(all_results,         data_dir / "benchmark_extremes_cpp_results.csv");
+    save_summary_csv(all_results, data_dir / "benchmark_extremes_cpp_summary.csv");
 
     return 0;
 }
