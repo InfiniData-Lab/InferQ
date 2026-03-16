@@ -11,7 +11,7 @@
  *  1. Clone qiskit-aer at the same version used by the Python environment:
  *
  *       git clone https://github.com/Qiskit/qiskit-aer.git
- *       cd qiskit-aer && git checkout 0.17.0
+ *       cd qiskit-aer && git checkout 0.17
  *
  *  2. Install its C++ dependencies (OpenBLAS / Accelerate, LAPACK, spdlog).
  *     On macOS with Homebrew:
@@ -67,9 +67,8 @@
 #include <sys/resource.h>
 #include <vector>
 
-// nlohmann/json – bundled inside qiskit-aer source tree
-// (or installed system-wide via brew/apt)
-#include "nlohmann/json.hpp"
+// nlohmann/json – exposed via qiskit-aer's framework wrapper
+#include "framework/json.hpp"
 
 // Aer C++ controller – the single entry-point for all simulation methods
 #include "controllers/aer_controller.hpp"
