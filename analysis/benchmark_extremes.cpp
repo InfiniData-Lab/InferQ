@@ -49,9 +49,9 @@
 #include <sys/resource.h>
 #include <vector>
 
-// Aer headers
+// Aer headers (controller_execute.hpp is intentionally excluded — it pulls in
+// pybind11 which is not needed for a standalone binary)
 #include "controllers/aer_controller.hpp"
-#include "controllers/controller_execute.hpp"
 #include "framework/circuit.hpp"
 #include "framework/config.hpp"
 #include "framework/json.hpp"
@@ -167,12 +167,23 @@ static BenchResult run_qobj(
     AER::Config          config     = make_config(qobj_cfg, method, single_core);
     AER::Noise::NoiseModel noise_model; // empty — no noise
 
+    // Prepare circuits (set_params + set_metadata + seed) — mirrors what
+    // controller_execute<> does internally without needing pybind11
+    uint_t seed = 42, seed_shift = 0;
+    for (auto &circ : circuits) {
+        circ->set_params(config.enable_truncation);
+        circ->set_metadata(config, config.enable_truncation);
+        circ->seed = seed + seed_shift;
+        seed_shift += 2113;
+    }
+
     res.rss_before_kb = peak_rss_kb();
     auto t_start = std::chrono::high_resolution_clock::now();
 
     try {
-        AER::Result result = AER::controller_execute<AER::Controller>(
-            circuits, noise_model, config);
+        AER::Controller controller;
+        controller.set_config(config);
+        AER::Result result = controller.execute(circuits, noise_model, config);
 
         auto t_end        = std::chrono::high_resolution_clock::now();
         res.wall_s        = std::chrono::duration<double>(t_end - t_start).count();
