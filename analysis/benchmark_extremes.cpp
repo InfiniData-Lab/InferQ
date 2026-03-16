@@ -3,7 +3,7 @@
  *
  * Benchmark Qiskit Aer simulation methods directly through the C++ interface.
  * Reads Qobj JSON files produced by benchmark_extremes.py and passes them to
- * AER::AerController, measuring wall time (std::chrono) and peak RSS memory
+ * AER::Controller, measuring wall time (std::chrono) and peak RSS memory
  * (getrusage).
  *
  * ── PREREQUISITES ──────────────────────────────────────────────────────────
@@ -137,9 +137,9 @@ static BenchResult run_qobj(
     auto t_start = std::chrono::high_resolution_clock::now();
 
     try {
-        // AER::AerController::execute() accepts the Qobj JSON as a string
+        // AER::Controller::execute() accepts the Qobj JSON as a string
         // and returns a JSON-serialised Result.
-        AER::AerController controller;
+        AER::Controller controller;
         std::string result_str = controller.execute(qobj_str);
 
         auto t_end   = std::chrono::high_resolution_clock::now();
