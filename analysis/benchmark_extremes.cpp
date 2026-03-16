@@ -110,18 +110,18 @@ static AER::Config make_config(const json_t &qobj_cfg, const std::string &method
     cfg.method = method;
 
     if (qobj_cfg.contains("shots"))
-        cfg.shots = qobj_cfg["shots"].get<uint_t>();
+        cfg.shots = qobj_cfg["shots"].get<uint64_t>();
 
     if (qobj_cfg.contains("memory_slots"))
-        cfg.memory_slots = qobj_cfg["memory_slots"].get<uint_t>();
+        cfg.memory_slots = qobj_cfg["memory_slots"].get<uint64_t>();
 
     if (qobj_cfg.contains("n_qubits"))
-        cfg.n_qubits.value(qobj_cfg["n_qubits"].get<uint_t>());
+        cfg.n_qubits.value(qobj_cfg["n_qubits"].get<uint64_t>());
 
     if (single_core) {
-        cfg.max_parallel_threads.value(1u);
-        cfg.max_parallel_experiments.value(1u);
-        cfg.max_parallel_shots.value(1u);
+        cfg.max_parallel_threads.value((uint64_t)1);
+        cfg.max_parallel_experiments.value((uint64_t)1);
+        cfg.max_parallel_shots.value((uint64_t)1);
     }
 
     return cfg;
@@ -169,7 +169,7 @@ static BenchResult run_qobj(
 
     // Prepare circuits (set_params + set_metadata + seed) — mirrors what
     // controller_execute<> does internally without needing pybind11
-    uint_t seed = 42, seed_shift = 0;
+    uint64_t seed = 42, seed_shift = 0;
     for (auto &circ : circuits) {
         circ->set_params(config.enable_truncation);
         circ->set_metadata(config, config.enable_truncation);
