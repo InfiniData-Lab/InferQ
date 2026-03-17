@@ -544,7 +544,7 @@ def aer_deep_run(qc, label: str) -> List[Dict[str, Any]]:
             t0 = time.perf_counter()
 
             try:
-                job    = sim.run(circ, shots=1024)
+                job    = sim.run(circ)
                 result = job.result()
                 ok     = result.success
                 err    = None if ok else result.status
