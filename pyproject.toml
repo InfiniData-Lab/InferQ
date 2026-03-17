@@ -138,7 +138,7 @@ dependencies = [
 [project.optional-dependencies]
 
 [tool.uv.sources]
-infiniquantumsim = { path = "../infiniquantumsim", editable = true } # Local package dependency: https://anonymous.4open.science/r/Infinidata-rdbms-simulator-2320/README.md
+infiniquantumsim = { path = "../Infinidata-rdbms-simulator/", editable = true } # Local package dependency: https://anonymous.4open.science/r/Infinidata-rdbms-simulator-2320/README.md
 
 [tool.setuptools.packages.find]
 include = ["generators*", "feature_extractors*", "utils*"]
