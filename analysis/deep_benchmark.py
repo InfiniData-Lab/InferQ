@@ -56,11 +56,22 @@ import opt_einsum as oe
 CIRCUITS_DIR = PROJECT_ROOT / "data" / "extremes"
 OUT_JSON     = Path(__file__).resolve().parent / "deep_benchmark_results.json"
 
+# Top-5 qiskit_wins  (SQLite uses ~850× more memory than Qiskit)
+# Top-5 sqlite_wins  (Qiskit uses ~350 000× more tracemalloc than SQLite)
+# — all RowKeys taken from analysis/extremes_results.json —
 CIRCUIT_LABELS: Dict[str, str] = {
-    "130b04bfb38aa8212ee0889dbe6618330a8ffa96612de553b101762cf2c3c2e1": "win_1",
-    "0dcde7369202fa0a6f8a06321c9ce68bed7db53ec61b32cd9e05a21bea0a6786": "win_2",
-    "05b85287a20d10750a9e4fd49c9acdd3d83b51af17c7e085be7805dbc2f3be48": "lose_1",
-    "0036db2f669fb3d4cfcadc6628bd073af51622b260324d1eaa8513ea5bf478a8": "lose_2",
+    # qiskit_wins rank 1-5  (15 qubits, various depths, rz/cz/cx/ry gates)
+    "20c7835540156a373bd0dbab1012b06f99e1d2d6b0079bab55d1073c9714e19f": "qwin_1",
+    "1137d048a20593fd96ca41b3222ada0354ceea8e746f44abb8c0cba99da78d3c": "qwin_2",
+    "0882311d69370df96823919e0afb49dfeee5531cb969e066c900cb9bd8c9c470": "qwin_3",
+    "06e8dbb5cf8ad751288a557373e958906b329f5abe79cddcde8af53216886eac": "qwin_4",
+    "02bc5051e86ad52efe2769a3d876e0b0a5ea2dc03576115c748f155604e99c57": "qwin_5",
+    # sqlite_wins rank 1-5  (2-3 qubits, depth 725-997, single compiled unitary)
+    "05fec6a4208e6b9842a930683ce2f168697dd54229176af898ed6ff78530e0fd": "swin_1",
+    "1db055cd0453e8c75967710154eb273969205be72cc8ba681400fe7842465f21": "swin_2",
+    "19a694b13987a01eed90550b56b3cca1d43dbec7a33ce5096f1da7d256564b27": "swin_3",
+    "0d4a7e2a06d0f98917f068ae9bb056c06f2f26abda6c8bcbf3e3caafa5170ac0": "swin_4",
+    "039af5ea948e8e5ea72f3a986cec186161233f0c8540ff73bb6b726604e60471": "swin_5",
 }
 
 AER_METHODS = [
@@ -580,7 +591,7 @@ def print_summary(all_results: Dict) -> None:
     print("  DEEP BENCHMARK SUMMARY")
     print(f"{'═'*100}")
 
-    for label in ("win_1", "win_2", "lose_1", "lose_2"):
+    for label in CIRCUIT_LABELS.values():
         if label not in all_results:
             continue
         d = all_results[label]
@@ -641,7 +652,7 @@ def explain_qiskit_losses(all_results: Dict) -> Dict:
     for certain circuits.
     """
     notes = {}
-    for label in ("win_1", "win_2", "lose_1", "lose_2"):
+    for label in CIRCUIT_LABELS.values():
         d = all_results.get(label, {})
         sq = d.get("sqlite")
         aer_rows = d.get("aer", [])
@@ -763,7 +774,7 @@ def main() -> None:
 
     all_results: Dict[str, Any] = {}
 
-    for label in ("win_1", "win_2", "lose_1", "lose_2"):
+    for label in CIRCUIT_LABELS.values():
         qc = qiskit_circuits.get(label)
         if qc is None:
             print(f"[WARN] {label} not found, skipping.")
