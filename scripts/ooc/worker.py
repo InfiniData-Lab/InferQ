@@ -1,0 +1,491 @@
+"""Single-engine OOC worker.
+
+Runs one engine (postgres, duckdb, sqlite, or aer) on one circuit N times under
+an already-established memory cap (cgroup for embedded engines, Docker for PG).
+Emits a JSON result for the orchestrator to aggregate. Designed to be invoked
+via `systemd-run --scope --property=MemoryMax=X python -m inferq.ooc.worker ...`.
+
+The process does NOT set its own memory cap — enforcement is external. It just
+runs the work and records what happened.
+"""
+from __future__ import annotations
+
+import argparse
+import gc
+import json
+import os
+import sys
+import threading
+import time
+import tracemalloc
+import traceback
+from pathlib import Path
+from typing import Any, Callable
+
+# Make `InferQ` and the simulator importable whether called as `python worker.py`
+# or `python -m scripts.ooc.worker`.
+REPO_ROOT = Path(__file__).resolve().parents[3]
+INFERQ_ROOT = REPO_ROOT / "InferQ"
+IQS_ROOT = REPO_ROOT / "Infinidata-rdbms-simulator"
+for p in (INFERQ_ROOT, IQS_ROOT):
+    if str(p) not in sys.path:
+        sys.path.insert(0, str(p))
+
+
+def _read_vm_peak_bytes() -> int:
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmPeak:"):
+                    return int(line.split()[1]) * 1024
+    except (FileNotFoundError, OSError):
+        pass
+    return 0
+
+
+def _load_qiskit_circuit(qpy_path: str):
+    from qiskit.qpy import load
+
+    with open(qpy_path, "rb") as f:
+        circuits = load(f)
+    if not circuits:
+        raise RuntimeError(f"no circuit found in {qpy_path}")
+    return circuits[0]
+
+
+def _build_iqs_query(qc) -> tuple[str, int, int]:
+    """Transpile to IQS-supported basis, build the IQS circuit, emit SQL.
+
+    Returns (query, num_qubits, num_gates). Query generation itself is expensive
+    (opt_einsum path finding) but is NOT counted in the timed runs.
+    """
+    from qiskit import transpile
+    from InfiniQuantumSim.TLtensor import QuantumCircuit as IQSQuantumCircuit, Gate as IQSGate
+    from InfiniQuantumSim.utils import INDICES
+
+    transpiled = transpile(qc, basis_gates=["u", "cx", "id", "rz", "sx", "x"], optimization_level=2)
+    num_qubits = transpiled.num_qubits
+    estimated = num_qubits + 3 * len(transpiled.data)
+    if estimated >= len(INDICES):
+        raise RuntimeError(f"circuit exceeds IQS index budget: {estimated} >= {len(INDICES)}")
+
+    iqs = IQSQuantumCircuit(num_qubits=num_qubits)
+    for instr in transpiled.data:
+        op = instr.operation
+        if op.name in ("barrier", "measure"):
+            continue
+        qubits = [transpiled.find_bit(q).index for q in instr.qubits]
+        mat = op.to_matrix()
+        if len(qubits) == 1:
+            tensor = mat
+        elif len(qubits) == 2:
+            tensor = mat.reshape(2, 2, 2, 2)
+        else:
+            raise RuntimeError(f"unsupported {op.name} on {len(qubits)} qubits")
+        gate_name = f"{op.name}_{id(op)}" if op.params else op.name
+        iqs.add_gate(IQSGate(qubits, tensor, name=gate_name, two_qubit_gate=(len(qubits) == 2)))
+
+    return iqs.to_query(complex=True), num_qubits, len(iqs.gates)
+
+
+# ─────────────────── Per-engine run wrappers ────────────────────
+
+def _run_postgres(query: str, args, run_idx: str, result: dict) -> None:
+    import psycopg2
+
+    con = psycopg2.connect(
+        host=args.pg_host, port=args.pg_port,
+        user=args.pg_user, password=args.pg_password, dbname=args.pg_db,
+    )
+    con.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+    cur = con.cursor()
+    try:
+        cur.execute("SET statement_timeout = %s", (args.timeout_seconds * 1000,))
+        cur.execute("SET log_temp_files = 0")
+        explain_q = f"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {query}"
+
+        tic = time.perf_counter()
+        cur.execute(explain_q)
+        plan = cur.fetchone()[0]
+        toc = time.perf_counter()
+
+        temp_written_blocks = _pg_sum_plan(plan, "Temp Written Blocks")
+        temp_read_blocks = _pg_sum_plan(plan, "Temp Read Blocks")
+        exec_time_ms = plan[0].get("Execution Time") if isinstance(plan, list) and plan else None
+        plan_time_ms = plan[0].get("Planning Time") if isinstance(plan, list) and plan else None
+        result.update({
+            "status": "success",
+            "wall_time_s": toc - tic,
+            "pg_execution_time_ms": exec_time_ms,
+            "pg_planning_time_ms": plan_time_ms,
+            "spill_bytes_written": temp_written_blocks * 8192,
+            "spill_bytes_read": temp_read_blocks * 8192,
+        })
+    except psycopg2.errors.QueryCanceled as e:
+        result.update({"status": "timeout", "error": str(e)})
+    except psycopg2.errors.OutOfMemory as e:
+        result.update({"status": "oom_internal", "error": str(e)})
+    except Exception as e:
+        result.update({"status": "error", "error": str(e), "traceback": traceback.format_exc()})
+    finally:
+        try:
+            cur.close(); con.close()
+        except Exception:
+            pass
+
+
+def _pg_sum_plan(plan: Any, key: str) -> int:
+    """Recursively sum a numeric field across a Postgres EXPLAIN JSON plan tree."""
+    total = 0
+    if isinstance(plan, list):
+        for item in plan:
+            total += _pg_sum_plan(item, key)
+    elif isinstance(plan, dict):
+        if key in plan and isinstance(plan[key], (int, float)):
+            total += int(plan[key])
+        for v in plan.values():
+            total += _pg_sum_plan(v, key)
+    return total
+
+
+def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
+    import duckdb
+
+    tmp_dir = Path(args.tmp_root) / f"duckdb_{os.getpid()}_{run_idx}"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    profile_path = tmp_dir / "profile.json"
+
+    con = duckdb.connect()
+    try:
+        con.execute(f"SET memory_limit='{args.cap_gb}GB'")
+        con.execute(f"SET threads={args.threads}")
+        con.execute(f"SET temp_directory='{tmp_dir}'")
+        con.execute("PRAGMA enable_profiling='json'")
+        con.execute(f"PRAGMA profile_output='{profile_path}'")
+
+        timed_out = {"flag": False}
+        def watchdog():
+            time.sleep(args.timeout_seconds)
+            if not finished["flag"]:
+                timed_out["flag"] = True
+                try:
+                    con.interrupt()
+                except Exception:
+                    pass
+        finished = {"flag": False}
+        t = threading.Thread(target=watchdog, daemon=True)
+        t.start()
+
+        tic = time.perf_counter()
+        try:
+            con.execute(query).fetchall()
+            toc = time.perf_counter()
+            finished["flag"] = True
+            if timed_out["flag"]:
+                result.update({"status": "timeout", "wall_time_s": toc - tic})
+                return
+            spill = 0
+            try:
+                profile = json.loads(profile_path.read_text())
+                spill = _duckdb_sum_spill(profile)
+            except Exception:
+                pass
+            result.update({
+                "status": "success",
+                "wall_time_s": toc - tic,
+                "spill_bytes_written": spill,
+            })
+        except duckdb.OutOfMemoryException as e:
+            finished["flag"] = True
+            result.update({"status": "oom_internal", "error": str(e), "wall_time_s": time.perf_counter() - tic})
+        except duckdb.InterruptException as e:
+            finished["flag"] = True
+            result.update({"status": "timeout", "error": str(e), "wall_time_s": time.perf_counter() - tic})
+        except Exception as e:
+            finished["flag"] = True
+            result.update({"status": "error", "error": str(e), "traceback": traceback.format_exc(),
+                           "wall_time_s": time.perf_counter() - tic})
+    finally:
+        try:
+            con.close()
+        except Exception:
+            pass
+
+
+def _duckdb_sum_spill(profile: Any) -> int:
+    """Walk DuckDB profile JSON and sum spill/temp_storage byte counters."""
+    if isinstance(profile, dict):
+        total = 0
+        for k, v in profile.items():
+            if k in ("temporary_storage_bytes", "spilled_bytes", "bytes_spilled_to_disk",
+                    "disk_spill") and isinstance(v, (int, float)):
+                total += int(v)
+            else:
+                total += _duckdb_sum_spill(v)
+        return total
+    if isinstance(profile, list):
+        return sum(_duckdb_sum_spill(x) for x in profile)
+    return 0
+
+
+def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
+    import sqlite3
+
+    tmp_dir = Path(args.tmp_root) / f"sqlite_{os.getpid()}_{run_idx}"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    db_path = tmp_dir / "ooc.db"
+    # SQLite honors SQLITE_TMPDIR / TMPDIR for temp files
+    os.environ["SQLITE_TMPDIR"] = str(tmp_dir)
+    os.environ["TMPDIR"] = str(tmp_dir)
+
+    con = sqlite3.connect(str(db_path))
+    cur = con.cursor()
+    try:
+        # Negative cache_size = KB; use cap/2 as cache budget
+        cur.execute(f"PRAGMA cache_size = -{args.cap_gb * 512 * 1024}")
+        cur.execute("PRAGMA temp_store = FILE")
+        cur.execute(f"PRAGMA temp_store_directory = '{tmp_dir}'")
+    except sqlite3.OperationalError:
+        pass  # temp_store_directory deprecated on newer SQLite
+
+    sampler = _TempDirSampler(tmp_dir, interval_s=0.25)
+    sampler.start()
+
+    timed_out = {"flag": False}
+    def watchdog():
+        time.sleep(args.timeout_seconds)
+        try:
+            con.interrupt()
+            timed_out["flag"] = True
+        except Exception:
+            pass
+    wd = threading.Thread(target=watchdog, daemon=True)
+    wd.start()
+
+    tic = time.perf_counter()
+    try:
+        cur.execute(query).fetchall()
+        con.commit()
+        toc = time.perf_counter()
+        if timed_out["flag"]:
+            result.update({"status": "timeout", "wall_time_s": toc - tic})
+            return
+        sampler.stop()
+        result.update({
+            "status": "success",
+            "wall_time_s": toc - tic,
+            "spill_bytes_written": sampler.peak_bytes,
+        })
+    except sqlite3.OperationalError as e:
+        sampler.stop()
+        msg = str(e).lower()
+        if "interrupted" in msg:
+            result.update({"status": "timeout", "error": str(e)})
+        elif "out of memory" in msg:
+            result.update({"status": "oom_internal", "error": str(e)})
+        else:
+            result.update({"status": "error", "error": str(e)})
+    except Exception as e:
+        sampler.stop()
+        result.update({"status": "error", "error": str(e), "traceback": traceback.format_exc()})
+    finally:
+        try:
+            cur.close(); con.close()
+        except Exception:
+            pass
+
+
+class _TempDirSampler(threading.Thread):
+    def __init__(self, path: Path, interval_s: float = 0.5):
+        super().__init__(daemon=True)
+        self.path = path
+        self.interval = interval_s
+        self.peak_bytes = 0
+        self._stop = threading.Event()
+
+    def run(self):
+        while not self._stop.is_set():
+            try:
+                total = sum(
+                    p.stat().st_size for p in self.path.rglob("*") if p.is_file()
+                )
+                if total > self.peak_bytes:
+                    self.peak_bytes = total
+            except FileNotFoundError:
+                pass
+            self._stop.wait(self.interval)
+
+    def stop(self):
+        self._stop.set()
+        self.join(timeout=2)
+
+
+def _run_aer(qc, args, run_idx: str, result: dict) -> None:
+    from qiskit import transpile
+    from qiskit_aer import AerSimulator
+
+    max_mem_mb = max(1, args.cap_gb * 1024 - args.aer_pad_mb)
+    backend = AerSimulator(
+        method=args.aer_method,
+        max_memory_mb=max_mem_mb,
+        max_parallel_threads=args.threads,
+    )
+    try:
+        qc_saved = qc.copy()
+        # Save the state appropriate for the method so the full simulation runs.
+        if args.aer_method in ("density_matrix",):
+            qc_saved.save_density_matrix()
+        elif args.aer_method in ("stabilizer",):
+            qc_saved.save_stabilizer()
+        else:
+            qc_saved.save_statevector()
+
+        transpiled = transpile(qc_saved, backend)
+
+        tic = time.perf_counter()
+        job = backend.run(transpiled, shots=1)
+        res = job.result(timeout=args.timeout_seconds)
+        toc = time.perf_counter()
+        if res.success:
+            result.update({
+                "status": "success",
+                "wall_time_s": toc - tic,
+                "aer_method_used": args.aer_method,
+                "aer_max_memory_mb": max_mem_mb,
+            })
+        else:
+            status = "oom_internal" if "memory" in (res.status or "").lower() else "error"
+            result.update({
+                "status": status,
+                "error": res.status,
+                "wall_time_s": toc - tic,
+                "aer_method_used": args.aer_method,
+                "aer_max_memory_mb": max_mem_mb,
+            })
+    except Exception as e:
+        msg = str(e).lower()
+        status = "oom_internal" if any(k in msg for k in ("memory", "insufficient")) else "error"
+        result.update({
+            "status": status,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "aer_max_memory_mb": max_mem_mb,
+            "aer_method_used": args.aer_method,
+        })
+
+
+# ─────────────────── Main driver ────────────────────
+
+ENGINE_DISPATCH: dict[str, Callable] = {
+    "postgres": _run_postgres,
+    "duckdb": _run_duckdb,
+    "sqlite": _run_sqlite,
+    "aer": _run_aer,
+}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--engine", choices=list(ENGINE_DISPATCH), required=True)
+    ap.add_argument("--cap-gb", type=int, required=True)
+    ap.add_argument("--circuit-qpy", type=str, required=True)
+    ap.add_argument("--circuit-hash", type=str, required=True)
+    ap.add_argument("--bin", type=str, default="")
+    ap.add_argument("--out-path", type=str, required=True)
+    ap.add_argument("--n-runs", type=int, default=3)
+    ap.add_argument("--warmup", type=int, default=1)
+    ap.add_argument("--timeout-seconds", type=int, default=1800)
+    ap.add_argument("--tmp-root", type=str, default="/tmp/inferq_ooc")
+    ap.add_argument("--threads", type=int, default=16)
+    # Postgres-specific
+    ap.add_argument("--pg-host", default=os.getenv("POSTGRES_HOST", "localhost"))
+    ap.add_argument("--pg-port", type=int, default=int(os.getenv("POSTGRES_PORT", "54320")))
+    ap.add_argument("--pg-user", default=os.getenv("POSTGRES_USER", "postgres"))
+    ap.add_argument("--pg-password", default=os.getenv("POSTGRES_PASSWORD", "postgres"))
+    ap.add_argument("--pg-db", default=os.getenv("POSTGRES_DB", "postgres"))
+    # Aer-specific
+    ap.add_argument("--aer-method", default="statevector")
+    ap.add_argument("--aer-pad-mb", type=int, default=512)
+    args = ap.parse_args()
+
+    Path(args.tmp_root).mkdir(parents=True, exist_ok=True)
+
+    envelope: dict = {
+        "engine": args.engine,
+        "cap_gb": args.cap_gb,
+        "circuit_hash": args.circuit_hash,
+        "circuit_qpy": args.circuit_qpy,
+        "bin": args.bin,
+        "aer_method": args.aer_method if args.engine == "aer" else None,
+        "host": os.uname().nodename if hasattr(os, "uname") else "",
+        "pid": os.getpid(),
+        "started_at": time.time(),
+        "runs": [],
+    }
+
+    try:
+        qc = _load_qiskit_circuit(args.circuit_qpy)
+        envelope["num_qubits"] = qc.num_qubits
+        envelope["num_gates"] = qc.size()
+
+        query = None
+        if args.engine in ("postgres", "duckdb", "sqlite"):
+            qgen_tic = time.perf_counter()
+            query, num_q, num_g = _build_iqs_query(qc)
+            envelope["query_gen_time_s"] = time.perf_counter() - qgen_tic
+            envelope["num_qubits"] = num_q
+            envelope["num_gates"] = num_g
+            envelope["query_bytes"] = len(query)
+
+        runner = ENGINE_DISPATCH[args.engine]
+
+        labels = ["warmup"] * args.warmup + [str(i) for i in range(args.n_runs)]
+        tracemalloc.start()
+        for run_idx in labels:
+            gc.collect()
+            tracemalloc.clear_traces()
+            run_result: dict = {"run_idx": run_idx}
+            mem_tic, _ = tracemalloc.get_traced_memory()
+            if args.engine == "aer":
+                runner(qc, args, run_idx, run_result)
+            else:
+                runner(query, args, run_idx, run_result)
+            _, mem_toc = tracemalloc.get_traced_memory()
+            run_result["tracemalloc_peak_bytes"] = mem_toc - mem_tic
+            run_result["proc_vm_peak_bytes"] = _read_vm_peak_bytes()
+            envelope["runs"].append(run_result)
+
+            # Abort early if warm-up and first run both failed hard.
+            if run_idx != "warmup" and run_result.get("status") in ("oom_internal",):
+                # Don't keep trying an engine the OS/DB already said it can't do.
+                break
+        tracemalloc.stop()
+
+        envelope["status"] = _summarize_status(envelope["runs"])
+    except Exception as e:
+        envelope["status"] = "error"
+        envelope["error"] = str(e)
+        envelope["traceback"] = traceback.format_exc()
+    finally:
+        envelope["finished_at"] = time.time()
+
+    Path(args.out_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.out_path).write_text(json.dumps(envelope, default=str))
+
+
+def _summarize_status(runs: list[dict]) -> str:
+    timed = [r for r in runs if r["run_idx"] != "warmup"]
+    if not timed:
+        return "no_runs"
+    statuses = {r.get("status") for r in timed}
+    if statuses == {"success"}:
+        return "success"
+    if "oom_internal" in statuses:
+        return "oom_internal"
+    if "timeout" in statuses:
+        return "timeout"
+    return "error"
+
+
+if __name__ == "__main__":
+    main()

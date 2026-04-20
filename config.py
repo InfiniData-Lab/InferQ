@@ -95,6 +95,41 @@ class PipelineConfig:
         }
     }
 
+    # Out-of-Core / Limited-Memory Experiments (SIGMOD revision E1)
+    # Memory caps enforced via cgroups v2 (systemd-run) for embedded engines
+    # and Docker --memory for PostgreSQL. See scripts/ooc/README.md.
+    OOC = {
+        "caps_gb": [16, 8, 4],            # Memory caps to sweep; baseline comes from prior unconstrained runs
+        "engines": ["postgres", "duckdb", "sqlite", "aer"],
+        "n_runs": 3,                        # Timed runs per (circuit, cap, engine)
+        "warmup_runs": 1,                  # Discarded warm-up runs before timed runs
+        "timeout_seconds": 1800,            # 30 min per run
+        "drop_page_cache": True,            # sync + echo 3 > /proc/sys/vm/drop_caches between runs
+        "tmp_root": "/tmp/inferq_ooc",    # Dir for DuckDB/SQLite temp files (must be on NVMe)
+        "results_dir": "scripts/ooc/results",
+        "circuits_manifest": "data/ooc/circuits.jsonl",
+        # Per-bin circuit counts for stratified sampling (see select_circuits.py).
+        # Bins are by QUBIT COUNT, not by prior tracemalloc memory — tracemalloc
+        # only sees Python heap, so the published metadata underestimates true
+        # footprint by 10-100x. Qubit count directly predicts Aer statevector
+        # memory (2^N * 16 B) and is the cleanest OOM-threshold proxy available.
+        #   B0 ≤24q  : baseline, Aer fits trivially at every cap
+        #   B1 25-27q: ≤2 GB Aer; all caps survive Aer
+        #   B2 28-29q: 4-8 GB Aer; fails at cap=4, survives at 8/16
+        #   B3 30q   : 16 GB Aer; fails at caps 4 and 8, survives at 16
+        #   B4 ≥31q  : 32+ GB Aer; fails at every cap we test (headline)
+        "bin_edges_qubits": [25, 28, 30, 31],    # cut points between B0..B4
+        "circuits_per_bin": 20,
+        "pilot_circuits_per_bin": 5,
+        # Postgres Docker
+        "postgres_image": "postgres:16",
+        "postgres_host_port": 54320,
+        # Aer method sweep — ordered by increasing cost; worker runs each and records per-method status
+        "aer_methods": ["automatic", "statevector", "MPS", "density_matrix", "stabilizer"],
+        # Pad Aer's internal max_memory_mb below the cgroup cap to let Aer raise before OOM-kill
+        "aer_max_memory_pad_mb": 512,
+    }
+
     # Storage Configuration
     STORAGE = {
         "local_circuits_dir": "circuits",
@@ -262,6 +297,27 @@ class PipelineConfig:
             ),
         }
 
+    def get_ooc_config(self):
+        """Get out-of-core experiment configuration with env overrides."""
+        cfg = dict(self.OOC)
+        caps_env = os.getenv("OOC_CAPS_GB")
+        if caps_env:
+            cfg["caps_gb"] = [int(x) for x in caps_env.split(",") if x.strip()]
+        engines_env = os.getenv("OOC_ENGINES")
+        if engines_env:
+            cfg["engines"] = [x.strip() for x in engines_env.split(",") if x.strip()]
+        cfg["n_runs"] = self.get_env_or_default("OOC_N_RUNS", cfg["n_runs"], int)
+        cfg["warmup_runs"] = self.get_env_or_default("OOC_WARMUP", cfg["warmup_runs"], int)
+        cfg["timeout_seconds"] = self.get_env_or_default("OOC_TIMEOUT", cfg["timeout_seconds"], int)
+        cfg["drop_page_cache"] = self.get_env_or_default("OOC_DROP_CACHE", cfg["drop_page_cache"], bool)
+        cfg["tmp_root"] = self.get_env_or_default("OOC_TMP_ROOT", cfg["tmp_root"])
+        cfg["results_dir"] = self.get_env_or_default("OOC_RESULTS_DIR", cfg["results_dir"])
+        cfg["circuits_manifest"] = self.get_env_or_default("OOC_MANIFEST", cfg["circuits_manifest"])
+        cfg["circuits_per_bin"] = self.get_env_or_default("OOC_PER_BIN", cfg["circuits_per_bin"], int)
+        cfg["postgres_image"] = self.get_env_or_default("OOC_PG_IMAGE", cfg["postgres_image"])
+        cfg["postgres_host_port"] = self.get_env_or_default("OOC_PG_PORT", cfg["postgres_host_port"], int)
+        return cfg
+
     def get_azure_config(self):
         """Get Azure configuration."""
         return {
@@ -357,6 +413,11 @@ def get_storage_config():
 def get_azure_config():
     """Get Azure configuration."""
     return config.get_azure_config()
+
+
+def get_ooc_config():
+    """Get out-of-core experiment configuration."""
+    return config.get_ooc_config()
 
 
 if __name__ == "__main__":
