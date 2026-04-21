@@ -49,10 +49,12 @@ def _read_own_cgroup_v2() -> dict:
                     if not cg.exists():
                         break
                     result["cgroup_path"] = str(cg)
-                    try:
-                        result["cgroup_mem_peak_bytes"] = int((cg / "memory.peak").read_text().strip())
-                    except Exception:
-                        pass
+                    for mem_file in ("memory.peak", "memory.max_usage_in_bytes", "memory.current"):
+                        try:
+                            result["cgroup_mem_peak_bytes"] = int((cg / mem_file).read_text().strip())
+                            break
+                        except Exception:
+                            pass
                     try:
                         result["cgroup_swap_peak_bytes"] = int((cg / "memory.swap.peak").read_text().strip())
                     except Exception:

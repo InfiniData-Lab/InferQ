@@ -53,10 +53,24 @@ def _parse_io_stat(path: Path) -> tuple[int, int]:
 
 
 def read_cgroup(cgroup_path: Path) -> CgroupSnapshot:
-    """Read peak memory and cumulative I/O counters from a cgroup v2 path."""
+    """Read peak memory and cumulative I/O counters from a cgroup v2 path.
+
+    memory.peak was added in kernel 5.19. On older kernels falls back to
+    memory.max_usage_in_bytes (cgroup v1 hybrid) then memory.current.
+    """
+    mem_peak = _read_int(cgroup_path / "memory.peak")
+    if mem_peak == 0:
+        mem_peak = _read_int(cgroup_path / "memory.max_usage_in_bytes")
+    if mem_peak == 0:
+        mem_peak = _read_int(cgroup_path / "memory.current")
+
+    swap_peak = _read_int(cgroup_path / "memory.swap.peak")
+    if swap_peak == 0:
+        swap_peak = _read_int(cgroup_path / "memory.memsw.max_usage_in_bytes")
+
     return CgroupSnapshot(
-        memory_peak_bytes=_read_int(cgroup_path / "memory.peak"),
-        memory_swap_peak_bytes=_read_int(cgroup_path / "memory.swap.peak"),
+        memory_peak_bytes=mem_peak,
+        memory_swap_peak_bytes=swap_peak,
         io_read_bytes=_parse_io_stat(cgroup_path / "io.stat")[0],
         io_write_bytes=_parse_io_stat(cgroup_path / "io.stat")[1],
         cgroup_path=str(cgroup_path),

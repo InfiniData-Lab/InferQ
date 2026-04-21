@@ -293,7 +293,7 @@ def run_one(
         # so the orchestrator-side lookup returns None. Use the worker-reported values instead.
         if cg is None and not dry_run:
             wc = envelope.get("cgroup", {})
-            if wc.get("cgroup_mem_peak_bytes"):
+            if wc.get("cgroup_mem_peak_bytes") is not None:
                 cg = cgroup_metrics.CgroupSnapshot(
                     memory_peak_bytes=wc.get("cgroup_mem_peak_bytes", 0),
                     memory_swap_peak_bytes=wc.get("cgroup_swap_peak_bytes", 0),
