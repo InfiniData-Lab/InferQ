@@ -32,6 +32,51 @@ for p in (INFERQ_ROOT, IQS_ROOT):
         sys.path.insert(0, str(p))
 
 
+def _read_own_cgroup_v2() -> dict:
+    """Read cgroup v2 memory/IO counters for this process from inside the scope.
+
+    Called just before the worker exits so the cgroup directory still exists.
+    Returns a dict with cgroup_mem_peak_bytes, cgroup_swap_peak_bytes,
+    cgroup_io_read_bytes, cgroup_io_write_bytes (all best-effort; missing keys on error).
+    """
+    result: dict = {}
+    try:
+        with open("/proc/self/cgroup") as f:
+            for line in f:
+                parts = line.strip().split(":", 2)
+                if len(parts) == 3 and parts[0] == "0" and parts[2]:
+                    cg = Path("/sys/fs/cgroup") / parts[2].lstrip("/")
+                    if not cg.exists():
+                        break
+                    result["cgroup_path"] = str(cg)
+                    try:
+                        result["cgroup_mem_peak_bytes"] = int((cg / "memory.peak").read_text().strip())
+                    except Exception:
+                        pass
+                    try:
+                        result["cgroup_swap_peak_bytes"] = int((cg / "memory.swap.peak").read_text().strip())
+                    except Exception:
+                        pass
+                    try:
+                        rb = wb = 0
+                        for io_line in (cg / "io.stat").read_text().splitlines():
+                            for field in io_line.split()[1:]:
+                                if "=" in field:
+                                    k, v = field.split("=", 1)
+                                    if k == "rbytes":
+                                        rb += int(v)
+                                    elif k == "wbytes":
+                                        wb += int(v)
+                        result["cgroup_io_read_bytes"] = rb
+                        result["cgroup_io_write_bytes"] = wb
+                    except Exception:
+                        pass
+                    break
+    except Exception:
+        pass
+    return result
+
+
 def _read_vm_peak_bytes() -> int:
     try:
         with open("/proc/self/status") as f:
@@ -468,6 +513,7 @@ def main():
         envelope["traceback"] = traceback.format_exc()
     finally:
         envelope["finished_at"] = time.time()
+        envelope["cgroup"] = _read_own_cgroup_v2()
 
     Path(args.out_path).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out_path).write_text(json.dumps(envelope, default=str))

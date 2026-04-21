@@ -288,6 +288,19 @@ def run_one(
                     "runs": [],
                 }
         cg = cgroup_snapshot_for(engine, scope_unit, container_id) if not dry_run else None
+        # Fallback: worker reads its own cgroup from inside the scope before exiting.
+        # The scope directory is already gone by the time we get here for embedded engines,
+        # so the orchestrator-side lookup returns None. Use the worker-reported values instead.
+        if cg is None and not dry_run:
+            wc = envelope.get("cgroup", {})
+            if wc.get("cgroup_mem_peak_bytes"):
+                cg = cgroup_metrics.CgroupSnapshot(
+                    memory_peak_bytes=wc.get("cgroup_mem_peak_bytes", 0),
+                    memory_swap_peak_bytes=wc.get("cgroup_swap_peak_bytes", 0),
+                    io_read_bytes=wc.get("cgroup_io_read_bytes", 0),
+                    io_write_bytes=wc.get("cgroup_io_write_bytes", 0),
+                    cgroup_path=wc.get("cgroup_path", ""),
+                )
         emit_rows(writer, circuit, envelope, engine, cap_gb, method, cg,
                   scope_unit, container_id)
     finally:
