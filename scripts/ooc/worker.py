@@ -133,6 +133,37 @@ def _build_iqs_query(qc) -> tuple[str, int, int]:
     return iqs.to_query(complex=True), num_qubits, len(iqs.gates)
 
 
+def _build_iqs_query_with_timeout(qc, timeout_seconds: int) -> tuple[str, int, int]:
+    """Run _build_iqs_query in a daemon thread with a wall-clock deadline.
+
+    opt_einsum path-finding inside to_query() has no internal timeout and can
+    hang for hours on certain circuit structures. The daemon thread is abandoned
+    if it exceeds the deadline (Python threads are not killable), but it will be
+    reaped when the worker process exits.
+    """
+    result: dict = {}
+    exc_holder: dict = {}
+
+    def _run():
+        try:
+            result["out"] = _build_iqs_query(qc)
+        except Exception as e:
+            exc_holder["exc"] = e
+            exc_holder["tb"] = traceback.format_exc()
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=timeout_seconds)
+
+    if t.is_alive():
+        raise TimeoutError(
+            f"query generation timed out after {timeout_seconds}s (opt_einsum path-finding)"
+        )
+    if "exc" in exc_holder:
+        raise exc_holder["exc"]
+    return result["out"]
+
+
 # ─────────────────── Per-engine run wrappers ────────────────────
 
 def _run_postgres(query: str, args, run_idx: str, result: dict) -> None:
@@ -196,6 +227,8 @@ def _pg_sum_plan(plan: Any, key: str) -> int:
 def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
     import duckdb
 
+    _GRACE_S = 30  # seconds to wait after interrupt before giving up
+
     tmp_dir = Path(args.tmp_root) / f"duckdb_{os.getpid()}_{run_idx}"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     profile_path = tmp_dir / "profile.json"
@@ -207,54 +240,72 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
         con.execute(f"SET temp_directory='{tmp_dir}'")
         con.execute("PRAGMA enable_profiling='json'")
         con.execute(f"PRAGMA profile_output='{profile_path}'")
+    except Exception as e:
+        try:
+            con.close()
+        except Exception:
+            pass
+        result.update({"status": "error", "error": str(e)})
+        return
 
-        timed_out = {"flag": False}
-        def watchdog():
-            time.sleep(args.timeout_seconds)
-            if not finished["flag"]:
-                timed_out["flag"] = True
-                try:
-                    con.interrupt()
-                except Exception:
-                    pass
-        finished = {"flag": False}
-        t = threading.Thread(target=watchdog, daemon=True)
-        t.start()
+    run_result: dict = {}
+    tic_holder: list = []
 
+    def _execute():
         tic = time.perf_counter()
+        tic_holder.append(tic)
         try:
             con.execute(query).fetchall()
             toc = time.perf_counter()
-            finished["flag"] = True
-            if timed_out["flag"]:
-                result.update({"status": "timeout", "wall_time_s": toc - tic})
-                return
             spill = 0
             try:
                 profile = json.loads(profile_path.read_text())
                 spill = _duckdb_sum_spill(profile)
             except Exception:
                 pass
-            result.update({
+            run_result.update({
                 "status": "success",
                 "wall_time_s": toc - tic,
                 "spill_bytes_written": spill,
             })
         except duckdb.OutOfMemoryException as e:
-            finished["flag"] = True
-            result.update({"status": "oom_internal", "error": str(e), "wall_time_s": time.perf_counter() - tic})
+            run_result.update({"status": "oom_internal", "error": str(e),
+                               "wall_time_s": time.perf_counter() - tic})
         except duckdb.InterruptException as e:
-            finished["flag"] = True
-            result.update({"status": "timeout", "error": str(e), "wall_time_s": time.perf_counter() - tic})
+            run_result.update({"status": "timeout", "error": str(e),
+                               "wall_time_s": time.perf_counter() - tic})
         except Exception as e:
-            finished["flag"] = True
-            result.update({"status": "error", "error": str(e), "traceback": traceback.format_exc(),
-                           "wall_time_s": time.perf_counter() - tic})
-    finally:
+            run_result.update({"status": "error", "error": str(e),
+                               "traceback": traceback.format_exc(),
+                               "wall_time_s": time.perf_counter() - tic})
+        finally:
+            try:
+                con.close()
+            except Exception:
+                pass
+
+    t = threading.Thread(target=_execute, daemon=True)
+    t.start()
+    t.join(timeout=args.timeout_seconds)
+
+    if t.is_alive():
+        # Query exceeded per-run timeout. Interrupt, then give a grace period.
+        # con.interrupt() is asynchronous; _GRACE_S lets DuckDB honour it cleanly.
+        # If the thread is still alive after the grace period we record a synthetic
+        # timeout and return — the daemon thread will be reaped on process exit.
         try:
-            con.close()
+            con.interrupt()
         except Exception:
             pass
+        t.join(timeout=_GRACE_S)
+        elapsed = time.perf_counter() - (tic_holder[0] if tic_holder else time.perf_counter())
+        if t.is_alive():
+            result.update({"status": "timeout", "wall_time_s": elapsed})
+        else:
+            result.update(run_result or {"status": "timeout", "wall_time_s": elapsed})
+        return
+
+    result.update(run_result)
 
 
 def _duckdb_sum_spill(profile: Any) -> int:
@@ -476,7 +527,7 @@ def main():
         query = None
         if args.engine in ("postgres", "duckdb", "sqlite"):
             qgen_tic = time.perf_counter()
-            query, num_q, num_g = _build_iqs_query(qc)
+            query, num_q, num_g = _build_iqs_query_with_timeout(qc, args.timeout_seconds)
             envelope["query_gen_time_s"] = time.perf_counter() - qgen_tic
             envelope["num_qubits"] = num_q
             envelope["num_gates"] = num_g
@@ -507,6 +558,9 @@ def main():
         tracemalloc.stop()
 
         envelope["status"] = _summarize_status(envelope["runs"])
+    except TimeoutError as e:
+        envelope["status"] = "query_gen_timeout"
+        envelope["error"] = str(e)
     except Exception as e:
         envelope["status"] = "error"
         envelope["error"] = str(e)
