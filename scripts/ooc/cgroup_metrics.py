@@ -13,7 +13,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-CGROUP_ROOT = Path("/sys/fs/cgroup")
+# On hybrid cgroup systems the v2 unified hierarchy is mounted at
+# /sys/fs/cgroup/unified, not at /sys/fs/cgroup (which is a plain tmpfs).
+# Detect at import time so all helpers use the right root.
+def _detect_cgroup_v2_root() -> Path:
+    try:
+        with open("/proc/mounts") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 3 and parts[2] == "cgroup2":
+                    return Path(parts[1])
+    except Exception:
+        pass
+    return Path("/sys/fs/cgroup")
+
+CGROUP_ROOT = _detect_cgroup_v2_root()
+CGROUP_V1_MEM_ROOT = Path("/sys/fs/cgroup/memory")
 
 
 @dataclass
@@ -53,20 +68,28 @@ def _parse_io_stat(path: Path) -> tuple[int, int]:
 
 
 def read_cgroup(cgroup_path: Path) -> CgroupSnapshot:
-    """Read peak memory and cumulative I/O counters from a cgroup v2 path.
+    """Read peak memory and cumulative I/O counters from a cgroup path.
 
-    memory.peak was added in kernel 5.19. On older kernels falls back to
-    memory.max_usage_in_bytes (cgroup v1 hybrid) then memory.current.
+    Handles both cgroup v1 memory paths (/sys/fs/cgroup/memory/...) and
+    cgroup v2 unified paths. On v1, memory.max_usage_in_bytes gives true peak.
+    On v2, memory.peak (kernel ≥5.19) or memory.current is used.
     """
-    # memory.peak added in kernel 5.19; fall back to instantaneous memory.current
-    # on older kernels. proc_vm_peak_bytes (VmPeak) is the reliable peak metric
-    # on systems without memory.peak.
+    is_v1_mem = str(cgroup_path).startswith(str(CGROUP_V1_MEM_ROOT))
+    if is_v1_mem:
+        mem_peak = _read_int(cgroup_path / "memory.max_usage_in_bytes")
+        swap_peak = _read_int(cgroup_path / "memory.memsw.max_usage_in_bytes")
+        return CgroupSnapshot(
+            memory_peak_bytes=mem_peak,
+            memory_swap_peak_bytes=swap_peak,
+            io_read_bytes=0,
+            io_write_bytes=0,
+            cgroup_path=str(cgroup_path),
+        )
+
     mem_peak = _read_int(cgroup_path / "memory.peak")
     if mem_peak == 0:
         mem_peak = _read_int(cgroup_path / "memory.current")
-
     swap_peak = _read_int(cgroup_path / "memory.swap.peak")
-
     return CgroupSnapshot(
         memory_peak_bytes=mem_peak,
         memory_swap_peak_bytes=swap_peak,
@@ -79,21 +102,22 @@ def read_cgroup(cgroup_path: Path) -> CgroupSnapshot:
 def find_systemd_scope_cgroup(unit_name: str) -> Optional[Path]:
     """Find cgroup path for a systemd-run --user --scope unit.
 
-    Tries the user-slice path first (scope created with --user), falls back to
-    system.slice. Returns None if not found.
+    Checks the cgroup v1 memory hierarchy first (gives true peak via
+    memory.max_usage_in_bytes), then the v2 unified root.
     """
     uid = os.getuid()
-    candidates = [
-        CGROUP_ROOT / f"user.slice/user-{uid}.slice/user@{uid}.service/app.slice/{unit_name}",
-        CGROUP_ROOT / f"user.slice/user-{uid}.slice/user@{uid}.service/{unit_name}",
-        CGROUP_ROOT / f"system.slice/{unit_name}",
-    ]
-    for c in candidates:
-        if c.exists():
-            return c
-    # Last-resort: glob for the scope unit anywhere under cgroup root.
-    if CGROUP_ROOT.exists():
-        matches = list(CGROUP_ROOT.rglob(unit_name))
+    for root in (CGROUP_V1_MEM_ROOT, CGROUP_ROOT):
+        if not root.exists():
+            continue
+        candidates = [
+            root / f"user.slice/user-{uid}.slice/user@{uid}.service/app.slice/{unit_name}",
+            root / f"user.slice/user-{uid}.slice/user@{uid}.service/{unit_name}",
+            root / f"system.slice/{unit_name}",
+        ]
+        for c in candidates:
+            if c.exists():
+                return c
+        matches = list(root.rglob(unit_name))
         if matches:
             return matches[0]
     return None

@@ -33,47 +33,84 @@ for p in (INFERQ_ROOT, IQS_ROOT):
 
 
 def _read_own_cgroup_v2() -> dict:
-    """Read cgroup v2 memory/IO counters for this process from inside the scope.
+    """Read cgroup memory/IO counters for this process from inside the scope.
+
+    Handles hybrid cgroup systems where cgroup v1 controllers (memory at
+    /sys/fs/cgroup/memory/) coexist with cgroup v2 unified (at
+    /sys/fs/cgroup/unified/ or /sys/fs/cgroup/). Parses /proc/self/cgroup to
+    find the correct path for each hierarchy.
 
     Called just before the worker exits so the cgroup directory still exists.
-    Returns a dict with cgroup_mem_peak_bytes, cgroup_swap_peak_bytes,
-    cgroup_io_read_bytes, cgroup_io_write_bytes (all best-effort; missing keys on error).
     """
     result: dict = {}
     try:
+        v1_mem_path: Path | None = None
+        v2_path: Path | None = None
+
         with open("/proc/self/cgroup") as f:
             for line in f:
                 parts = line.strip().split(":", 2)
-                if len(parts) == 3 and parts[0] == "0" and parts[2]:
-                    cg = Path("/sys/fs/cgroup") / parts[2].lstrip("/")
-                    if not cg.exists():
-                        break
-                    result["cgroup_path"] = str(cg)
-                    for mem_file in ("memory.peak", "memory.current"):
-                        try:
-                            result["cgroup_mem_peak_bytes"] = int((cg / mem_file).read_text().strip())
+                if len(parts) != 3 or not parts[2]:
+                    continue
+                rel = parts[2].lstrip("/")
+                if parts[0] == "0":
+                    # cgroup v2 unified — may be at /unified on hybrid systems
+                    for v2_root in (Path("/sys/fs/cgroup/unified"), Path("/sys/fs/cgroup")):
+                        candidate = v2_root / rel
+                        if candidate.exists():
+                            v2_path = candidate
                             break
-                        except Exception:
-                            pass
-                    try:
-                        result["cgroup_swap_peak_bytes"] = int((cg / "memory.swap.peak").read_text().strip())
-                    except Exception:
-                        pass
-                    try:
-                        rb = wb = 0
-                        for io_line in (cg / "io.stat").read_text().splitlines():
-                            for field in io_line.split()[1:]:
-                                if "=" in field:
-                                    k, v = field.split("=", 1)
-                                    if k == "rbytes":
-                                        rb += int(v)
-                                    elif k == "wbytes":
-                                        wb += int(v)
-                        result["cgroup_io_read_bytes"] = rb
-                        result["cgroup_io_write_bytes"] = wb
-                    except Exception:
-                        pass
+                elif "memory" in parts[1].split(","):
+                    # cgroup v1 memory controller
+                    candidate = Path("/sys/fs/cgroup/memory") / rel
+                    if candidate.exists():
+                        v1_mem_path = candidate
+
+        # Memory peak: v1 memory.max_usage_in_bytes is the true peak and works on
+        # all kernel versions; fall back to v2 memory.peak (≥5.19) or memory.current.
+        if v1_mem_path is not None:
+            result["cgroup_path"] = str(v1_mem_path)
+            try:
+                result["cgroup_mem_peak_bytes"] = int(
+                    (v1_mem_path / "memory.max_usage_in_bytes").read_text().strip()
+                )
+            except Exception:
+                pass
+            try:
+                result["cgroup_swap_peak_bytes"] = int(
+                    (v1_mem_path / "memory.memsw.max_usage_in_bytes").read_text().strip()
+                )
+            except Exception:
+                pass
+        elif v2_path is not None:
+            result["cgroup_path"] = str(v2_path)
+            for mem_file in ("memory.peak", "memory.current"):
+                try:
+                    result["cgroup_mem_peak_bytes"] = int((v2_path / mem_file).read_text().strip())
                     break
+                except Exception:
+                    pass
+            try:
+                result["cgroup_swap_peak_bytes"] = int((v2_path / "memory.swap.peak").read_text().strip())
+            except Exception:
+                pass
+
+        # IO from v2 unified io.stat (blkio v1 is harder to parse; skip for now)
+        if v2_path is not None:
+            try:
+                rb = wb = 0
+                for io_line in (v2_path / "io.stat").read_text().splitlines():
+                    for field in io_line.split()[1:]:
+                        if "=" in field:
+                            k, v = field.split("=", 1)
+                            if k == "rbytes":
+                                rb += int(v)
+                            elif k == "wbytes":
+                                wb += int(v)
+                result["cgroup_io_read_bytes"] = rb
+                result["cgroup_io_write_bytes"] = wb
+            except Exception:
+                pass
     except Exception:
         pass
     return result
