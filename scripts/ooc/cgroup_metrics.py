@@ -58,15 +58,14 @@ def read_cgroup(cgroup_path: Path) -> CgroupSnapshot:
     memory.peak was added in kernel 5.19. On older kernels falls back to
     memory.max_usage_in_bytes (cgroup v1 hybrid) then memory.current.
     """
+    # memory.peak added in kernel 5.19; fall back to instantaneous memory.current
+    # on older kernels. proc_vm_peak_bytes (VmPeak) is the reliable peak metric
+    # on systems without memory.peak.
     mem_peak = _read_int(cgroup_path / "memory.peak")
-    if mem_peak == 0:
-        mem_peak = _read_int(cgroup_path / "memory.max_usage_in_bytes")
     if mem_peak == 0:
         mem_peak = _read_int(cgroup_path / "memory.current")
 
     swap_peak = _read_int(cgroup_path / "memory.swap.peak")
-    if swap_peak == 0:
-        swap_peak = _read_int(cgroup_path / "memory.memsw.max_usage_in_bytes")
 
     return CgroupSnapshot(
         memory_peak_bytes=mem_peak,

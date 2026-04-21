@@ -49,7 +49,7 @@ def _read_own_cgroup_v2() -> dict:
                     if not cg.exists():
                         break
                     result["cgroup_path"] = str(cg)
-                    for mem_file in ("memory.peak", "memory.max_usage_in_bytes", "memory.current"):
+                    for mem_file in ("memory.peak", "memory.current"):
                         try:
                             result["cgroup_mem_peak_bytes"] = int((cg / mem_file).read_text().strip())
                             break
