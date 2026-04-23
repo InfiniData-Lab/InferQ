@@ -82,7 +82,7 @@ def start_pg_container(cap_gb: int, image: str, host_port: int, name: str,
                         ready_timeout: int = 60) -> str:
     """Start a fresh Postgres container with memory cap. Returns container id."""
     cmd = [
-        "docker", "run", "-d", "--rm",
+        "docker", "run", "-d",  # no --rm: we need logs if it crashes before ready
         "--name", name,
         "--memory", f"{cap_gb}g", "--memory-swap", f"{cap_gb}g",
         "--memory-swappiness", "0",
