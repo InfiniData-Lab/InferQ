@@ -95,16 +95,26 @@ def start_pg_container(cap_gb: int, image: str, host_port: int, name: str,
     # Wait for PG to accept connections.
     deadline = time.time() + ready_timeout
     while time.time() < deadline:
+        # Step 1: TCP port open?
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(1.0)
             try:
                 s.connect(("127.0.0.1", host_port))
-                # Verify it's actually Postgres, not a half-up container, by
-                # trying a simple SELECT via psycopg2 (pg_isready would also work).
-                time.sleep(0.5)
-                return cid
             except (ConnectionRefusedError, OSError):
                 time.sleep(0.5)
+                continue
+        # Step 2: Postgres protocol ready? (TCP open ≠ PG accepting queries.)
+        try:
+            import psycopg2
+            test_con = psycopg2.connect(
+                host="127.0.0.1", port=host_port,
+                user="postgres", password="postgres",
+                dbname="postgres", connect_timeout=2,
+            )
+            test_con.close()
+            return cid
+        except Exception:
+            time.sleep(0.5)
     # Timed out — grab logs for debugging before failing.
     logs = subprocess.run(["docker", "logs", "--tail=40", cid], text=True,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout
@@ -329,11 +339,16 @@ def main():
                     help="Run worker directly (no cgroup cap) — for smoke tests off-Linux")
     ap.add_argument("--resume", action="store_true",
                     help="Skip (circuit, cap, engine, method) triples already in results-csv")
+    ap.add_argument("--rerun-statuses", type=str, default="",
+                    help="Comma-separated statuses to re-run even when already in the CSV "
+                         "(e.g. 'error,pg_startup_failed'). Matching rows are stripped from "
+                         "the CSV before the run so results stay clean.")
     args = ap.parse_args()
 
     caps = [int(x) for x in args.caps_gb.split(",") if x.strip()]
     engines = [x.strip() for x in args.engines.split(",") if x.strip()]
     aer_methods = [x.strip() for x in args.aer_methods.split(",") if x.strip()]
+    rerun_statuses: set[str] = {s.strip() for s in args.rerun_statuses.split(",") if s.strip()}
 
     entries = load_manifest(args.manifest)
     print(f"[run] {len(entries)} circuits × {len(caps)} caps × {len(engines)} engines",
@@ -343,9 +358,30 @@ def main():
     is_new = not args.results_csv.exists()
     seen: set[tuple] = set()
     if args.resume and not is_new:
-        with args.results_csv.open() as rf:
-            for row in csv.DictReader(rf):
-                seen.add((row["circuit_hash"], row["cap_gb"], row["engine"], row["method"]))
+        if rerun_statuses:
+            # Strip rows whose status should be retried, rewrite the CSV, then
+            # build `seen` from what remains so those triples are re-queued.
+            kept_rows: list[dict] = []
+            stripped = 0
+            with args.results_csv.open() as rf:
+                reader = csv.DictReader(rf)
+                fields = reader.fieldnames or CSV_FIELDS
+                for row in reader:
+                    if row.get("status") in rerun_statuses:
+                        stripped += 1
+                        continue
+                    kept_rows.append(row)
+                    seen.add((row["circuit_hash"], row["cap_gb"], row["engine"], row["method"]))
+            with args.results_csv.open("w", newline="") as wf:
+                w = csv.DictWriter(wf, fieldnames=fields)
+                w.writeheader()
+                w.writerows(kept_rows)
+            print(f"[run] stripped {stripped} rows with status in {rerun_statuses}",
+                  file=sys.stderr)
+        else:
+            with args.results_csv.open() as rf:
+                for row in csv.DictReader(rf):
+                    seen.add((row["circuit_hash"], row["cap_gb"], row["engine"], row["method"]))
     f = args.results_csv.open("a", newline="")
     writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
     if is_new:

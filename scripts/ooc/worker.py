@@ -465,6 +465,10 @@ def _run_aer(qc, args, run_idx: str, result: dict) -> None:
         max_memory_mb=max_mem_mb,
         max_parallel_threads=args.threads,
     )
+    # Remove any coupling-map restriction so circuits with >15 qubits are not
+    # rejected by Aer's internal validation (the default AerSimulator config can
+    # carry a 15-qubit fake-device coupling map, especially for density_matrix).
+    backend.set_options(coupling_map=None)
     try:
         qc_saved = qc.copy()
         # Save the state appropriate for the method so the full simulation runs.
@@ -475,7 +479,7 @@ def _run_aer(qc, args, run_idx: str, result: dict) -> None:
         else:
             qc_saved.save_statevector()
 
-        transpiled = transpile(qc_saved, backend)
+        transpiled = transpile(qc_saved, backend, coupling_map=None)
 
         tic = time.perf_counter()
         job = backend.run(transpiled, shots=1)

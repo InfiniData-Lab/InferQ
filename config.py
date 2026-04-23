@@ -125,7 +125,7 @@ class PipelineConfig:
         "postgres_image": "postgres:16",
         "postgres_host_port": 54320,
         # Aer method sweep — ordered by increasing cost; worker runs each and records per-method status
-        "aer_methods": ["automatic", "statevector", "MPS", "density_matrix", "stabilizer"],
+        "aer_methods": ["automatic", "statevector", "matrix_product_state", "density_matrix", "stabilizer"],
         # Pad Aer's internal max_memory_mb below the cgroup cap to let Aer raise before OOM-kill
         "aer_max_memory_pad_mb": 512,
     }
