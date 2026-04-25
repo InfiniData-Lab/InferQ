@@ -176,6 +176,37 @@ Sanity checks to make in `results/summary_by_engine_cap.csv`:
 
 ---
 
+## Re-running after the spill / cgroup fixes
+
+The first full run produced two systematic measurement bugs that have since
+been fixed in code. To collect paper-ready numbers, the affected rows must
+be re-run:
+
+1. **Move `OOC_TMP_ROOT` to NVMe** — confirm the path is not tmpfs:
+   ```bash
+   findmnt -no FSTYPE -T "$OOC_TMP_ROOT"   # must NOT be tmpfs
+   ```
+   The default has been changed from `/tmp/inferq_ooc` to `/data/inferq_ooc`.
+   If your NVMe is mounted elsewhere, set `OOC_TMP_ROOT` accordingly.
+
+2. **Confirm the cgroup peak fix is reading the right cgroup**: launch one
+   triple, then verify the resulting `cgroup_mem_peak_bytes` value is
+   bounded by the cap, not a fixed large number.
+
+3. **Strip and rerun**: the simplest path is to discard the old CSV (it has
+   bogus memory and zero spill) and re-run the full sweep:
+   ```bash
+   mv scripts/ooc/results/results.csv scripts/ooc/results/results.pre_fix.csv
+   python -m scripts.ooc.run_experiment
+   ```
+   To rerun only the rows that landed `success` (preserving error rows) and
+   re-measure them with the corrected metrics:
+   ```bash
+   python -m scripts.ooc.run_experiment --resume --rerun-statuses success
+   ```
+
+---
+
 ## Re-running missing or failed results
 
 Use `--resume --rerun-statuses` to strip rows with a given status from the
@@ -214,7 +245,7 @@ overridden with environment variables:
 | `OOC_WARMUP`     | `1`                          | Warm-up runs (discarded) |
 | `OOC_TIMEOUT`    | `1800`                       | Per-run timeout (seconds) |
 | `OOC_DROP_CACHE` | `True`                       | Drop page cache between runs |
-| `OOC_TMP_ROOT`   | `/tmp/inferq_ooc`            | DuckDB / SQLite temp dir (use NVMe) |
+| `OOC_TMP_ROOT`   | `/data/inferq_ooc`           | DuckDB / SQLite temp dir. **Must be on a real block device (NVMe).** `/tmp` is tmpfs on most distros — writes go to RAM, count against the cgroup cap, and don't appear in `cgroup_io_write_bytes`. The worker logs a warning if it detects tmpfs. |
 | `OOC_PG_IMAGE`   | `postgres:16`                | Postgres Docker image |
 | `OOC_PG_PORT`    | `54320`                      | Host port for Postgres container |
 
@@ -295,7 +326,25 @@ cgroup v2 unified hierarchy is not mounted. Check: `mount | grep cgroup2`.
 **`dbms_temp_bytes_written = 0` for DuckDB under a tight cap**
 DuckDB's profile JSON schema varies by version. The parser in
 `_duckdb_sum_spill` is conservative. Inspect the profile file under
-`/tmp/inferq_ooc/duckdb_*/profile.json` during a run to check field names.
+`$OOC_TMP_ROOT/duckdb_*/profile.json` during a run to check field names.
+
+**`cgroup_mem_peak_bytes` is the same large value (~system memory) on every row**
+Symptom that the orchestrator/worker is reading a parent cgroup slice (e.g.
+user.slice) instead of the per-scope cgroup created by `systemd-run`.
+On hybrid v1+v2 systems, the v1 memory controller frequently lives at the
+user.slice level; reading `memory.max_usage_in_bytes` there gives a
+session-wide peak. The fix already in the code is to prefer the cgroup v2
+unified path resolved from `/proc/self/cgroup`. Verify with:
+```bash
+cat /proc/self/cgroup           # 0::… line is the v2 path
+cat /sys/fs/cgroup/<that_path>/memory.peak  # should equal cap, not 60+ GB
+```
+If this still shows wrong values, check whether memory controller is
+delegated to the user session:
+```bash
+cat /sys/fs/cgroup/user.slice/user-$UID.slice/user@$UID.service/cgroup.subtree_control
+# expect: cpu memory io
+```
 
 **`SQLITE_TMPDIR` ignored**
 Newer SQLite versions deprecate the `temp_store_directory` pragma. The

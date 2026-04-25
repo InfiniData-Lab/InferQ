@@ -297,18 +297,27 @@ def run_one(
                     "error": f"worker rc={rc}; no output: {stderr[-200:]}",
                     "runs": [],
                 }
-        cg = cgroup_snapshot_for(engine, scope_unit, container_id) if not dry_run else None
-        # Fallback: worker reads its own cgroup from inside the scope before exiting.
-        # The scope directory is already gone by the time we get here for embedded engines,
-        # so the orchestrator-side lookup returns None. Use the worker-reported values instead.
-        if cg is None and not dry_run:
-            wc = envelope.get("cgroup", {})
-            if wc.get("cgroup_mem_peak_bytes") is not None:
+        # Prefer the worker self-report for embedded engines: by the time the
+        # orchestrator runs, the systemd-run --scope unit has already exited and
+        # the cgroup directory is gone, so cgroup_snapshot_for() returns None or
+        # (worse) walks up to a parent slice that aggregates unrelated activity.
+        # Postgres is different: the Docker container is still alive when we read.
+        cg = None
+        if not dry_run:
+            if engine == "postgres":
+                cg = cgroup_snapshot_for(engine, scope_unit, container_id)
+            wc = envelope.get("cgroup", {}) if isinstance(envelope.get("cgroup"), dict) else {}
+            sampled_peak = envelope.get("cgroup_sampled_peak_bytes") or 0
+            wc_peak = wc.get("cgroup_mem_peak_bytes") or 0
+            # The polling sampler is an independent peak source (works on kernels
+            # without memory.peak). Take the max of the two as the true peak.
+            best_peak = max(int(wc_peak), int(sampled_peak))
+            if cg is None and (best_peak > 0 or wc):
                 cg = cgroup_metrics.CgroupSnapshot(
-                    memory_peak_bytes=wc.get("cgroup_mem_peak_bytes", 0),
-                    memory_swap_peak_bytes=wc.get("cgroup_swap_peak_bytes", 0),
-                    io_read_bytes=wc.get("cgroup_io_read_bytes", 0),
-                    io_write_bytes=wc.get("cgroup_io_write_bytes", 0),
+                    memory_peak_bytes=best_peak,
+                    memory_swap_peak_bytes=wc.get("cgroup_swap_peak_bytes", 0) or 0,
+                    io_read_bytes=wc.get("cgroup_io_read_bytes", 0) or 0,
+                    io_write_bytes=wc.get("cgroup_io_write_bytes", 0) or 0,
                     cgroup_path=wc.get("cgroup_path", ""),
                 )
         emit_rows(writer, circuit, envelope, engine, cap_gb, method, cg,

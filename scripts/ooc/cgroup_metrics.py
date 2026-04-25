@@ -102,11 +102,13 @@ def read_cgroup(cgroup_path: Path) -> CgroupSnapshot:
 def find_systemd_scope_cgroup(unit_name: str) -> Optional[Path]:
     """Find cgroup path for a systemd-run --user --scope unit.
 
-    Checks the cgroup v1 memory hierarchy first (gives true peak via
-    memory.max_usage_in_bytes), then the v2 unified root.
+    Prefers cgroup v2 unified — that is where systemd-run --scope places the
+    process. The cgroup v1 memory controller often points to a parent slice
+    (user.slice) on hybrid systems and would aggregate unrelated activity.
     """
     uid = os.getuid()
-    for root in (CGROUP_V1_MEM_ROOT, CGROUP_ROOT):
+    # v2 first; v1 only as a desperate fallback.
+    for root in (CGROUP_ROOT, CGROUP_V1_MEM_ROOT):
         if not root.exists():
             continue
         candidates = [
@@ -117,6 +119,8 @@ def find_systemd_scope_cgroup(unit_name: str) -> Optional[Path]:
         for c in candidates:
             if c.exists():
                 return c
+        # Exact-name match anywhere under the root. The unit name is a UUID
+        # suffix so this won't accidentally match a parent.
         matches = list(root.rglob(unit_name))
         if matches:
             return matches[0]

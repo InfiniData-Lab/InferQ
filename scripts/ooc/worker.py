@@ -14,6 +14,7 @@ import argparse
 import gc
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -32,21 +33,18 @@ for p in (INFERQ_ROOT, IQS_ROOT):
         sys.path.insert(0, str(p))
 
 
-def _read_own_cgroup_v2() -> dict:
-    """Read cgroup memory/IO counters for this process from inside the scope.
+def _resolve_own_cgroup_paths() -> tuple[Path | None, Path | None]:
+    """Parse /proc/self/cgroup → (v2_path, v1_mem_path).
 
-    Handles hybrid cgroup systems where cgroup v1 controllers (memory at
-    /sys/fs/cgroup/memory/) coexist with cgroup v2 unified (at
-    /sys/fs/cgroup/unified/ or /sys/fs/cgroup/). Parses /proc/self/cgroup to
-    find the correct path for each hierarchy.
-
-    Called just before the worker exits so the cgroup directory still exists.
+    On hybrid cgroup systems, v1 controllers can point to a parent slice
+    (e.g. user.slice) rather than the per-scope cgroup created by
+    `systemd-run --user --scope`, because systemd-run only places the process
+    in a v2 scope. Reading memory.max_usage_in_bytes from that v1 path gives
+    a system-wide peak, not the worker's. Callers MUST prefer v2.
     """
-    result: dict = {}
+    v1_mem_path: Path | None = None
+    v2_path: Path | None = None
     try:
-        v1_mem_path: Path | None = None
-        v2_path: Path | None = None
-
         with open("/proc/self/cgroup") as f:
             for line in f:
                 parts = line.strip().split(":", 2)
@@ -54,66 +52,129 @@ def _read_own_cgroup_v2() -> dict:
                     continue
                 rel = parts[2].lstrip("/")
                 if parts[0] == "0":
-                    # cgroup v2 unified — may be at /unified on hybrid systems
                     for v2_root in (Path("/sys/fs/cgroup/unified"), Path("/sys/fs/cgroup")):
                         candidate = v2_root / rel
                         if candidate.exists():
                             v2_path = candidate
                             break
                 elif "memory" in parts[1].split(","):
-                    # cgroup v1 memory controller
                     candidate = Path("/sys/fs/cgroup/memory") / rel
                     if candidate.exists():
                         v1_mem_path = candidate
-
-        # Memory peak: v1 memory.max_usage_in_bytes is the true peak and works on
-        # all kernel versions; fall back to v2 memory.peak (≥5.19) or memory.current.
-        if v1_mem_path is not None:
-            result["cgroup_path"] = str(v1_mem_path)
-            try:
-                result["cgroup_mem_peak_bytes"] = int(
-                    (v1_mem_path / "memory.max_usage_in_bytes").read_text().strip()
-                )
-            except Exception:
-                pass
-            try:
-                result["cgroup_swap_peak_bytes"] = int(
-                    (v1_mem_path / "memory.memsw.max_usage_in_bytes").read_text().strip()
-                )
-            except Exception:
-                pass
-        elif v2_path is not None:
-            result["cgroup_path"] = str(v2_path)
-            for mem_file in ("memory.peak", "memory.current"):
-                try:
-                    result["cgroup_mem_peak_bytes"] = int((v2_path / mem_file).read_text().strip())
-                    break
-                except Exception:
-                    pass
-            try:
-                result["cgroup_swap_peak_bytes"] = int((v2_path / "memory.swap.peak").read_text().strip())
-            except Exception:
-                pass
-
-        # IO from v2 unified io.stat (blkio v1 is harder to parse; skip for now)
-        if v2_path is not None:
-            try:
-                rb = wb = 0
-                for io_line in (v2_path / "io.stat").read_text().splitlines():
-                    for field in io_line.split()[1:]:
-                        if "=" in field:
-                            k, v = field.split("=", 1)
-                            if k == "rbytes":
-                                rb += int(v)
-                            elif k == "wbytes":
-                                wb += int(v)
-                result["cgroup_io_read_bytes"] = rb
-                result["cgroup_io_write_bytes"] = wb
-            except Exception:
-                pass
     except Exception:
         pass
+    return v2_path, v1_mem_path
+
+
+def _read_own_cgroup_v2() -> dict:
+    """Read cgroup memory/IO counters for this process from inside the scope.
+
+    Always prefers the cgroup v2 path resolved from /proc/self/cgroup line
+    `0::...`. Falls back to v1 only if v2 is unavailable. On hybrid systems,
+    v1 paths often resolve to a parent slice and would yield system-wide peaks.
+
+    Called just before the worker exits so the cgroup directory still exists.
+    """
+    result: dict = {}
+    v2_path, v1_mem_path = _resolve_own_cgroup_paths()
+
+    if v2_path is not None:
+        result["cgroup_path"] = str(v2_path)
+        # memory.peak (kernel ≥5.19) is the true high-water mark for the cgroup.
+        peak = _read_int_file(v2_path / "memory.peak")
+        if peak <= 0:
+            peak = _read_int_file(v2_path / "memory.current")
+        if peak > 0:
+            result["cgroup_mem_peak_bytes"] = peak
+        swap = _read_int_file(v2_path / "memory.swap.peak")
+        if swap <= 0:
+            swap = _read_int_file(v2_path / "memory.swap.current")
+        result["cgroup_swap_peak_bytes"] = swap
+        rb, wb = _parse_io_stat_file(v2_path / "io.stat")
+        result["cgroup_io_read_bytes"] = rb
+        result["cgroup_io_write_bytes"] = wb
+    elif v1_mem_path is not None:
+        result["cgroup_path"] = str(v1_mem_path)
+        peak = _read_int_file(v1_mem_path / "memory.max_usage_in_bytes")
+        if peak > 0:
+            result["cgroup_mem_peak_bytes"] = peak
+        swap = _read_int_file(v1_mem_path / "memory.memsw.max_usage_in_bytes")
+        if swap > 0:
+            result["cgroup_swap_peak_bytes"] = swap
     return result
+
+
+def _read_int_file(path: Path) -> int:
+    try:
+        return int(path.read_text().strip())
+    except Exception:
+        return 0
+
+
+def _parse_io_stat_file(path: Path) -> tuple[int, int]:
+    rb = wb = 0
+    try:
+        for line in path.read_text().splitlines():
+            for field in line.split()[1:]:
+                if "=" not in field:
+                    continue
+                k, v = field.split("=", 1)
+                if k == "rbytes":
+                    rb += int(v)
+                elif k == "wbytes":
+                    wb += int(v)
+    except Exception:
+        pass
+    return rb, wb
+
+
+class _CgroupMemSampler(threading.Thread):
+    """Polls memory.current at a fixed interval and records the high-water mark.
+
+    Independent cross-check against memory.peak — also gives a peak on kernels
+    < 5.19 where memory.peak is unavailable. Stops cleanly via stop().
+    """
+    def __init__(self, cgroup_path: Path, interval_s: float = 0.1):
+        super().__init__(daemon=True)
+        self.cgroup_path = cgroup_path
+        self.interval = interval_s
+        self.peak_bytes = 0
+        self._stop = threading.Event()
+
+    def run(self):
+        mem_current = self.cgroup_path / "memory.current"
+        while not self._stop.is_set():
+            v = _read_int_file(mem_current)
+            if v > self.peak_bytes:
+                self.peak_bytes = v
+            self._stop.wait(self.interval)
+
+    def stop(self):
+        self._stop.set()
+        self.join(timeout=2)
+
+
+def _warn_if_tmpfs(path: Path) -> None:
+    """Print a loud warning if the tmp_root resolves to a tmpfs mount.
+
+    tmpfs writes are RAM-backed: they count against the cgroup memory cap and
+    do not appear in cgroup_io_write_bytes, breaking spill measurement entirely.
+    """
+    try:
+        out = subprocess.run(
+            ["findmnt", "-no", "FSTYPE", "-T", str(path)],
+            text=True, capture_output=True, timeout=2,
+        )
+        fstype = (out.stdout or "").strip()
+        if fstype in ("tmpfs", "ramfs"):
+            print(
+                f"\n!!! tmp_root={path} is on {fstype} — spill writes will be "
+                f"RAM-backed and invisible to cgroup_io_write_bytes. Set "
+                f"OOC_TMP_ROOT to a real block-device path (NVMe).\n",
+                file=sys.stderr, flush=True,
+            )
+    except Exception:
+        pass
 
 
 def _read_vm_peak_bytes() -> int:
@@ -534,7 +595,7 @@ def main():
     ap.add_argument("--n-runs", type=int, default=3)
     ap.add_argument("--warmup", type=int, default=1)
     ap.add_argument("--timeout-seconds", type=int, default=1800)
-    ap.add_argument("--tmp-root", type=str, default="/tmp/inferq_ooc")
+    ap.add_argument("--tmp-root", type=str, default="/data/inferq_ooc")
     ap.add_argument("--threads", type=int, default=16)
     # Postgres-specific
     ap.add_argument("--pg-host", default=os.getenv("POSTGRES_HOST", "localhost"))
@@ -548,6 +609,7 @@ def main():
     args = ap.parse_args()
 
     Path(args.tmp_root).mkdir(parents=True, exist_ok=True)
+    _warn_if_tmpfs(Path(args.tmp_root))
 
     envelope: dict = {
         "engine": args.engine,
@@ -579,6 +641,12 @@ def main():
         runner = ENGINE_DISPATCH[args.engine]
 
         labels = ["warmup"] * args.warmup + [str(i) for i in range(args.n_runs)]
+        # Start cgroup memory sampler — independent peak source that works on
+        # kernels < 5.19 (no memory.peak) and cross-checks the v2 reading.
+        v2_path, _ = _resolve_own_cgroup_paths()
+        cg_sampler = _CgroupMemSampler(v2_path, interval_s=0.1) if v2_path else None
+        if cg_sampler is not None:
+            cg_sampler.start()
         tracemalloc.start()
         for run_idx in labels:
             gc.collect()
@@ -599,6 +667,9 @@ def main():
                 # Don't keep trying an engine the OS/DB already said it can't do.
                 break
         tracemalloc.stop()
+        if cg_sampler is not None:
+            cg_sampler.stop()
+            envelope["cgroup_sampled_peak_bytes"] = cg_sampler.peak_bytes
 
         envelope["status"] = _summarize_status(envelope["runs"])
     except TimeoutError as e:

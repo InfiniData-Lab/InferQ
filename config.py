@@ -105,7 +105,7 @@ class PipelineConfig:
         "warmup_runs": 1,                  # Discarded warm-up runs before timed runs
         "timeout_seconds": 1800,            # 30 min per run
         "drop_page_cache": True,            # sync + echo 3 > /proc/sys/vm/drop_caches between runs
-        "tmp_root": "/tmp/inferq_ooc",    # Dir for DuckDB/SQLite temp files (must be on NVMe)
+        "tmp_root": "/data/inferq_ooc",    # Dir for DuckDB/SQLite temp files. Must be on a real block device (NVMe), NOT tmpfs — tmpfs writes don't show up in cgroup_io_write_bytes and count against the memory cap.
         "results_dir": "scripts/ooc/results",
         "circuits_manifest": "data/ooc/circuits.jsonl",
         # Per-bin circuit counts for stratified sampling (see select_circuits.py).
