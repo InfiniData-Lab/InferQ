@@ -36,33 +36,64 @@ for p in (INFERQ_ROOT, IQS_ROOT):
 def _resolve_own_cgroup_paths() -> tuple[Path | None, Path | None]:
     """Parse /proc/self/cgroup → (v2_path, v1_mem_path).
 
-    On hybrid cgroup systems, v1 controllers can point to a parent slice
-    (e.g. user.slice) rather than the per-scope cgroup created by
-    `systemd-run --user --scope`, because systemd-run only places the process
-    in a v2 scope. Reading memory.max_usage_in_bytes from that v1 path gives
-    a system-wide peak, not the worker's. Callers MUST prefer v2.
+    Handles three runtime contexts:
+      1. Direct host process — paths in /proc/self/cgroup map straight to
+         /sys/fs/cgroup{,/unified} or /sys/fs/cgroup/memory.
+      2. Docker with cgroupns=host + cgroup mount — same as case 1; the
+         container sees the host's cgroup tree at the host's paths.
+      3. Docker with cgroupns=private — /proc/self/cgroup says `0::/`
+         and the cgroup files are at the root of /sys/fs/cgroup.
+
+    On hybrid v1+v2 hosts, v1 controllers may point to a parent slice
+    (user.slice) rather than the per-scope cgroup. Reading
+    memory.max_usage_in_bytes from there yields a session-wide peak, not
+    the worker's. Callers MUST prefer the v2 path.
     """
     v1_mem_path: Path | None = None
     v2_path: Path | None = None
+
+    def _looks_like_cgroup_dir(p: Path, marker: str) -> bool:
+        return (p / marker).exists()
+
     try:
         with open("/proc/self/cgroup") as f:
-            for line in f:
-                parts = line.strip().split(":", 2)
-                if len(parts) != 3 or not parts[2]:
-                    continue
-                rel = parts[2].lstrip("/")
-                if parts[0] == "0":
-                    for v2_root in (Path("/sys/fs/cgroup/unified"), Path("/sys/fs/cgroup")):
-                        candidate = v2_root / rel
-                        if candidate.exists():
-                            v2_path = candidate
-                            break
-                elif "memory" in parts[1].split(","):
-                    candidate = Path("/sys/fs/cgroup/memory") / rel
-                    if candidate.exists():
-                        v1_mem_path = candidate
+            lines = [ln.strip() for ln in f if ln.strip()]
     except Exception:
-        pass
+        lines = []
+
+    for line in lines:
+        parts = line.split(":", 2)
+        if len(parts) != 3:
+            continue
+        hier_id, controllers, rel_raw = parts
+        rel = rel_raw.lstrip("/")
+        if hier_id == "0":
+            for v2_root in (Path("/sys/fs/cgroup/unified"), Path("/sys/fs/cgroup")):
+                candidate = v2_root / rel if rel else v2_root
+                if candidate.exists() and _looks_like_cgroup_dir(
+                    candidate, "cgroup.controllers"
+                ):
+                    v2_path = candidate
+                    break
+        elif "memory" in controllers.split(","):
+            candidate = Path("/sys/fs/cgroup/memory") / rel if rel else Path("/sys/fs/cgroup/memory")
+            if candidate.exists() and _looks_like_cgroup_dir(
+                candidate, "memory.limit_in_bytes"
+            ):
+                v1_mem_path = candidate
+
+    # Container-with-private-cgroupns fallback: /proc/self/cgroup may report
+    # `0::/` and the cgroup files live at the root of /sys/fs/cgroup.
+    if v2_path is None:
+        root = Path("/sys/fs/cgroup")
+        if _looks_like_cgroup_dir(root, "cgroup.controllers") or (
+            root / "memory.current"
+        ).exists():
+            v2_path = root
+    if v1_mem_path is None:
+        v1_root = Path("/sys/fs/cgroup/memory")
+        if _looks_like_cgroup_dir(v1_root, "memory.limit_in_bytes"):
+            v1_mem_path = v1_root
     return v2_path, v1_mem_path
 
 

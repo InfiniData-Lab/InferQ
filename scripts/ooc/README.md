@@ -42,16 +42,26 @@ heap), so qubit count is the only reliable OOM-threshold proxy.
 
 ### Memory enforcement
 
-- **DuckDB / SQLite / Aer**: `systemd-run --user --scope --property=MemoryMax=X`
-  creates a cgroup v2 scope. The kernel kills the worker process if it
-  exceeds the cap.
-- **PostgreSQL**: `docker run --memory=X` limits the container. The
-  orchestrator also sets `--memory-swap=X --memory-swappiness=0` so
-  swapping is fully disabled for all engines — any swap usage in the
-  results indicates a configuration problem.
+Every engine runs inside a Docker container with `--memory=X --memory-swap=X
+--memory-swappiness=0`. The kernel kills the container if it exceeds the cap;
+swap is fully disabled, so any non-zero `cgroup_swap_peak_bytes` in the
+results indicates a configuration problem.
+
+- **PostgreSQL**: the postgres server runs in `inferq-ooc-postgres:16` with
+  `--memory=cap`. A separate worker container (`inferq-ooc-worker:latest`)
+  with a generous 60 GB cap connects via host networking on port 54320.
+- **DuckDB / SQLite / Aer**: a single `inferq-ooc-worker:latest` container
+  per triple, capped at the experiment cap. The repo and `OOC_TMP_ROOT` are
+  bind-mounted so the worker code, circuit qpy files, and DuckDB / SQLite
+  spill directories live on the host filesystem.
 - Aer additionally receives `max_memory_mb = cap_gb × 1024 − 512` so it
   raises an internal `InsufficientMemoryError` before the kernel OOM-kills
-  it (cleaner error path).
+  the container (cleaner error path).
+
+The worker self-reports its cgroup peak from inside the container via
+`/proc/self/cgroup` (cgroupns=host + cgroup bind-mount), with a 100 ms
+polling sampler on `memory.current` as an independent peak source for
+kernels that lack `memory.peak` (< 5.19).
 
 ### What is measured per run
 
@@ -71,13 +81,15 @@ Aer aborts after the first `oom_internal` result to avoid wasting time.
 
 ## Target machine
 
-Linux with cgroup v2 (Ubuntu 22.04+, RHEL 9+). Reference box:
+Linux host running Docker. Memory enforcement is delegated entirely to
+Docker (cgroup-driver-agnostic), so cgroup v1, v2, hybrid, or unified all
+work — no host-side cgroup configuration required. Reference box:
 
 - **Alienware Aurora R13** — 64 GB DDR5, Intel i9-12900KF (16c/24t),
-  Micron 3400 NVMe 2 TB on ext4.
+  Micron 3400 NVMe 2 TB on ext4. Ubuntu 22.04, kernel 5.15+.
 
-The experiments will run on macOS / Windows with `--no-systemd-run` but
-the memory caps are **not enforced** — use only for smoke tests.
+The experiments can run on macOS / Windows with `--runner none` but
+memory caps are **not enforced** — use only for smoke tests.
 
 ---
 
@@ -87,14 +99,15 @@ the memory caps are **not enforced** — use only for smoke tests.
 # 1. Install Docker Engine and add your user to the docker group.
 #    https://docs.docker.com/engine/install/ubuntu/
 
-# 2. Build the tuned Postgres image (includes envsubst + tuned postgresql.conf).
+# 2. Build BOTH images (tuned Postgres + worker runtime):
 cd InferQ
-./scripts/ooc/docker/build.sh          # → inferq-ooc-postgres:16
+./scripts/ooc/docker/build.sh
+#   → inferq-ooc-postgres:16
+#   → inferq-ooc-worker:latest
 
-# 3. Update config to use the tuned image (edit InferQ/config.py):
-#       "postgres_image": "inferq-ooc-postgres:16",
-#    Or set an environment variable:
+# 3. (optional) Override images via env if you tag them differently:
 export OOC_PG_IMAGE=inferq-ooc-postgres:16
+export OOC_WORKER_IMAGE=inferq-ooc-worker:latest
 
 # 4. NOPASSWD sudoers entry for dropping the page cache between runs.
 #    Add to /etc/sudoers.d/inferq-ooc (replace USER with your username):
@@ -102,19 +115,23 @@ export OOC_PG_IMAGE=inferq-ooc-postgres:16
 #    Verify:
 sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null && echo ok
 
-# 5. Enable systemd-run --user (needed if there is no interactive login session):
-loginctl enable-linger "$USER"
+# 5. NVMe-backed temp dir for engine spill files. /tmp on most distros is
+#    tmpfs (RAM-backed) — spill writes would be invisible to spill metrics.
+sudo mkdir -p /data/inferq_ooc && sudo chown "$USER:$USER" /data/inferq_ooc
+findmnt -no FSTYPE -T /data/inferq_ooc   # must NOT print 'tmpfs'
+export OOC_TMP_ROOT=/data/inferq_ooc
 
-# 6. Python dependencies (inside the InferQ venv):
+# 6. Python dependencies on the host (only the orchestrator runs here):
 uv pip install -r requirements.txt
 ```
 
-Verify systemd-run works before starting real experiments:
+Verify Docker enforces a memory cap:
 
 ```bash
-systemd-run --user --scope --property=MemoryMax=1G --property=MemorySwapMax=0 -- \
-    python -c "import os; print('pid', os.getpid())"
+docker run --rm --memory 512m --memory-swap 512m inferq-ooc-worker:latest \
+    -c 'a=bytearray(2_000_000_000); print("NO_ENFORCEMENT")'; echo "rc=$?"
 ```
+Expect `rc=137` (kernel OOM-killed it).
 
 ---
 
@@ -246,8 +263,10 @@ overridden with environment variables:
 | `OOC_TIMEOUT`    | `1800`                       | Per-run timeout (seconds) |
 | `OOC_DROP_CACHE` | `True`                       | Drop page cache between runs |
 | `OOC_TMP_ROOT`   | `/data/inferq_ooc`           | DuckDB / SQLite temp dir. **Must be on a real block device (NVMe).** `/tmp` is tmpfs on most distros — writes go to RAM, count against the cgroup cap, and don't appear in `cgroup_io_write_bytes`. The worker logs a warning if it detects tmpfs. |
-| `OOC_PG_IMAGE`   | `postgres:16`                | Postgres Docker image |
-| `OOC_PG_PORT`    | `54320`                      | Host port for Postgres container |
+| `OOC_PG_IMAGE`     | `postgres:16`                | Postgres Docker image |
+| `OOC_PG_PORT`      | `54320`                      | Host port for Postgres container |
+| `OOC_WORKER_IMAGE` | `inferq-ooc-worker:latest`   | Worker runtime image (DuckDB / SQLite / Aer) |
+| `OOC_RUNNER`       | `docker`                     | `docker` (cap-enforced) or `none` (smoke test, no cap) |
 
 **Use `inferq-ooc-postgres:16` for the Postgres image** (built in step 2
 above). The stock `postgres:16` works but skips the tuned `postgresql.conf`
@@ -312,10 +331,11 @@ check only, no psycopg2 handshake). Ensure the latest code is pulled.
 OOM-killed by the kernel cgroup. Expected for Aer on B4 circuits; recorded
 as `status=oom_kill`.
 
-**`systemd-run: Unit already exists`**
-Stale scope from a crashed worker. Reset:
+**`docker: Error response from daemon: Conflict. The container name ... is already in use`**
+Stale worker container from a crashed orchestrator. Sweep:
 ```bash
-systemctl --user reset-failed
+docker ps -a --filter "name=ooc_worker_" -q | xargs -r docker rm -f
+docker ps -a --filter "name=pg_ooc_" -q | xargs -r docker rm -f
 ```
 
 **`cgroup_mem_peak_bytes = 0`**
@@ -329,22 +349,16 @@ DuckDB's profile JSON schema varies by version. The parser in
 `$OOC_TMP_ROOT/duckdb_*/profile.json` during a run to check field names.
 
 **`cgroup_mem_peak_bytes` is the same large value (~system memory) on every row**
-Symptom that the orchestrator/worker is reading a parent cgroup slice (e.g.
-user.slice) instead of the per-scope cgroup created by `systemd-run`.
-On hybrid v1+v2 systems, the v1 memory controller frequently lives at the
-user.slice level; reading `memory.max_usage_in_bytes` there gives a
-session-wide peak. The fix already in the code is to prefer the cgroup v2
-unified path resolved from `/proc/self/cgroup`. Verify with:
+Pre-Docker bug — the orchestrator was reading a parent cgroup slice (typically
+`user.slice`) instead of the per-scope cgroup created by `systemd-run`.
+The current code runs every engine inside a Docker container with
+`--memory=cap`, so this should not happen. If it does, verify the runner:
 ```bash
-cat /proc/self/cgroup           # 0::… line is the v2 path
-cat /sys/fs/cgroup/<that_path>/memory.peak  # should equal cap, not 60+ GB
+docker ps -a --filter "name=ooc_worker_" --filter "name=pg_ooc_"
+docker inspect <container_name> | grep -E '"Memory"|"MemorySwap"'
 ```
-If this still shows wrong values, check whether memory controller is
-delegated to the user session:
-```bash
-cat /sys/fs/cgroup/user.slice/user-$UID.slice/user@$UID.service/cgroup.subtree_control
-# expect: cpu memory io
-```
+Expect non-zero `Memory` ≈ cap × 1 GiB. If `Memory: 0`, the orchestrator
+fell back to `--runner=none` — re-run with `--runner=docker` explicitly.
 
 **`SQLITE_TMPDIR` ignored**
 Newer SQLite versions deprecate the `temp_store_directory` pragma. The

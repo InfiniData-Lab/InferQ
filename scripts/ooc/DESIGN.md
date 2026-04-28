@@ -9,77 +9,78 @@ worker fit together.
 ## Architecture overview
 
 ```
-run_experiment.py  (orchestrator)
+run_experiment.py  (orchestrator, on host)
     │
     │  for each (circuit, cap, engine, method):
     │
-    ├─ postgres ──► docker run --memory=CAP  ──► postgres container
-    │                                              │
-    │               systemd-run --scope           worker.py
-    │               MemoryMax=60G ─────────────► psycopg2 → SQL query
+    ├─ postgres ──► docker run --memory=CAP                ──► postgres container
+    │                  inferq-ooc-postgres:16                  (server)
+    │                                                              ▲
+    │               docker run --memory=60G                        │
+    │                  inferq-ooc-worker  ──► worker.py ──── psycopg2:54320
+    │                                                          (host network)
     │
-    ├─ duckdb  ──► systemd-run --scope ──────► worker.py
-    ├─ sqlite       MemoryMax=CAP               DuckDB / SQLite query
-    └─ aer          MemorySwapMax=0             Aer simulation
-                         │
-                         └─► kernel cgroup v2 enforces hard limit
+    ├─ duckdb  ──► docker run --memory=CAP                 ──► worker.py
+    ├─ sqlite       --memory-swap=CAP --memory-swappiness=0    DuckDB / SQLite query
+    └─ aer          inferq-ooc-worker                          Aer simulation
+                          │
+                          └─► Docker cgroup enforces hard limit
+                              (kernel OOM-kills container at cap)
 ```
 
-There are two separate processes for each run: the **orchestrator** and
-the **worker**. The orchestrator is long-lived and coordinates the sweep.
-The worker is a short-lived subprocess that runs exactly one engine on one
-circuit and exits. This isolation means a crash or OOM-kill in the worker
-never takes down the orchestrator.
+There are two address spaces per run: the **orchestrator** (on the host)
+and the **worker** (inside a Docker container). The orchestrator is
+long-lived and coordinates the sweep. Each worker is a short-lived
+container that runs exactly one engine on one circuit and exits. Crashes
+and OOM-kills in the worker never take down the orchestrator.
+
+For postgres, two containers are involved per triple: the postgres server
+carries the memory cap (it's where memory is actually used), and a
+separate worker container runs the psycopg2 client with a generous 60 GB
+cap. They communicate over `host` networking on port 54320.
 
 ---
 
 ## Memory enforcement
 
-### Embedded engines (DuckDB, SQLite, Aer)
-
-The orchestrator launches the worker via `systemd-run`:
+### Every engine: Docker `--memory`
 
 ```bash
-systemd-run --user --scope --quiet \
-    --unit ooc-<hash>-<engine>-<cap>-<id>.scope \
-    --property MemoryMax=<cap>G \
-    --property MemorySwapMax=0 \
-    --property IOAccounting=yes \
-    --property MemoryAccounting=yes \
-    -- python -m scripts.ooc.worker ...
+docker run --rm \
+    --name <unit> \
+    --memory <cap>g --memory-swap <cap>g --memory-swappiness 0 \
+    --network host --cgroupns host \
+    -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
+    -v <REPO>:<REPO>:ro \
+    -v <OOC_TMP_ROOT>:<OOC_TMP_ROOT> \
+    -v /tmp:/tmp \
+    -e PYTHONPATH=<IQS>:<INFERQ> -w <INFERQ> \
+    inferq-ooc-worker:latest \
+    -m scripts.ooc.worker ...
 ```
 
-`systemd-run --scope` creates a **cgroup v2 scope** around the worker
-process. The kernel enforces `MemoryMax` as a hard limit: if the process
-(and its children) exceeds it, the kernel OOM-kills the process and the
-worker exits with rc=137. `MemorySwapMax=0` disables swap entirely for
-the scope, so there is no silent extension of the effective memory budget.
+`--memory <cap>g --memory-swap <cap>g` sets the combined memory+swap
+budget equal to memory, giving an effective swap of zero. Docker installs
+this on the container's own cgroup; if the container exceeds it, the
+kernel OOM-kills the worker process and the container exits with rc=137.
 
-The worker itself does **not** set any memory limit — enforcement is
-entirely external. This matches how a real server workload would behave.
+The worker itself does **not** set any memory limit. Enforcement is
+entirely external — the same model a real server workload would face.
 
 ### PostgreSQL
 
-For Postgres the memory limit is set on the Docker container rather than
-the worker process, because Postgres is a separate process that the worker
-connects to over TCP:
+The postgres server runs in its own container with the experiment cap.
+The worker container is a separate process that connects via host
+networking with a loose 60 GB cap (it does no memory-intensive work
+itself):
 
 ```bash
 docker run -d \
-    --memory <cap>G \
-    --memory-swap <cap>G \
-    --memory-swappiness 0 \
-    -e CAP_GB=<cap> \
-    -e POSTGRES_PASSWORD=postgres \
+    --memory <cap>g --memory-swap <cap>g --memory-swappiness 0 \
+    -e CAP_GB=<cap> -e POSTGRES_PASSWORD=postgres \
     -p 54320:5432 \
     inferq-ooc-postgres:16
 ```
-
-`--memory-swap <cap>G` sets the combined memory+swap limit equal to
-`--memory`, giving an effective swap budget of zero. Docker enforces this
-via the container's own cgroup, which is separate from the worker's scope.
-The worker runs with a loose scope cap (60 GB) so the enforcement is
-entirely on the container.
 
 The custom image (`inferq-ooc-postgres:16`) builds on `postgres:16` and
 substitutes `CAP_GB`-scaled values into `postgresql.conf` at container
@@ -108,28 +109,30 @@ This is the primary performance metric.
 ### `cgroup_mem_peak_bytes`
 
 Peak resident memory in bytes for the entire cgroup over the lifetime of
-the worker process (all warmup + timed runs combined).
+the worker container (all warmup + timed runs combined).
 
-**Source — embedded engines:** read from the cgroup v2 scope created by
-`systemd-run`. The orchestrator calls `find_systemd_scope_cgroup(unit_name)`
-to locate the cgroup directory, then reads:
-- `memory.peak` (kernel ≥ 5.19) — true high-water mark
-- `memory.current` (fallback) — instantaneous; less accurate
+**Source — embedded engines (worker container's own cgroup):** the worker
+self-reports from inside the container by parsing `/proc/self/cgroup` and
+reading `memory.peak` / `memory.current` (cgroup v2) or
+`memory.max_usage_in_bytes` (v1) from the resolved cgroup directory.
+Because the worker container is launched with `--cgroupns=host` and the
+host's `/sys/fs/cgroup` bind-mounted read-only, the path resolves
+identically inside and outside the container. The worker also runs a 100
+ms polling sampler on `memory.current` while the engine executes — this
+is an independent peak source that works on kernels < 5.19 (no
+`memory.peak`). The orchestrator emits `max(self_report_peak,
+sampled_peak)` as `cgroup_mem_peak_bytes`.
 
-On hybrid cgroup systems (v1 memory controller + v2 unified), the v1
-path `memory.max_usage_in_bytes` is preferred because it is a true peak.
-
-**Source — Postgres:** read from the Docker container's cgroup via
-`find_docker_cgroup(container_id)`, which resolves the full container ID
-with `docker inspect` and then looks for the cgroup under
+**Source — Postgres (postgres container's cgroup):** read on the host
+side via `find_docker_cgroup(container_id)`, which resolves the full
+container ID with `docker inspect` and then looks for the cgroup under
 `system.slice/docker-<id>.scope` (systemd cgroup driver) or `docker/<id>`
-(cgroupfs driver).
+(cgroupfs driver). The postgres container is still alive at read time,
+so this is reliable.
 
-**Fallback:** if the orchestrator cannot find the cgroup after the scope
-exits (the directory is deleted when the scope ends), the worker
-self-reports its own cgroup counters just before exiting, while the
-directory still exists. These are stored in the `cgroup` key of the
-worker's JSON output and used as a fallback.
+**Fallback:** if the worker self-report is missing (cgroup files
+inaccessible), the polling sampler still produces a peak. If both fail,
+the field is empty.
 
 ### `cgroup_swap_peak_bytes`
 
@@ -153,7 +156,7 @@ Engine-reported spill to temporary files. More precise than the cgroup I/O
 counters because they exclude startup I/O and background writes.
 
 - **DuckDB:** parsed from the profiling JSON written to
-  `/tmp/inferq_ooc/duckdb_<pid>_<run>/profile.json`. The worker sums
+  `<OOC_TMP_ROOT>/duckdb_<pid>_<run>/profile.json`. The worker sums
   the fields `temporary_storage_bytes`, `spilled_bytes`, and
   `bytes_spilled_to_disk` across the plan tree. DuckDB's profile schema
   has changed across versions, so this may return zero on some versions
@@ -164,7 +167,7 @@ counters because they exclude startup I/O and background writes.
   across the plan tree, then multiplying by 8192 (Postgres block size).
 
 - **SQLite:** SQLite has no query-level spill accounting. The worker
-  samples the size of the temp directory (`/tmp/inferq_ooc/sqlite_<pid>_<run>/`)
+  samples the size of the temp directory (`<OOC_TMP_ROOT>/sqlite_<pid>_<run>/`)
   every 250 ms and reports the peak observed size as `dbms_temp_bytes_written`.
   This is approximate but captures disk usage.
 

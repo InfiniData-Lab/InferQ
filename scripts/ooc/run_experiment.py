@@ -128,13 +128,13 @@ def stop_pg_container(name: str) -> None:
 
 # ─────────── Worker invocation ───────────
 
-def build_worker_cmd(
+def build_worker_args(
     engine: str, cap_gb: int, circuit: CircuitEntry, aer_method: Optional[str],
-    out_path: Path, cfg: dict, scope_unit: str, use_systemd: bool,
+    out_path: Path, cfg: dict,
 ) -> list[str]:
-    py = sys.executable
-    inner = [
-        py, "-m", WORKER_MODULE,
+    """Argv for `python -m scripts.ooc.worker ...` — runner-independent."""
+    args = [
+        "-m", WORKER_MODULE,
         "--engine", engine,
         "--cap-gb", str(cap_gb),
         "--circuit-qpy", str(circuit.qpy_path),
@@ -149,23 +149,59 @@ def build_worker_cmd(
         "--pg-port", str(cfg["postgres_host_port"]),
     ]
     if engine == "aer" and aer_method:
-        inner += ["--aer-method", aer_method]
-        inner += ["--aer-pad-mb", str(cfg["aer_max_memory_pad_mb"])]
-    if not use_systemd:
-        return inner
+        args += ["--aer-method", aer_method, "--aer-pad-mb", str(cfg["aer_max_memory_pad_mb"])]
+    return args
 
-    # For Postgres, the enforcement is on the container; use a loose scope cap.
-    scope_cap_gb = cap_gb if engine != "postgres" else max(cap_gb, 60)
-    scope_cmd = [
-        "systemd-run", "--user", "--scope", "--quiet",
-        "--unit", scope_unit,
-        "--property", f"MemoryMax={scope_cap_gb}G",
-        "--property", "MemorySwapMax=0",
-        "--property", "IOAccounting=yes",
-        "--property", "MemoryAccounting=yes",
-        "--",
+
+def build_worker_cmd(
+    engine: str, cap_gb: int, circuit: CircuitEntry, aer_method: Optional[str],
+    out_path: Path, cfg: dict, container_name: str, runner: str,
+) -> list[str]:
+    """Compose the full subprocess argv for one worker invocation.
+
+    runner == "docker": wraps the worker in a memory-capped container.
+    runner == "none":   direct exec, no cap (smoke test only — DO NOT use for
+                        paper runs; results will not be memory-constrained).
+    """
+    worker_args = build_worker_args(engine, cap_gb, circuit, aer_method, out_path, cfg)
+
+    if runner == "none":
+        return [sys.executable] + worker_args
+
+    if runner != "docker":
+        raise ValueError(f"unknown runner {runner!r}")
+
+    # For Postgres, enforcement is on the postgres container — the worker
+    # container only runs psycopg2 + EXPLAIN, so a generous cap is fine.
+    container_cap_gb = cap_gb if engine != "postgres" else max(cap_gb, 60)
+    repo_root = str(REPO_ROOT)
+    inferq_root = str(INFERQ_ROOT)
+    iqs_root = str(REPO_ROOT / "Infinidata-rdbms-simulator")
+    tmp_root = cfg["tmp_root"]
+
+    docker_cmd = [
+        "docker", "run", "--rm",
+        "--name", container_name,
+        "--memory", f"{container_cap_gb}g",
+        "--memory-swap", f"{container_cap_gb}g",
+        "--memory-swappiness", "0",
+        # Host network so we reach the postgres container's published port and
+        # so the cgroup/memory namespace stays simple. Embedded engines do no
+        # network anyway.
+        "--network", "host",
+        # cgroupns=host + cgroup bind-mount: the worker self-reports its own
+        # cgroup peak from /proc/self/cgroup, and the path resolves the same
+        # inside as on the host.
+        "--cgroupns", "host",
+        "-v", "/sys/fs/cgroup:/sys/fs/cgroup:ro",
+        "-v", f"{repo_root}:{repo_root}:ro",
+        "-v", f"{tmp_root}:{tmp_root}",
+        "-v", "/tmp:/tmp",
+        "-e", f"PYTHONPATH={iqs_root}:{inferq_root}",
+        "-w", inferq_root,
+        cfg["worker_image"],
     ]
-    return scope_cmd + inner
+    return docker_cmd + worker_args
 
 
 def run_worker(cmd: list[str], overall_timeout: int) -> tuple[int, str, str]:
@@ -181,13 +217,20 @@ def run_worker(cmd: list[str], overall_timeout: int) -> tuple[int, str, str]:
 
 # ─────────── Row emission ───────────
 
-def cgroup_snapshot_for(engine: str, scope_unit: str, container_id: Optional[str]
+def cgroup_snapshot_for(engine: str, worker_container: Optional[str],
+                        pg_container_id: Optional[str]
                         ) -> Optional[cgroup_metrics.CgroupSnapshot]:
-    path = None
-    if engine == "postgres" and container_id:
-        path = cgroup_metrics.find_docker_cgroup(container_id)
-    else:
-        path = cgroup_metrics.find_systemd_scope_cgroup(scope_unit)
+    """Best-effort host-side cgroup read.
+
+    For postgres, the postgres container holds the cap. For embedded engines,
+    the worker container itself holds the cap. The container's cgroup
+    directory may be torn down right after exit (especially with --rm) — when
+    that happens the orchestrator falls back to the worker self-report.
+    """
+    target = pg_container_id if engine == "postgres" else worker_container
+    if not target:
+        return None
+    path = cgroup_metrics.find_docker_cgroup(target)
     if path is None:
         return None
     return cgroup_metrics.read_cgroup(path)
@@ -251,25 +294,30 @@ def load_manifest(path: Path) -> list[CircuitEntry]:
     return entries
 
 
+def _stop_container(name: str) -> None:
+    subprocess.run(["docker", "rm", "-f", name],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def run_one(
     circuit: CircuitEntry, engine: str, cap_gb: int, method: Optional[str],
-    cfg: dict, writer: csv.DictWriter, dry_run: bool, use_systemd: bool,
+    cfg: dict, writer: csv.DictWriter, dry_run: bool, runner: str,
 ) -> None:
-    scope_unit = f"ooc-{circuit.hash[:8]}-{engine}-{cap_gb}-{uuid.uuid4().hex[:6]}.scope"
-    container_id = None
-    container_name = f"pg_ooc_{uuid.uuid4().hex[:8]}"
+    uniq = uuid.uuid4().hex[:8]
+    pg_container_name = f"pg_ooc_{uniq}"
+    worker_container_name = f"ooc_worker_{circuit.hash[:8]}_{engine}_{cap_gb}_{uniq}"
+    pg_container_id = None
     if engine == "postgres":
-        print(f"    [pg] starting container {container_name} --memory={cap_gb}g", file=sys.stderr)
+        print(f"    [pg] starting container {pg_container_name} --memory={cap_gb}g", file=sys.stderr)
         try:
-            container_id = start_pg_container(
-                cap_gb, cfg["postgres_image"], cfg["postgres_host_port"], container_name,
+            pg_container_id = start_pg_container(
+                cap_gb, cfg["postgres_image"], cfg["postgres_host_port"], pg_container_name,
             )
         except Exception as e:
             print(f"    [pg] startup FAILED: {e}", file=sys.stderr)
-            # Emit a single error row and move on.
             envelope = {"status": "pg_startup_failed", "error": str(e), "runs": []}
             emit_rows(writer, circuit, envelope, engine, cap_gb, method, None,
-                      scope_unit, container_id)
+                      worker_container_name, pg_container_id)
             return
 
     try:
@@ -280,7 +328,7 @@ def run_one(
             out_path = Path(tmp.name)
 
         cmd = build_worker_cmd(engine, cap_gb, circuit, method, out_path, cfg,
-                               scope_unit, use_systemd)
+                               worker_container_name, runner)
         per_engine_budget = cfg["timeout_seconds"] * (cfg["n_runs"] + cfg["warmup_runs"] + 2)
         if dry_run:
             print(f"    [dry] would run: {' '.join(cmd)}")
@@ -297,20 +345,20 @@ def run_one(
                     "error": f"worker rc={rc}; no output: {stderr[-200:]}",
                     "runs": [],
                 }
-        # Prefer the worker self-report for embedded engines: by the time the
-        # orchestrator runs, the systemd-run --scope unit has already exited and
-        # the cgroup directory is gone, so cgroup_snapshot_for() returns None or
-        # (worse) walks up to a parent slice that aggregates unrelated activity.
-        # Postgres is different: the Docker container is still alive when we read.
+        # Cgroup peak strategy:
+        #   - For postgres: read the postgres container's cgroup; that's where
+        #     the cap is enforced and the container is still alive here.
+        #   - For embedded engines: the worker container exited already and
+        #     its cgroup directory may be gone. Prefer the worker self-report
+        #     (read from inside the container before exit) and the polling
+        #     sampler. Take the max as the true peak.
         cg = None
         if not dry_run:
             if engine == "postgres":
-                cg = cgroup_snapshot_for(engine, scope_unit, container_id)
+                cg = cgroup_snapshot_for(engine, worker_container_name, pg_container_id)
             wc = envelope.get("cgroup", {}) if isinstance(envelope.get("cgroup"), dict) else {}
             sampled_peak = envelope.get("cgroup_sampled_peak_bytes") or 0
             wc_peak = wc.get("cgroup_mem_peak_bytes") or 0
-            # The polling sampler is an independent peak source (works on kernels
-            # without memory.peak). Take the max of the two as the true peak.
             best_peak = max(int(wc_peak), int(sampled_peak))
             if cg is None and (best_peak > 0 or wc):
                 cg = cgroup_metrics.CgroupSnapshot(
@@ -321,10 +369,14 @@ def run_one(
                     cgroup_path=wc.get("cgroup_path", ""),
                 )
         emit_rows(writer, circuit, envelope, engine, cap_gb, method, cg,
-                  scope_unit, container_id)
+                  worker_container_name, pg_container_id)
     finally:
+        # Clean up any straggler worker container (--rm should have removed it,
+        # but if `docker run` was force-killed, the container can survive).
+        if runner == "docker":
+            _stop_container(worker_container_name)
         if engine == "postgres":
-            stop_pg_container(container_name)
+            stop_pg_container(pg_container_name)
         try:
             out_path.unlink()
         except Exception:
@@ -344,8 +396,12 @@ def main():
     ap.add_argument("--engines", type=str, default=",".join(cfg["engines"]))
     ap.add_argument("--aer-methods", type=str, default=",".join(cfg["aer_methods"]))
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--runner", choices=["docker", "none"], default=None,
+                    help="Embedded-engine runtime: 'docker' (cap enforced by --memory) "
+                         "or 'none' (direct exec, no cap — smoke tests only). "
+                         "Defaults to OOC_RUNNER / config.")
     ap.add_argument("--no-systemd-run", action="store_true",
-                    help="Run worker directly (no cgroup cap) — for smoke tests off-Linux")
+                    help="Deprecated alias for --runner=none.")
     ap.add_argument("--resume", action="store_true",
                     help="Skip (circuit, cap, engine, method) triples already in results-csv")
     ap.add_argument("--rerun-statuses", type=str, default="",
@@ -396,10 +452,29 @@ def main():
     if is_new:
         writer.writeheader()
 
-    use_systemd = (not args.no_systemd_run) and shutil.which("systemd-run") is not None
-    if not use_systemd:
-        print("[run] systemd-run not available — running worker without cgroup cap "
-              "(results will NOT be memory-constrained)", file=sys.stderr)
+    runner = args.runner or cfg.get("runner", "docker")
+    if args.no_systemd_run:
+        runner = "none"
+    if runner == "docker":
+        if shutil.which("docker") is None:
+            print("[run] docker not on PATH — falling back to runner=none (NO cap enforcement)",
+                  file=sys.stderr)
+            runner = "none"
+        else:
+            # Verify the worker image exists; surface a clear error rather than
+            # failing on the first triple.
+            check = subprocess.run(
+                ["docker", "image", "inspect", cfg["worker_image"]],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            if check.returncode != 0:
+                raise SystemExit(
+                    f"[run] worker image {cfg['worker_image']!r} not found. "
+                    f"Build it first: ./scripts/ooc/docker/worker/build.sh"
+                )
+    if runner == "none":
+        print("[run] runner=none — workers will run directly with NO memory cap. "
+              "Results will not be paper-ready.", file=sys.stderr)
 
     interrupted = {"flag": False}
     def _sigint(*_):
@@ -423,7 +498,7 @@ def main():
                         tag += f"/{method}"
                     print(tag, file=sys.stderr)
                     run_one(circuit, engine, cap_gb, method, cfg, writer,
-                            args.dry_run, use_systemd)
+                            args.dry_run, runner)
                     f.flush()
                 if interrupted["flag"]:
                     break

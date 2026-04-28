@@ -124,6 +124,14 @@ class PipelineConfig:
         # Postgres Docker
         "postgres_image": "postgres:16",
         "postgres_host_port": 54320,
+        # Worker runtime image (DuckDB / SQLite / Aer). Built from
+        # scripts/ooc/docker/worker/. The orchestrator runs `docker run
+        # --memory=cap ... worker_image -m scripts.ooc.worker ...` for every
+        # embedded-engine triple, mirroring the postgres path.
+        "worker_image": "inferq-ooc-worker:latest",
+        # Container runtime for embedded engines: "docker" (cap enforced by
+        # Docker --memory) or "none" (direct exec, no cap — smoke test only).
+        "runner": "docker",
         # Aer method sweep — ordered by increasing cost; worker runs each and records per-method status
         "aer_methods": ["automatic", "statevector", "matrix_product_state", "density_matrix", "stabilizer"],
         # Pad Aer's internal max_memory_mb below the cgroup cap to let Aer raise before OOM-kill
@@ -316,6 +324,8 @@ class PipelineConfig:
         cfg["circuits_per_bin"] = self.get_env_or_default("OOC_PER_BIN", cfg["circuits_per_bin"], int)
         cfg["postgres_image"] = self.get_env_or_default("OOC_PG_IMAGE", cfg["postgres_image"])
         cfg["postgres_host_port"] = self.get_env_or_default("OOC_PG_PORT", cfg["postgres_host_port"], int)
+        cfg["worker_image"] = self.get_env_or_default("OOC_WORKER_IMAGE", cfg["worker_image"])
+        cfg["runner"] = self.get_env_or_default("OOC_RUNNER", cfg["runner"])
         return cfg
 
     def get_azure_config(self):

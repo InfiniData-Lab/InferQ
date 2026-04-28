@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
-# Build the OOC-tuned Postgres image. Run once before starting experiments.
+# Build all OOC Docker images: tuned Postgres + worker runtime.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
+
+echo ">>> Building inferq-ooc-postgres:16"
 docker build -t inferq-ooc-postgres:16 "$HERE"
-echo "Built inferq-ooc-postgres:16"
+
+echo ">>> Building inferq-ooc-worker:latest"
+docker build -t inferq-ooc-worker:latest "$HERE/worker"
+
+echo "Built inferq-ooc-postgres:16 and inferq-ooc-worker:latest"
