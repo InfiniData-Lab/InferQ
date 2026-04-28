@@ -324,8 +324,19 @@ def run_one(
         if cfg["drop_page_cache"]:
             cgroup_metrics.drop_page_cache(use_sudo=True)
 
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tmp:
+        # The output JSON is created on the host and written by the worker
+        # inside the docker container. Container UID may differ from host UID
+        # (rootless docker, userns-remap), so put the file under OOC_TMP_ROOT
+        # (already bind-mounted rw) and make it world-writable.
+        out_dir = Path(cfg["tmp_root"]) / "orchestrator_out"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False,
+                                          dir=str(out_dir)) as tmp:
             out_path = Path(tmp.name)
+        try:
+            os.chmod(out_path, 0o666)
+        except OSError:
+            pass
 
         cmd = build_worker_cmd(engine, cap_gb, circuit, method, out_path, cfg,
                                worker_container_name, runner)
@@ -414,6 +425,16 @@ def main():
     engines = [x.strip() for x in args.engines.split(",") if x.strip()]
     aer_methods = [x.strip() for x in args.aer_methods.split(",") if x.strip()]
     rerun_statuses: set[str] = {s.strip() for s in args.rerun_statuses.split(",") if s.strip()}
+
+    # Ensure OOC_TMP_ROOT exists and is writable by any container UID.
+    # Worker containers may run as a remapped/rootless UID, so 0o1777 (sticky,
+    # world-writable) is the safest setting for paths shared across containers.
+    tmp_root = Path(cfg["tmp_root"])
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(tmp_root, 0o1777)
+    except OSError as e:
+        print(f"[run] warning: chmod 1777 {tmp_root} failed: {e}", file=sys.stderr)
 
     entries = load_manifest(args.manifest)
     print(f"[run] {len(entries)} circuits × {len(caps)} caps × {len(engines)} engines",
