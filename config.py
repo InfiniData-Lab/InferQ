@@ -34,7 +34,7 @@ class PipelineConfig:
 
     # Pipeline Defaults
     PIPELINE_DEFAULTS = {
-        "workers": 5,  # Auto-detect
+        "workers": 1,  # Auto-detect
         "batch_size": 10,
         "azure_upload_interval": 10,
         "max_iterations": None,  # Infinite
