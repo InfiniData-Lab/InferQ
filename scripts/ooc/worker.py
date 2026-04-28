@@ -138,12 +138,25 @@ def _read_own_cgroup_v2() -> dict:
         result["cgroup_io_write_bytes"] = wb
     elif v1_mem_path is not None:
         result["cgroup_path"] = str(v1_mem_path)
-        peak = _read_int_file(v1_mem_path / "memory.max_usage_in_bytes")
-        if peak > 0:
-            result["cgroup_mem_peak_bytes"] = peak
-        swap = _read_int_file(v1_mem_path / "memory.memsw.max_usage_in_bytes")
-        if swap > 0:
-            result["cgroup_swap_peak_bytes"] = swap
+        mem_peak = _read_int_file(v1_mem_path / "memory.max_usage_in_bytes")
+        if mem_peak > 0:
+            result["cgroup_mem_peak_bytes"] = mem_peak
+        # memory.memsw.max_usage_in_bytes is the COMBINED mem+swap peak.
+        # Pure swap peak = memsw_peak - mem_peak (clamped at 0). With
+        # --memory-swap=cap (== --memory) this should always be 0.
+        memsw_peak = _read_int_file(v1_mem_path / "memory.memsw.max_usage_in_bytes")
+        if memsw_peak > 0 and mem_peak > 0:
+            result["cgroup_swap_peak_bytes"] = max(0, memsw_peak - mem_peak)
+        # I/O on v1 is on the blkio controller, separate from the memory
+        # cgroup. Locate via /proc/self/cgroup -> /sys/fs/cgroup/blkio/<rel>.
+        v1_blkio = _resolve_own_v1_path("blkio")
+        if v1_blkio is not None:
+            for name in ("blkio.throttle.io_service_bytes", "blkio.io_service_bytes"):
+                rb, wb = _parse_v1_blkio_io_service_bytes(v1_blkio / name)
+                if rb or wb:
+                    result["cgroup_io_read_bytes"] = rb
+                    result["cgroup_io_write_bytes"] = wb
+                    break
     return result
 
 
@@ -155,6 +168,7 @@ def _read_int_file(path: Path) -> int:
 
 
 def _parse_io_stat_file(path: Path) -> tuple[int, int]:
+    """Parse cgroup v2 io.stat: lines of `<major:minor> rbytes=… wbytes=…`."""
     rb = wb = 0
     try:
         for line in path.read_text().splitlines():
@@ -169,6 +183,49 @@ def _parse_io_stat_file(path: Path) -> tuple[int, int]:
     except Exception:
         pass
     return rb, wb
+
+
+def _parse_v1_blkio_io_service_bytes(path: Path) -> tuple[int, int]:
+    """Parse cgroup v1 blkio.io_service_bytes (or blkio.throttle.io_service_bytes).
+
+    Format: `<major:minor> <Read|Write|Sync|Async|Discard|Total> <bytes>`
+    plus a final `Total <total bytes>` line. We only sum Read/Write to avoid
+    double-counting against Sync/Async/Total.
+    """
+    rb = wb = 0
+    try:
+        for line in path.read_text().splitlines():
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            kind = parts[1] if ":" in parts[0] else parts[0]
+            try:
+                value = int(parts[-1])
+            except ValueError:
+                continue
+            if kind == "Read":
+                rb += value
+            elif kind == "Write":
+                wb += value
+    except Exception:
+        pass
+    return rb, wb
+
+
+def _resolve_own_v1_path(controller: str) -> Path | None:
+    """Find the v1 cgroup path for a specific controller (e.g. 'blkio')."""
+    try:
+        with open("/proc/self/cgroup") as f:
+            for line in f:
+                parts = line.strip().split(":", 2)
+                if len(parts) != 3:
+                    continue
+                if controller in parts[1].split(","):
+                    candidate = Path(f"/sys/fs/cgroup/{controller}") / parts[2].lstrip("/")
+                    return candidate if candidate.exists() else None
+    except Exception:
+        pass
+    return None
 
 
 class _CgroupMemSampler(threading.Thread):
