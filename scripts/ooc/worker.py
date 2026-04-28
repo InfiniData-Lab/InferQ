@@ -97,21 +97,33 @@ def _resolve_own_cgroup_paths() -> tuple[Path | None, Path | None]:
     return v2_path, v1_mem_path
 
 
+def _v2_has_memory_accounting(v2_path: Path) -> bool:
+    """True iff the v2 cgroup actually carries the memory controller.
+
+    On hybrid v1+v2 hosts the v2 unified hierarchy is often a pure tracking
+    hierarchy with no controllers attached (Docker on cgroupfs/v1 keeps
+    memory accounting in /sys/fs/cgroup/memory/). In that case neither
+    memory.peak nor memory.current exist on the v2 path; the caller must
+    fall back to v1.
+    """
+    return (v2_path / "memory.current").exists() or (v2_path / "memory.peak").exists()
+
+
 def _read_own_cgroup_v2() -> dict:
     """Read cgroup memory/IO counters for this process from inside the scope.
 
-    Always prefers the cgroup v2 path resolved from /proc/self/cgroup line
-    `0::...`. Falls back to v1 only if v2 is unavailable. On hybrid systems,
-    v1 paths often resolve to a parent slice and would yield system-wide peaks.
+    Prefers v2 *only if it carries the memory controller*; otherwise reads
+    v1 memory. /proc/self/cgroup may list both hierarchies for the same
+    process; the one with live memory accounting is authoritative.
 
     Called just before the worker exits so the cgroup directory still exists.
     """
     result: dict = {}
     v2_path, v1_mem_path = _resolve_own_cgroup_paths()
+    v2_active = v2_path is not None and _v2_has_memory_accounting(v2_path)
 
-    if v2_path is not None:
+    if v2_active:
         result["cgroup_path"] = str(v2_path)
-        # memory.peak (kernel ≥5.19) is the true high-water mark for the cgroup.
         peak = _read_int_file(v2_path / "memory.peak")
         if peak <= 0:
             peak = _read_int_file(v2_path / "memory.current")
@@ -160,10 +172,12 @@ def _parse_io_stat_file(path: Path) -> tuple[int, int]:
 
 
 class _CgroupMemSampler(threading.Thread):
-    """Polls memory.current at a fixed interval and records the high-water mark.
+    """Polls the cgroup's "current memory" counter and records the peak.
 
-    Independent cross-check against memory.peak — also gives a peak on kernels
-    < 5.19 where memory.peak is unavailable. Stops cleanly via stop().
+    Independent cross-check against memory.peak / max_usage_in_bytes — also
+    gives a peak on kernels < 5.19 where memory.peak is unavailable.
+    Auto-detects whether to read v2 `memory.current` or v1 `memory.usage_in_bytes`
+    based on which file exists at the supplied path.
     """
     def __init__(self, cgroup_path: Path, interval_s: float = 0.1):
         super().__init__(daemon=True)
@@ -171,11 +185,15 @@ class _CgroupMemSampler(threading.Thread):
         self.interval = interval_s
         self.peak_bytes = 0
         self._stop = threading.Event()
+        # Pick the correct file ONCE at start time. v2 vs v1 is determined by
+        # which name exists in the supplied directory.
+        v2_current = cgroup_path / "memory.current"
+        v1_current = cgroup_path / "memory.usage_in_bytes"
+        self.sample_path = v2_current if v2_current.exists() else v1_current
 
     def run(self):
-        mem_current = self.cgroup_path / "memory.current"
         while not self._stop.is_set():
-            v = _read_int_file(mem_current)
+            v = _read_int_file(self.sample_path)
             if v > self.peak_bytes:
                 self.peak_bytes = v
             self._stop.wait(self.interval)
@@ -673,9 +691,17 @@ def main():
 
         labels = ["warmup"] * args.warmup + [str(i) for i in range(args.n_runs)]
         # Start cgroup memory sampler — independent peak source that works on
-        # kernels < 5.19 (no memory.peak) and cross-checks the v2 reading.
-        v2_path, _ = _resolve_own_cgroup_paths()
-        cg_sampler = _CgroupMemSampler(v2_path, interval_s=0.1) if v2_path else None
+        # kernels < 5.19 (no memory.peak) and cross-checks the primary reading.
+        # On hybrid v1+v2 hosts the v2 unified hierarchy may have no memory
+        # controller (Docker on cgroupfs/v1 puts memory accounting under
+        # /sys/fs/cgroup/memory/...). Pick whichever path actually carries it.
+        v2_path, v1_mem_path = _resolve_own_cgroup_paths()
+        sampler_cgroup = None
+        if v2_path is not None and _v2_has_memory_accounting(v2_path):
+            sampler_cgroup = v2_path
+        elif v1_mem_path is not None:
+            sampler_cgroup = v1_mem_path
+        cg_sampler = _CgroupMemSampler(sampler_cgroup, interval_s=0.1) if sampler_cgroup else None
         if cg_sampler is not None:
             cg_sampler.start()
         tracemalloc.start()
