@@ -130,8 +130,10 @@ def find_systemd_scope_cgroup(unit_name: str) -> Optional[Path]:
 def find_docker_cgroup(container_id: str) -> Optional[Path]:
     """Find cgroup path for a Docker container by id or name.
 
-    Resolves the full container id via `docker inspect` then checks the standard
-    cgroup layouts used by Docker on systemd hosts (cgroupfs and systemd driver).
+    Tries cgroup v1 (memory) and v2 unified, plus both Docker drivers
+    (cgroupfs + systemd) and hybrid layouts. Returns the first directory
+    that contains a memory accounting file so the caller can read counters
+    immediately without further dispatch.
     """
     try:
         full_id = subprocess.check_output(
@@ -141,21 +143,36 @@ def find_docker_cgroup(container_id: str) -> Optional[Path]:
     except (subprocess.CalledProcessError, FileNotFoundError):
         full_id = container_id
 
-    candidates = [
-        CGROUP_ROOT / f"system.slice/docker-{full_id}.scope",
-        CGROUP_ROOT / f"docker/{full_id}",
-        CGROUP_ROOT / f"system.slice/docker.service/docker/{full_id}",
+    # Roots in order of preference: v1 memory (true peak via
+    # max_usage_in_bytes), then v2 unified, then the legacy systemd named
+    # hierarchy at CGROUP_ROOT.
+    roots: list[Path] = []
+    if CGROUP_V1_MEM_ROOT.exists():
+        roots.append(CGROUP_V1_MEM_ROOT)
+    unified = Path("/sys/fs/cgroup/unified")
+    if unified.exists():
+        roots.append(unified)
+    if CGROUP_ROOT.exists() and CGROUP_ROOT not in roots:
+        roots.append(CGROUP_ROOT)
+
+    layouts = [
+        f"docker/{full_id}",
+        f"system.slice/docker-{full_id}.scope",
+        f"system.slice/docker.service/docker/{full_id}",
     ]
-    for c in candidates:
-        if c.exists():
-            return c
-    # Fallback: search for the id as a directory name.
-    if CGROUP_ROOT.exists():
-        pattern = re.compile(re.escape(full_id))
-        for root, dirs, _ in os.walk(CGROUP_ROOT):
+    for root in roots:
+        for layout in layouts:
+            c = root / layout
+            if c.exists():
+                return c
+
+    # Fallback: walk roots looking for a directory whose name contains the id.
+    pattern = re.compile(re.escape(full_id))
+    for root in roots:
+        for parent, dirs, _ in os.walk(root):
             for d in dirs:
                 if pattern.search(d):
-                    return Path(root) / d
+                    return Path(parent) / d
     return None
 
 

@@ -179,8 +179,12 @@ def build_worker_cmd(
     iqs_root = str(REPO_ROOT / "Infinidata-rdbms-simulator")
     tmp_root = cfg["tmp_root"]
 
+    # No --rm: we read the container's cgroup from the host AFTER the worker
+    # process exits but BEFORE removing the container (cgroup is destroyed
+    # when Docker drops its last reference). _stop_container() in run_one's
+    # finally block handles cleanup.
     docker_cmd = [
-        "docker", "run", "--rm",
+        "docker", "run",
         "--name", container_name,
         "--memory", f"{container_cap_gb}g",
         "--memory-swap", f"{container_cap_gb}g",
@@ -193,7 +197,17 @@ def build_worker_cmd(
         # cgroup peak from /proc/self/cgroup, and the path resolves the same
         # inside as on the host.
         "--cgroupns", "host",
-        "-v", "/sys/fs/cgroup:/sys/fs/cgroup:ro",
+    ]
+    # Bind-mount /sys/fs/cgroup. On hybrid v1+v2 hosts, sub-mounts (memory,
+    # cpu, unified, …) are NOT propagated by a single `-v` bind, so the worker
+    # would see only the empty parent tmpfs. Add explicit mounts for any v1
+    # controllers and the v2 unified hierarchy that exist on this host.
+    docker_cmd += ["-v", "/sys/fs/cgroup:/sys/fs/cgroup:ro"]
+    for sub in ("memory", "unified", "cpu,cpuacct", "cpu", "blkio", "pids"):
+        host_path = Path("/sys/fs/cgroup") / sub
+        if host_path.exists():
+            docker_cmd += ["-v", f"{host_path}:{host_path}:ro"]
+    docker_cmd += [
         "-v", f"{repo_root}:{repo_root}:ro",
         "-v", f"{tmp_root}:{tmp_root}",
         "-v", "/tmp:/tmp",
@@ -364,20 +378,40 @@ def run_one(
         #     (read from inside the container before exit) and the polling
         #     sampler. Take the max as the true peak.
         cg = None
+        host_cg = None
         if not dry_run:
-            if engine == "postgres":
-                cg = cgroup_snapshot_for(engine, worker_container_name, pg_container_id)
+            # Host-side cgroup read. For postgres: the postgres container
+            # itself. For embedded engines: the worker container, which is
+            # still in Exited state (we drop --rm) so its cgroup persists
+            # until we docker-rm it.
+            host_cg = cgroup_snapshot_for(
+                engine, worker_container_name if runner == "docker" else None,
+                pg_container_id,
+            )
             wc = envelope.get("cgroup", {}) if isinstance(envelope.get("cgroup"), dict) else {}
             sampled_peak = envelope.get("cgroup_sampled_peak_bytes") or 0
             wc_peak = wc.get("cgroup_mem_peak_bytes") or 0
-            best_peak = max(int(wc_peak), int(sampled_peak))
-            if cg is None and (best_peak > 0 or wc):
+            host_peak = host_cg.memory_peak_bytes if host_cg else 0
+            # Three independent peak sources. Take the max — they all observe
+            # the same cgroup, so the largest is the most reliable high-water.
+            best_peak = max(int(wc_peak), int(sampled_peak), int(host_peak))
+            if best_peak > 0 or wc or host_cg:
                 cg = cgroup_metrics.CgroupSnapshot(
                     memory_peak_bytes=best_peak,
-                    memory_swap_peak_bytes=wc.get("cgroup_swap_peak_bytes", 0) or 0,
-                    io_read_bytes=wc.get("cgroup_io_read_bytes", 0) or 0,
-                    io_write_bytes=wc.get("cgroup_io_write_bytes", 0) or 0,
-                    cgroup_path=wc.get("cgroup_path", ""),
+                    memory_swap_peak_bytes=max(
+                        int(wc.get("cgroup_swap_peak_bytes", 0) or 0),
+                        int(host_cg.memory_swap_peak_bytes if host_cg else 0),
+                    ),
+                    io_read_bytes=max(
+                        int(wc.get("cgroup_io_read_bytes", 0) or 0),
+                        int(host_cg.io_read_bytes if host_cg else 0),
+                    ),
+                    io_write_bytes=max(
+                        int(wc.get("cgroup_io_write_bytes", 0) or 0),
+                        int(host_cg.io_write_bytes if host_cg else 0),
+                    ),
+                    cgroup_path=(host_cg.cgroup_path if host_cg
+                                 else wc.get("cgroup_path", "")),
                 )
         emit_rows(writer, circuit, envelope, engine, cap_gb, method, cg,
                   worker_container_name, pg_container_id)
