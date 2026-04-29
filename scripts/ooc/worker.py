@@ -241,7 +241,11 @@ class _CgroupMemSampler(threading.Thread):
         self.cgroup_path = cgroup_path
         self.interval = interval_s
         self.peak_bytes = 0
-        self._stop = threading.Event()
+        # NOTE: do NOT name this `_stop` — `threading.Thread._stop` is an
+        # internal method called during thread cleanup. Shadowing it with an
+        # Event instance causes `TypeError: 'Event' object is not callable`
+        # when the runtime tries to invoke `self._stop()`.
+        self._stop_event = threading.Event()
         # Pick the correct file ONCE at start time. v2 vs v1 is determined by
         # which name exists in the supplied directory.
         v2_current = cgroup_path / "memory.current"
@@ -249,14 +253,14 @@ class _CgroupMemSampler(threading.Thread):
         self.sample_path = v2_current if v2_current.exists() else v1_current
 
     def run(self):
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             v = _read_int_file(self.sample_path)
             if v > self.peak_bytes:
                 self.peak_bytes = v
-            self._stop.wait(self.interval)
+            self._stop_event.wait(self.interval)
 
     def stop(self):
-        self._stop.set()
+        self._stop_event.set()
         self.join(timeout=2)
 
 
@@ -603,10 +607,11 @@ class _TempDirSampler(threading.Thread):
         self.path = path
         self.interval = interval_s
         self.peak_bytes = 0
-        self._stop = threading.Event()
+        # See _CgroupMemSampler for why this is _stop_event, not _stop.
+        self._stop_event = threading.Event()
 
     def run(self):
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             try:
                 total = sum(
                     p.stat().st_size for p in self.path.rglob("*") if p.is_file()
@@ -615,10 +620,10 @@ class _TempDirSampler(threading.Thread):
                     self.peak_bytes = total
             except FileNotFoundError:
                 pass
-            self._stop.wait(self.interval)
+            self._stop_event.wait(self.interval)
 
     def stop(self):
-        self._stop.set()
+        self._stop_event.set()
         self.join(timeout=2)
 
 

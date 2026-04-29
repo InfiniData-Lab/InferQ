@@ -100,7 +100,11 @@ class PipelineConfig:
     # and Docker --memory for PostgreSQL. See scripts/ooc/README.md.
     OOC = {
         "caps_gb": [16, 8, 4],            # Memory caps to sweep; baseline comes from prior unconstrained runs
-        "engines": ["postgres", "duckdb", "sqlite", "aer"],
+        # Aer is intentionally dropped from the default sweep: the headline
+        # cliff-drop story is already established in the legacy CSV, and the
+        # remaining sweep focuses on RDBMS spill behaviour. To run Aer again,
+        # set OOC_ENGINES=postgres,duckdb,sqlite,aer or pass --engines.
+        "engines": ["postgres", "duckdb", "sqlite"],
         "n_runs": 3,                        # Timed runs per (circuit, cap, engine)
         "warmup_runs": 1,                  # Discarded warm-up runs before timed runs
         "timeout_seconds": 1800,            # 30 min per run
