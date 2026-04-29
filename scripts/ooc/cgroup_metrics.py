@@ -9,9 +9,12 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+_SUDO_WARN_EMITTED = False
 
 # On hybrid cgroup systems the v2 unified hierarchy is mounted at
 # /sys/fs/cgroup/unified, not at /sys/fs/cgroup (which is a plain tmpfs).
@@ -40,19 +43,55 @@ class CgroupSnapshot:
     cgroup_path: str
 
 
-def _read_int(path: Path) -> int:
+def _read_priv(path: Path) -> str:
+    """Read a cgroup file, escalating to `sudo -n cat` on PermissionError.
+
+    cgroup v1 paths under /sys/fs/cgroup/memory/docker/<id>/ are root-only on
+    most distros. Without escalation the read returns "" and downstream
+    metrics silently report 0, which previously let a sibling container's
+    self-report win the merge for postgres rows.
+    """
+    global _SUDO_WARN_EMITTED
     try:
-        return int(path.read_text().strip())
-    except (FileNotFoundError, ValueError, PermissionError):
+        return path.read_text()
+    except (FileNotFoundError, IsADirectoryError):
+        return ""
+    except PermissionError:
+        try:
+            r = subprocess.run(
+                ["sudo", "-n", "cat", str(path)],
+                capture_output=True, text=True, check=False,
+            )
+        except FileNotFoundError:
+            return ""
+        if r.returncode == 0:
+            return r.stdout
+        if not _SUDO_WARN_EMITTED:
+            sys.stderr.write(
+                f"[cgroup_metrics] cannot read {path} as user; sudo -n cat failed "
+                f"(rc={r.returncode}: {r.stderr.strip()[:120]}). Postgres cgroup "
+                f"metrics will be null. Add a NOPASSWD sudoers entry for "
+                f"`cat /sys/fs/cgroup/memory/docker/*` to fix.\n"
+            )
+            _SUDO_WARN_EMITTED = True
+        return ""
+
+
+def _read_int(path: Path) -> int:
+    text = _read_priv(path).strip()
+    if not text:
+        return 0
+    try:
+        return int(text)
+    except ValueError:
         return 0
 
 
 def _parse_io_stat(path: Path) -> tuple[int, int]:
     """Sum rbytes/wbytes across all devices in io.stat."""
     read_b = write_b = 0
-    try:
-        content = path.read_text()
-    except (FileNotFoundError, PermissionError):
+    content = _read_priv(path)
+    if not content:
         return 0, 0
     for line in content.splitlines():
         parts = line.split()
@@ -67,6 +106,38 @@ def _parse_io_stat(path: Path) -> tuple[int, int]:
     return read_b, write_b
 
 
+def _try_v2_swap_peak_for_v1_path(v1_path: Path) -> Optional[int]:
+    """If a v2 unified sibling exists for the same docker container, return
+    its memory.swap.peak. Returns None on pure-v1 hosts or when the sibling
+    can't be located.
+    """
+    name = v1_path.name
+    if not name:
+        return None
+    # _detect_cgroup_v2_root() already picked the unified mount when present.
+    # On hybrid hosts that's typically /sys/fs/cgroup/unified, distinct from
+    # the v1 memory root used by the caller.
+    v2_roots: list[Path] = []
+    if CGROUP_ROOT != CGROUP_V1_MEM_ROOT and CGROUP_ROOT.exists():
+        v2_roots.append(CGROUP_ROOT)
+    unified = Path("/sys/fs/cgroup/unified")
+    if unified.exists() and unified not in v2_roots:
+        v2_roots.append(unified)
+    for root in v2_roots:
+        for layout in (f"docker/{name}",
+                       f"system.slice/docker-{name}.scope",
+                       f"system.slice/docker.service/docker/{name}"):
+            cand = root / layout / "memory.swap.peak"
+            if cand.exists():
+                txt = _read_priv(cand).strip()
+                if txt:
+                    try:
+                        return int(txt)
+                    except ValueError:
+                        return None
+    return None
+
+
 def read_cgroup(cgroup_path: Path) -> CgroupSnapshot:
     """Read peak memory and cumulative I/O counters from a cgroup path.
 
@@ -77,7 +148,12 @@ def read_cgroup(cgroup_path: Path) -> CgroupSnapshot:
     is_v1_mem = str(cgroup_path).startswith(str(CGROUP_V1_MEM_ROOT))
     if is_v1_mem:
         mem_peak = _read_int(cgroup_path / "memory.max_usage_in_bytes")
-        swap_peak = _read_int(cgroup_path / "memory.memsw.max_usage_in_bytes")
+        memsw = _read_int(cgroup_path / "memory.memsw.max_usage_in_bytes")
+        # Prefer v2 swap.peak from a unified sibling when present (hybrid hosts);
+        # otherwise fall back to memsw - mem, which is a *lower bound* on swap
+        # because the two component peaks may not coincide in time.
+        v2_swap = _try_v2_swap_peak_for_v1_path(cgroup_path)
+        swap_peak = v2_swap if v2_swap is not None else max(0, memsw - mem_peak)
         return CgroupSnapshot(
             memory_peak_bytes=mem_peak,
             memory_swap_peak_bytes=swap_peak,

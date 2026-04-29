@@ -250,6 +250,21 @@ def cgroup_snapshot_for(engine: str, worker_container: Optional[str],
     return cgroup_metrics.read_cgroup(path)
 
 
+def _flatten_error(msg: str) -> str:
+    """Collapse newlines/carriage returns so error_msg stays on one CSV line.
+
+    Postgres startup logs (captured via `docker logs --tail=40`) contain
+    literal newlines that, while valid in a quoted CSV field, make grep/cat
+    treat each line of the log as a separate file line.
+    """
+    if not msg:
+        return ""
+    return (msg.replace("\\", "\\\\")
+               .replace("\r\n", "\\n")
+               .replace("\n", "\\n")
+               .replace("\r", "\\n"))
+
+
 def emit_rows(writer: csv.DictWriter, circuit: CircuitEntry, envelope: dict,
               engine: str, cap_gb: int, method: Optional[str],
               cg: Optional[cgroup_metrics.CgroupSnapshot],
@@ -279,7 +294,7 @@ def emit_rows(writer: csv.DictWriter, circuit: CircuitEntry, envelope: dict,
             "wall_time_s": None, "tracemalloc_peak_bytes": None, "proc_vm_peak_bytes": None,
             "dbms_temp_bytes_written": None, "dbms_temp_bytes_read": None,
             "status": envelope.get("status", "error"),
-            "error_msg": envelope.get("error", ""),
+            "error_msg": _flatten_error(envelope.get("error", "")),
         })
         return
     for r in runs:
@@ -291,7 +306,7 @@ def emit_rows(writer: csv.DictWriter, circuit: CircuitEntry, envelope: dict,
             "dbms_temp_bytes_written": r.get("spill_bytes_written"),
             "dbms_temp_bytes_read": r.get("spill_bytes_read"),
             "status": r.get("status", "unknown"),
-            "error_msg": r.get("error", ""),
+            "error_msg": _flatten_error(r.get("error", "")),
         })
 
 
@@ -388,31 +403,39 @@ def run_one(
                 engine, worker_container_name if runner == "docker" else None,
                 pg_container_id,
             )
-            wc = envelope.get("cgroup", {}) if isinstance(envelope.get("cgroup"), dict) else {}
-            sampled_peak = envelope.get("cgroup_sampled_peak_bytes") or 0
-            wc_peak = wc.get("cgroup_mem_peak_bytes") or 0
-            host_peak = host_cg.memory_peak_bytes if host_cg else 0
-            # Three independent peak sources. Take the max — they all observe
-            # the same cgroup, so the largest is the most reliable high-water.
-            best_peak = max(int(wc_peak), int(sampled_peak), int(host_peak))
-            if best_peak > 0 or wc or host_cg:
-                cg = cgroup_metrics.CgroupSnapshot(
-                    memory_peak_bytes=best_peak,
-                    memory_swap_peak_bytes=max(
-                        int(wc.get("cgroup_swap_peak_bytes", 0) or 0),
-                        int(host_cg.memory_swap_peak_bytes if host_cg else 0),
-                    ),
-                    io_read_bytes=max(
-                        int(wc.get("cgroup_io_read_bytes", 0) or 0),
-                        int(host_cg.io_read_bytes if host_cg else 0),
-                    ),
-                    io_write_bytes=max(
-                        int(wc.get("cgroup_io_write_bytes", 0) or 0),
-                        int(host_cg.io_write_bytes if host_cg else 0),
-                    ),
-                    cgroup_path=(host_cg.cgroup_path if host_cg
-                                 else wc.get("cgroup_path", "")),
-                )
+            if engine == "postgres":
+                # The worker is a separate container from postgres. Only the
+                # host-side read of the postgres container's cgroup is correct;
+                # the worker's self-report and sampler measure the wrong cgroup.
+                # If the host read failed (e.g. no sudo), prefer null cgroup
+                # values over a wrong-container number.
+                cg = host_cg
+            else:
+                wc = envelope.get("cgroup", {}) if isinstance(envelope.get("cgroup"), dict) else {}
+                sampled_peak = envelope.get("cgroup_sampled_peak_bytes") or 0
+                wc_peak = wc.get("cgroup_mem_peak_bytes") or 0
+                host_peak = host_cg.memory_peak_bytes if host_cg else 0
+                # Three independent peak sources. Take the max — they all observe
+                # the same cgroup, so the largest is the most reliable high-water.
+                best_peak = max(int(wc_peak), int(sampled_peak), int(host_peak))
+                if best_peak > 0 or wc or host_cg:
+                    cg = cgroup_metrics.CgroupSnapshot(
+                        memory_peak_bytes=best_peak,
+                        memory_swap_peak_bytes=max(
+                            int(wc.get("cgroup_swap_peak_bytes", 0) or 0),
+                            int(host_cg.memory_swap_peak_bytes if host_cg else 0),
+                        ),
+                        io_read_bytes=max(
+                            int(wc.get("cgroup_io_read_bytes", 0) or 0),
+                            int(host_cg.io_read_bytes if host_cg else 0),
+                        ),
+                        io_write_bytes=max(
+                            int(wc.get("cgroup_io_write_bytes", 0) or 0),
+                            int(host_cg.io_write_bytes if host_cg else 0),
+                        ),
+                        cgroup_path=(host_cg.cgroup_path if host_cg
+                                     else wc.get("cgroup_path", "")),
+                    )
         emit_rows(writer, circuit, envelope, engine, cap_gb, method, cg,
                   worker_container_name, pg_container_id)
     finally:
