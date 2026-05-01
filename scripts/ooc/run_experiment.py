@@ -63,6 +63,7 @@ class CircuitEntry:
     num_gates: int
     prior_peak_mem_gb: Optional[float]
     bin: str
+    skip_engines: frozenset[str]
 
     @classmethod
     def from_json(cls, d: dict) -> "CircuitEntry":
@@ -73,6 +74,7 @@ class CircuitEntry:
             num_gates=d.get("num_gates") or 0,
             prior_peak_mem_gb=d.get("prior_peak_mem_gb"),
             bin=d.get("bin", ""),
+            skip_engines=frozenset(d.get("skip_engines") or []),
         )
 
 
@@ -564,6 +566,9 @@ def main():
     for ci, circuit in enumerate(entries, 1):
         for cap_gb in caps:
             for engine in engines:
+                if engine in circuit.skip_engines:
+                    skipped += 1
+                    continue
                 methods = aer_methods if engine == "aer" else [None]
                 for method in methods:
                     key = (circuit.hash, str(cap_gb), engine, method or "")

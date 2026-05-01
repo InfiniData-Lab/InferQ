@@ -58,9 +58,12 @@ if str(INFERQ_ROOT) not in sys.path:
 from config import get_ooc_config  # noqa: E402
 from utils.circuit_hash import compute_circuit_hash  # noqa: E402
 
-DEFAULT_QUBITS = [22, 24, 26, 28, 30, 32, 34, 36]
+DEFAULT_QUBITS = [18, 20, 22, 24, 26, 28]
 DEFAULT_LAYERS = 3
 DEFAULT_SEED = 4
+# DuckDB OOM-kills (rc=137) reliably for n>=26 on this benchmark even at cap=16.
+# Skip duckdb above this threshold; postgres+sqlite still cover the upper bins.
+DEFAULT_DUCKDB_MAX_QUBITS = 24
 
 
 def assign_bin(num_qubits: int, edges: list[int]) -> tuple[str, int]:
@@ -109,6 +112,10 @@ def main():
                          "lock peak intermediate at 2^N)")
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED,
                     help="Base seed for the random matchings")
+    ap.add_argument("--duckdb-max-qubits", type=int, default=DEFAULT_DUCKDB_MAX_QUBITS,
+                    help="Skip duckdb (write skip_engines=['duckdb']) for circuits "
+                         "with num_qubits > this value. Default: %(default)s "
+                         "(duckdb OOM-kills above this threshold on the box benchmark)")
     ap.add_argument("--circuits-dir", type=Path, default=INFERQ_ROOT / "circuits")
     ap.add_argument("--out", type=Path,
                     default=INFERQ_ROOT / "data" / "ooc" / "circuits_spill.jsonl")
@@ -142,6 +149,7 @@ def main():
         # Peak intermediate is forced to 2^N elements (complex128 = 16 B).
         peak_bytes = (2 ** n) * 16
         peak_mb = peak_bytes / (1024 ** 2)
+        skip_engines = ["duckdb"] if n > args.duckdb_max_qubits else []
         rows.append({
             "hash": h,
             "qpy_path": str(qpy_path),
@@ -153,9 +161,11 @@ def main():
             "prior_aer_methods": [],
             "bin": bin_name,
             "bin_order": bin_order,
+            "skip_engines": skip_engines,
         })
+        skip_tag = f" skip={skip_engines}" if skip_engines else ""
         print(f"[spill]   {h[:8]} n={n} L={args.layers} gates={qc.size():3d} "
-              f"peak=2^{n}={peak_bytes/1e9:7.3f}GB -> {bin_name}",
+              f"peak=2^{n}={peak_bytes/1e9:7.3f}GB -> {bin_name}{skip_tag}",
               file=sys.stderr)
 
     with args.out.open("w") as f:
