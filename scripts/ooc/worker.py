@@ -14,6 +14,7 @@ import argparse
 import gc
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -534,6 +535,67 @@ def _duckdb_sum_spill(profile: Any) -> int:
     return 0
 
 
+_CTE_HEAD = re.compile(r"\s*(\w+)(\s*\([^)]*\))?\s+AS\s*\(", re.IGNORECASE)
+
+
+def _split_iqs_query_for_sqlite(query: str) -> list[str]:
+    """Split an IQS `WITH H#... K#... SELECT` query into step-by-step DDL.
+
+    SQLite's hash-join has no spill path: monolithic CTE queries grow the heap
+    until OOM regardless of cache_size or temp_store=FILE. By materializing
+    each contraction step (`K#`) into its own `CREATE TEMP TABLE`, sqlite is
+    forced to round-trip every intermediate through `temp_store_directory`,
+    bounding peak RSS to roughly one step's hash-build at a time.
+
+    Tensor literal CTEs (anything not named K#) and any helper CTEs are
+    re-emitted as a shared WITH-prefix on every statement; their contents are
+    tiny VALUES clauses so duplicating them costs nothing.
+    """
+    s = query.lstrip()
+    if not s.upper().startswith("WITH "):
+        return [s]
+    s = s[5:]
+
+    cte_defs: list[tuple[str, str, str]] = []  # (name, optional cols, body)
+    pos = 0
+    while True:
+        m = _CTE_HEAD.match(s, pos)
+        if not m:
+            break
+        name = m.group(1)
+        cols = (m.group(2) or "").strip()
+        body_start = m.end()
+        depth = 1
+        i = body_start
+        while i < len(s) and depth > 0:
+            c = s[i]
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+            i += 1
+        body = s[body_start:i - 1]
+        cte_defs.append((name, cols, body))
+        pos = i
+        while pos < len(s) and s[pos] in " \t\n,":
+            pos += 1
+    final_select = s[pos:].strip()
+
+    h_defs = [(n, c, b) for (n, c, b) in cte_defs if not n.startswith("K")]
+    k_defs = [(n, c, b) for (n, c, b) in cte_defs if n.startswith("K")]
+
+    if h_defs:
+        prefix = "WITH " + ", ".join(f"{n}{c} AS ({b})" for (n, c, b) in h_defs) + " "
+    else:
+        prefix = ""
+
+    statements: list[str] = []
+    for (n, _c, b) in k_defs:
+        statements.append(f"CREATE TEMP TABLE {n} AS {prefix}{b}")
+    statements.append(f"{prefix}{final_select}")
+    return statements
+
+
 def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
     import sqlite3
 
@@ -553,6 +615,11 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
         cur.execute(f"PRAGMA temp_store_directory = '{tmp_dir}'")
     except sqlite3.OperationalError:
         pass  # temp_store_directory deprecated on newer SQLite
+    # mmap is uncapped and bypasses cache_size; disable it so the cap is real.
+    try:
+        cur.execute("PRAGMA mmap_size = 0")
+    except sqlite3.OperationalError:
+        pass
 
     sampler = _TempDirSampler(tmp_dir, interval_s=0.25)
     sampler.start()
@@ -568,19 +635,27 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
     wd = threading.Thread(target=watchdog, daemon=True)
     wd.start()
 
+    statements = _split_iqs_query_for_sqlite(query)
     tic = time.perf_counter()
     try:
-        cur.execute(query).fetchall()
+        for stmt in statements:
+            cur.execute(stmt)
+            if not stmt.lstrip().upper().startswith("CREATE"):
+                cur.fetchall()
         con.commit()
         toc = time.perf_counter()
         if timed_out["flag"]:
             result.update({"status": "timeout", "wall_time_s": toc - tic})
             return
         sampler.stop()
+        # SQLite creates anonymous (immediately-unlinked) temp files, so the
+        # dir-walking sampler can't see them; the orchestrator's host-side
+        # cgroup_io_write_bytes is the source of truth for sqlite spill volume.
         result.update({
             "status": "success",
             "wall_time_s": toc - tic,
             "spill_bytes_written": sampler.peak_bytes,
+            "sqlite_n_steps": len(statements),
         })
     except sqlite3.OperationalError as e:
         sampler.stop()
