@@ -15,6 +15,7 @@ import gc
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -451,6 +452,9 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
     _GRACE_S = 30  # seconds to wait after interrupt before giving up
 
     tmp_dir = Path(args.tmp_root) / f"duckdb_{os.getpid()}_{run_idx}"
+    # Wipe any leftovers from a prior worker that crashed at the same pid;
+    # see _run_sqlite for the rationale.
+    shutil.rmtree(tmp_dir, ignore_errors=True)
     tmp_dir.mkdir(parents=True, exist_ok=True)
     profile_path = tmp_dir / "profile.json"
 
@@ -641,6 +645,9 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
     import sqlite3
 
     tmp_dir = Path(args.tmp_root) / f"sqlite_{os.getpid()}_{run_idx}"
+    # Wipe any leftovers from a prior worker that crashed at the same pid:
+    # CREATE TABLE Kk would otherwise hit "table already exists".
+    shutil.rmtree(tmp_dir, ignore_errors=True)
     tmp_dir.mkdir(parents=True, exist_ok=True)
     db_path = tmp_dir / "ooc.db"
     # SQLite honors SQLITE_TMPDIR / TMPDIR for temp files
