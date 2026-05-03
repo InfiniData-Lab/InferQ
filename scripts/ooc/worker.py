@@ -571,19 +571,25 @@ def _duckdb_sum_spill(profile: Any) -> int:
 _CTE_HEAD = re.compile(r"\s*(\w+)(\s*\([^)]*\))?\s+AS\s*\(", re.IGNORECASE)
 
 
-def _split_iqs_query_per_step(query: str) -> list[str]:
+def _split_iqs_query_per_step(query: str, *, temp: bool = True) -> list[str]:
     """Split an IQS `WITH H#... K#... SELECT` query into step-by-step DDL.
 
     Both SQLite and DuckDB inline this CTE cascade by default and try to plan
     it as one giant join, which blows up the heap regardless of the engine's
     spill knobs. Materializing each contraction step (`K#`) into its own
-    `CREATE TEMP TABLE` forces the engine to round-trip each intermediate
-    through its temp directory, bounding peak RSS to roughly one step's
-    hash-build at a time.
+    table forces the engine to round-trip each intermediate through its
+    storage layer, bounding peak RSS to roughly one step's hash-build.
 
     Tensor literal CTEs (anything not named K#) and any helper CTEs are
     re-emitted as a shared WITH-prefix on every statement; their contents are
     tiny VALUES clauses so duplicating them costs nothing.
+
+    Pass temp=False to emit `CREATE TABLE` instead of `CREATE TEMP TABLE` —
+    necessary for SQLite, where TEMP tables live in the temp schema whose
+    backing is controlled by `PRAGMA temp_store`. If sqlite was compiled
+    with SQLITE_TEMP_STORE=2 (always memory), the PRAGMA is a no-op and
+    temp tables stay in heap; using a regular CREATE TABLE writes to the
+    main disk-backed DB unconditionally.
     """
     s = query.lstrip()
     if not s.upper().startswith("WITH "):
@@ -623,9 +629,10 @@ def _split_iqs_query_per_step(query: str) -> list[str]:
     else:
         prefix = ""
 
+    table_kind = "TEMP TABLE" if temp else "TABLE"
     statements: list[str] = []
     for (n, _c, b) in k_defs:
-        statements.append(f"CREATE TEMP TABLE {n} AS {prefix}{b}")
+        statements.append(f"CREATE {table_kind} {n} AS {prefix}{b}")
     statements.append(f"{prefix}{final_select}")
     return statements
 
@@ -669,9 +676,13 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
     wd = threading.Thread(target=watchdog, daemon=True)
     wd.start()
 
-    # See _run_duckdb for why split mode exists.
-    statements = (_split_iqs_query_per_step(query) if args.mode == "split"
-                  else [query])
+    # See _run_duckdb for why split mode exists. For sqlite we pass temp=False
+    # so the K# intermediates land in the main (disk-backed) DB rather than in
+    # the temp schema — the temp schema's backing is controlled by PRAGMA
+    # temp_store, which silently no-ops when sqlite was compiled with
+    # SQLITE_TEMP_STORE=2. CREATE TABLE in the main DB always hits disk.
+    statements = (_split_iqs_query_per_step(query, temp=False)
+                  if args.mode == "split" else [query])
     tic = time.perf_counter()
     try:
         for stmt in statements:
