@@ -446,9 +446,22 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
 
     con = duckdb.connect()
     try:
-        con.execute(f"SET memory_limit='{args.cap_gb}GB'")
+        # DuckDB's memory_limit only governs the buffer pool. Parser, planner,
+        # profiler, per-thread vector buffers, and the result set all live
+        # outside it, so setting memory_limit == cgroup cap reliably triggers
+        # cgroup OOM-kill before DuckDB's own spill machinery engages.
+        # Leave a pad for those external allocations.
+        cap_mb = args.cap_gb * 1024
+        eff_mb = max(256, cap_mb - args.duckdb_pad_mb)
+        con.execute(f"SET memory_limit='{eff_mb}MB'")
         con.execute(f"SET threads={args.threads}")
         con.execute(f"SET temp_directory='{tmp_dir}'")
+        # preserve_insertion_order=true (the default) prevents hash-aggregate
+        # and several other operators from spilling. Disable to allow spill.
+        try:
+            con.execute("SET preserve_insertion_order=false")
+        except Exception:
+            pass
         con.execute("PRAGMA enable_profiling='json'")
         con.execute(f"PRAGMA profile_output='{profile_path}'")
     except Exception as e:
@@ -459,25 +472,32 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
         result.update({"status": "error", "error": str(e)})
         return
 
+    # Same fix as the sqlite path: run one CREATE TEMP TABLE per K# CTE so
+    # the planner can't inline the whole cascade into one heap-bound join.
+    statements = _split_iqs_query_per_step(query)
+
     run_result: dict = {}
     tic_holder: list = []
 
     def _execute():
         tic = time.perf_counter()
         tic_holder.append(tic)
+        total_spill = 0
         try:
-            con.execute(query).fetchall()
+            for stmt in statements:
+                con.execute(stmt).fetchall()
+                # profile_output is overwritten per statement; sum across.
+                try:
+                    profile = json.loads(profile_path.read_text())
+                    total_spill += _duckdb_sum_spill(profile)
+                except Exception:
+                    pass
             toc = time.perf_counter()
-            spill = 0
-            try:
-                profile = json.loads(profile_path.read_text())
-                spill = _duckdb_sum_spill(profile)
-            except Exception:
-                pass
             run_result.update({
                 "status": "success",
                 "wall_time_s": toc - tic,
-                "spill_bytes_written": spill,
+                "spill_bytes_written": total_spill,
+                "duckdb_n_steps": len(statements),
             })
         except duckdb.OutOfMemoryException as e:
             run_result.update({"status": "oom_internal", "error": str(e),
@@ -538,14 +558,15 @@ def _duckdb_sum_spill(profile: Any) -> int:
 _CTE_HEAD = re.compile(r"\s*(\w+)(\s*\([^)]*\))?\s+AS\s*\(", re.IGNORECASE)
 
 
-def _split_iqs_query_for_sqlite(query: str) -> list[str]:
+def _split_iqs_query_per_step(query: str) -> list[str]:
     """Split an IQS `WITH H#... K#... SELECT` query into step-by-step DDL.
 
-    SQLite's hash-join has no spill path: monolithic CTE queries grow the heap
-    until OOM regardless of cache_size or temp_store=FILE. By materializing
-    each contraction step (`K#`) into its own `CREATE TEMP TABLE`, sqlite is
-    forced to round-trip every intermediate through `temp_store_directory`,
-    bounding peak RSS to roughly one step's hash-build at a time.
+    Both SQLite and DuckDB inline this CTE cascade by default and try to plan
+    it as one giant join, which blows up the heap regardless of the engine's
+    spill knobs. Materializing each contraction step (`K#`) into its own
+    `CREATE TEMP TABLE` forces the engine to round-trip each intermediate
+    through its temp directory, bounding peak RSS to roughly one step's
+    hash-build at a time.
 
     Tensor literal CTEs (anything not named K#) and any helper CTEs are
     re-emitted as a shared WITH-prefix on every statement; their contents are
@@ -635,7 +656,7 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
     wd = threading.Thread(target=watchdog, daemon=True)
     wd.start()
 
-    statements = _split_iqs_query_for_sqlite(query)
+    statements = _split_iqs_query_per_step(query)
     tic = time.perf_counter()
     try:
         for stmt in statements:
@@ -792,6 +813,11 @@ def main():
     # Aer-specific
     ap.add_argument("--aer-method", default="statevector")
     ap.add_argument("--aer-pad-mb", type=int, default=512)
+    # DuckDB-specific: pad below cgroup cap for non-bufferpool allocations
+    ap.add_argument("--duckdb-pad-mb", type=int, default=1024,
+                    help="Subtract this many MB from the cgroup cap when setting "
+                         "DuckDB's memory_limit, to leave headroom for parser, "
+                         "planner, profiler, and per-thread vector buffers.")
     args = ap.parse_args()
 
     Path(args.tmp_root).mkdir(parents=True, exist_ok=True)
