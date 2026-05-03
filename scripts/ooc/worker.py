@@ -389,24 +389,34 @@ def _run_postgres(query: str, args, run_idx: str, result: dict) -> None:
     try:
         cur.execute("SET statement_timeout = %s", (args.timeout_seconds * 1000,))
         cur.execute("SET log_temp_files = 0")
-        explain_q = f"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {query}"
+
+        statements = (_split_iqs_query_per_step(query) if args.mode == "split"
+                      else [query])
 
         tic = time.perf_counter()
-        cur.execute(explain_q)
-        plan = cur.fetchone()[0]
+        total_temp_written = 0
+        total_temp_read = 0
+        total_exec_ms = 0.0
+        total_plan_ms = 0.0
+        for stmt in statements:
+            explain_q = f"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {stmt}"
+            cur.execute(explain_q)
+            plan = cur.fetchone()[0]
+            total_temp_written += _pg_sum_plan(plan, "Temp Written Blocks")
+            total_temp_read += _pg_sum_plan(plan, "Temp Read Blocks")
+            if isinstance(plan, list) and plan:
+                total_exec_ms += plan[0].get("Execution Time") or 0
+                total_plan_ms += plan[0].get("Planning Time") or 0
         toc = time.perf_counter()
 
-        temp_written_blocks = _pg_sum_plan(plan, "Temp Written Blocks")
-        temp_read_blocks = _pg_sum_plan(plan, "Temp Read Blocks")
-        exec_time_ms = plan[0].get("Execution Time") if isinstance(plan, list) and plan else None
-        plan_time_ms = plan[0].get("Planning Time") if isinstance(plan, list) and plan else None
         result.update({
             "status": "success",
             "wall_time_s": toc - tic,
-            "pg_execution_time_ms": exec_time_ms,
-            "pg_planning_time_ms": plan_time_ms,
-            "spill_bytes_written": temp_written_blocks * 8192,
-            "spill_bytes_read": temp_read_blocks * 8192,
+            "pg_execution_time_ms": total_exec_ms,
+            "pg_planning_time_ms": total_plan_ms,
+            "spill_bytes_written": total_temp_written * 8192,
+            "spill_bytes_read": total_temp_read * 8192,
+            "pg_n_steps": len(statements),
         })
     except psycopg2.errors.QueryCanceled as e:
         result.update({"status": "timeout", "error": str(e)})
@@ -472,9 +482,12 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
         result.update({"status": "error", "error": str(e)})
         return
 
-    # Same fix as the sqlite path: run one CREATE TEMP TABLE per K# CTE so
-    # the planner can't inline the whole cascade into one heap-bound join.
-    statements = _split_iqs_query_per_step(query)
+    # In split mode, run one CREATE TEMP TABLE per K# CTE so the planner
+    # can't inline the whole cascade into one heap-bound join. In monolithic
+    # mode, run the original IQS query unmodified (reproduces the OOM
+    # behavior we saw before the fix — useful for the comparison study).
+    statements = (_split_iqs_query_per_step(query) if args.mode == "split"
+                  else [query])
 
     run_result: dict = {}
     tic_holder: list = []
@@ -656,7 +669,9 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
     wd = threading.Thread(target=watchdog, daemon=True)
     wd.start()
 
-    statements = _split_iqs_query_per_step(query)
+    # See _run_duckdb for why split mode exists.
+    statements = (_split_iqs_query_per_step(query) if args.mode == "split"
+                  else [query])
     tic = time.perf_counter()
     try:
         for stmt in statements:
@@ -818,6 +833,12 @@ def main():
                     help="Subtract this many MB from the cgroup cap when setting "
                          "DuckDB's memory_limit, to leave headroom for parser, "
                          "planner, profiler, and per-thread vector buffers.")
+    ap.add_argument("--mode", choices=["monolithic", "split"], default="split",
+                    help="Query execution mode: 'monolithic' runs the IQS query "
+                         "as a single WITH ... SELECT (prone to OOM in sqlite/"
+                         "duckdb); 'split' decomposes into per-step CREATE TEMP "
+                         "TABLE statements that round-trip intermediates through "
+                         "the temp directory. Default: split.")
     args = ap.parse_args()
 
     Path(args.tmp_root).mkdir(parents=True, exist_ok=True)
@@ -829,6 +850,7 @@ def main():
         "circuit_hash": args.circuit_hash,
         "circuit_qpy": args.circuit_qpy,
         "bin": args.bin,
+        "mode": args.mode,
         "aer_method": args.aer_method if args.engine == "aer" else None,
         "host": os.uname().nodename if hasattr(os, "uname") else "",
         "pid": os.getpid(),

@@ -45,7 +45,7 @@ WORKER_MODULE = "scripts.ooc.worker"
 
 CSV_FIELDS = [
     "circuit_hash", "num_qubits", "num_gates", "prior_peak_mem_gb", "bin",
-    "engine", "method", "cap_gb", "run_idx",
+    "engine", "method", "cap_gb", "mode", "run_idx",
     "wall_time_s", "tracemalloc_peak_bytes", "proc_vm_peak_bytes",
     "cgroup_mem_peak_bytes", "cgroup_swap_peak_bytes",
     "cgroup_io_read_bytes", "cgroup_io_write_bytes",
@@ -132,7 +132,7 @@ def stop_pg_container(name: str) -> None:
 
 def build_worker_args(
     engine: str, cap_gb: int, circuit: CircuitEntry, aer_method: Optional[str],
-    out_path: Path, cfg: dict,
+    out_path: Path, cfg: dict, mode: str,
 ) -> list[str]:
     """Argv for `python -m scripts.ooc.worker ...` — runner-independent."""
     args = [
@@ -142,6 +142,7 @@ def build_worker_args(
         "--circuit-qpy", str(circuit.qpy_path),
         "--circuit-hash", circuit.hash,
         "--bin", circuit.bin,
+        "--mode", mode,
         "--out-path", str(out_path),
         "--n-runs", str(cfg["n_runs"]),
         "--warmup", str(cfg["warmup_runs"]),
@@ -157,7 +158,7 @@ def build_worker_args(
 
 def build_worker_cmd(
     engine: str, cap_gb: int, circuit: CircuitEntry, aer_method: Optional[str],
-    out_path: Path, cfg: dict, container_name: str, runner: str,
+    out_path: Path, cfg: dict, container_name: str, runner: str, mode: str,
 ) -> list[str]:
     """Compose the full subprocess argv for one worker invocation.
 
@@ -165,7 +166,7 @@ def build_worker_cmd(
     runner == "none":   direct exec, no cap (smoke test only — DO NOT use for
                         paper runs; results will not be memory-constrained).
     """
-    worker_args = build_worker_args(engine, cap_gb, circuit, aer_method, out_path, cfg)
+    worker_args = build_worker_args(engine, cap_gb, circuit, aer_method, out_path, cfg, mode)
 
     if runner == "none":
         return [sys.executable] + worker_args
@@ -268,7 +269,7 @@ def _flatten_error(msg: str) -> str:
 
 
 def emit_rows(writer: csv.DictWriter, circuit: CircuitEntry, envelope: dict,
-              engine: str, cap_gb: int, method: Optional[str],
+              engine: str, cap_gb: int, method: Optional[str], mode: str,
               cg: Optional[cgroup_metrics.CgroupSnapshot],
               scope_unit: str, container_id: Optional[str]) -> None:
     base = {
@@ -280,6 +281,7 @@ def emit_rows(writer: csv.DictWriter, circuit: CircuitEntry, envelope: dict,
         "engine": engine,
         "method": method or "",
         "cap_gb": cap_gb,
+        "mode": envelope.get("mode", mode),
         "cgroup_mem_peak_bytes": cg.memory_peak_bytes if cg else None,
         "cgroup_swap_peak_bytes": cg.memory_swap_peak_bytes if cg else None,
         "cgroup_io_read_bytes": cg.io_read_bytes if cg else None,
@@ -332,7 +334,7 @@ def _stop_container(name: str) -> None:
 
 def run_one(
     circuit: CircuitEntry, engine: str, cap_gb: int, method: Optional[str],
-    cfg: dict, writer: csv.DictWriter, dry_run: bool, runner: str,
+    cfg: dict, writer: csv.DictWriter, dry_run: bool, runner: str, mode: str,
 ) -> None:
     uniq = uuid.uuid4().hex[:8]
     pg_container_name = f"pg_ooc_{uniq}"
@@ -347,8 +349,8 @@ def run_one(
         except Exception as e:
             print(f"    [pg] startup FAILED: {e}", file=sys.stderr)
             envelope = {"status": "pg_startup_failed", "error": str(e), "runs": []}
-            emit_rows(writer, circuit, envelope, engine, cap_gb, method, None,
-                      worker_container_name, pg_container_id)
+            emit_rows(writer, circuit, envelope, engine, cap_gb, method, mode,
+                      None, worker_container_name, pg_container_id)
             return
 
     try:
@@ -370,7 +372,7 @@ def run_one(
             pass
 
         cmd = build_worker_cmd(engine, cap_gb, circuit, method, out_path, cfg,
-                               worker_container_name, runner)
+                               worker_container_name, runner, mode)
         per_engine_budget = cfg["timeout_seconds"] * (cfg["n_runs"] + cfg["warmup_runs"] + 2)
         if dry_run:
             print(f"    [dry] would run: {' '.join(cmd)}")
@@ -438,7 +440,7 @@ def run_one(
                         cgroup_path=(host_cg.cgroup_path if host_cg
                                      else wc.get("cgroup_path", "")),
                     )
-        emit_rows(writer, circuit, envelope, engine, cap_gb, method, cg,
+        emit_rows(writer, circuit, envelope, engine, cap_gb, method, mode, cg,
                   worker_container_name, pg_container_id)
     finally:
         # Clean up any straggler worker container (--rm should have removed it,
@@ -478,6 +480,11 @@ def main():
                     help="Comma-separated statuses to re-run even when already in the CSV "
                          "(e.g. 'error,pg_startup_failed'). Matching rows are stripped from "
                          "the CSV before the run so results stay clean.")
+    ap.add_argument("--mode", choices=["monolithic", "split"],
+                    default=os.getenv("OOC_QUERY_MODE", "split"),
+                    help="Query execution mode (default from OOC_QUERY_MODE or 'split'). "
+                         "Each row's mode is recorded; resume keys distinguish modes so "
+                         "monolithic and split runs can share a CSV without colliding.")
     args = ap.parse_args()
 
     caps = [int(x) for x in args.caps_gb.split(",") if x.strip()]
@@ -516,7 +523,8 @@ def main():
                         stripped += 1
                         continue
                     kept_rows.append(row)
-                    seen.add((row["circuit_hash"], row["cap_gb"], row["engine"], row["method"]))
+                    seen.add((row["circuit_hash"], row["cap_gb"], row["engine"],
+                              row["method"], row.get("mode") or "monolithic"))
             with args.results_csv.open("w", newline="") as wf:
                 w = csv.DictWriter(wf, fieldnames=fields)
                 w.writeheader()
@@ -526,7 +534,8 @@ def main():
         else:
             with args.results_csv.open() as rf:
                 for row in csv.DictReader(rf):
-                    seen.add((row["circuit_hash"], row["cap_gb"], row["engine"], row["method"]))
+                    seen.add((row["circuit_hash"], row["cap_gb"], row["engine"],
+                              row["method"], row.get("mode") or "monolithic"))
     f = args.results_csv.open("a", newline="")
     writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
     if is_new:
@@ -571,17 +580,17 @@ def main():
                     continue
                 methods = aer_methods if engine == "aer" else [None]
                 for method in methods:
-                    key = (circuit.hash, str(cap_gb), engine, method or "")
+                    key = (circuit.hash, str(cap_gb), engine, method or "", args.mode)
                     if key in seen:
                         skipped += 1
                         continue
                     total += 1
-                    tag = f"[{ci}/{len(entries)}] {circuit.hash[:8]} cap={cap_gb}G {engine}"
+                    tag = f"[{ci}/{len(entries)}] {circuit.hash[:8]} cap={cap_gb}G {engine} mode={args.mode}"
                     if method:
                         tag += f"/{method}"
                     print(tag, file=sys.stderr)
                     run_one(circuit, engine, cap_gb, method, cfg, writer,
-                            args.dry_run, runner)
+                            args.dry_run, runner, args.mode)
                     f.flush()
                 if interrupted["flag"]:
                     break
