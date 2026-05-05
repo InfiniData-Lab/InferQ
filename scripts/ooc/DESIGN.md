@@ -14,7 +14,7 @@ run_experiment.py  (orchestrator, on host)
     │  for each (circuit, cap, engine, method):
     │
     ├─ postgres ──► docker run --memory=CAP                ──► postgres container
-    │                  inferq-ooc-postgres:16                  (server)
+    │                  inferq-ooc-postgres:12.22               (server)
     │                                                              ▲
     │               docker run --memory=60G                        │
     │                  inferq-ooc-worker  ──► worker.py ──── psycopg2:54320
@@ -79,10 +79,10 @@ docker run -d \
     --memory <cap>g --memory-swap <cap>g --memory-swappiness 0 \
     -e CAP_GB=<cap> -e POSTGRES_PASSWORD=postgres \
     -p 54320:5432 \
-    inferq-ooc-postgres:16
+    inferq-ooc-postgres:12.22
 ```
 
-The custom image (`inferq-ooc-postgres:16`) builds on `postgres:16` and
+The custom image (`inferq-ooc-postgres:12.22`) builds on `postgres:12.22` and
 substitutes `CAP_GB`-scaled values into `postgresql.conf` at container
 start via `pg_entrypoint.sh`:
 

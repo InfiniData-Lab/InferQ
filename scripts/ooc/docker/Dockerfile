@@ -1,4 +1,4 @@
-FROM postgres:16
+FROM postgres:12.22
 
 # Install gettext-base for envsubst (used by pg_entrypoint.sh to substitute
 # CAP_GB-derived memory sizes into postgresql.conf at container start).

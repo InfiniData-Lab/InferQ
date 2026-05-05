@@ -1,141 +1,193 @@
 """Aggregate OOC results into summary tables for the revision.
 
-Reads results.csv written by run_experiment.py and produces:
-
-- summary_by_engine_cap.csv — completion rate, median wall time, median spill,
-  memory-peak per (engine, cap), partitioned by bin
-- aer_failures.csv — per-circuit Aer status at each cap vs RDBMS status; the
-  "RDBMS completed but Aer didn't" rows go into the paper text
-- per_circuit_wide.csv — wide table (one row per circuit × cap) with all four
-  engines side by side for quick spot-checking
-
-Run after the orchestrator is done. Idempotent.
+This script intentionally uses only the Python standard library. The OOC runner
+is often used on fresh benchmark boxes where pandas is not installed, and the
+summary step should still work on a raw results CSV.
 """
 from __future__ import annotations
 
 import argparse
+import csv
+import statistics
 import sys
+from collections import defaultdict
 from pathlib import Path
-
-import pandas as pd
+from typing import Iterable
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-
-def load_results(path: Path) -> pd.DataFrame:
-    df = pd.read_csv(path)
-    # Coerce numeric columns.
-    num_cols = [
-        "wall_time_s", "tracemalloc_peak_bytes", "proc_vm_peak_bytes",
-        "cgroup_mem_peak_bytes", "cgroup_swap_peak_bytes",
-        "cgroup_io_read_bytes", "cgroup_io_write_bytes",
-        "dbms_temp_bytes_written", "dbms_temp_bytes_read",
-        "num_qubits", "num_gates", "prior_peak_mem_gb", "cap_gb",
-    ]
-    for c in num_cols:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
-    # Drop warm-up rows from headline statistics but keep them available.
-    df["is_warmup"] = df["run_idx"].astype(str) == "warmup"
-    return df
+SUCCESS = "success"
+RDBMS_ENGINES = {"postgres", "sqlite", "duckdb"}
 
 
-def summary_by_engine_cap(df: pd.DataFrame) -> pd.DataFrame:
-    timed = df[~df["is_warmup"]].copy()
-    # Collapse Aer methods: take the best (earliest-success) method per circuit/cap
-    # so the engine is "aer succeeded somewhere" not per-method.
-    def agg_aer(group):
-        any_success = (group["status"] == "success").any()
-        rows = group if any_success else group
-        if any_success:
-            g = group[group["status"] == "success"]
-        else:
-            g = group
-        return pd.Series({
-            "wall_time_s": g["wall_time_s"].median(),
-            "cgroup_mem_peak_bytes": g["cgroup_mem_peak_bytes"].median(),
-            "dbms_temp_bytes_written": 0,
-            "status": "success" if any_success else group["status"].iloc[0],
-        })
+def _float(row: dict, key: str) -> float | None:
+    try:
+        value = row.get(key, "")
+        if value in ("", None):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
-    out_rows = []
-    for (bin_, engine, cap), g in timed.groupby(["bin", "engine", "cap_gb"], dropna=False):
-        total = g["circuit_hash"].nunique()
-        ok = g[g["status"] == "success"]["circuit_hash"].nunique()
-        out_rows.append({
+
+def _median(values: Iterable[float | None]) -> float | None:
+    clean = [v for v in values if v is not None]
+    return statistics.median(clean) if clean else None
+
+
+def _is_warmup(row: dict) -> bool:
+    return str(row.get("run_idx", "")) == "warmup"
+
+
+def _is_oom(status: str) -> bool:
+    return status.startswith("oom")
+
+
+def _spill_proxy_bytes(row: dict) -> float | None:
+    """Best available per-row spill/write proxy.
+
+    PostgreSQL reports temp blocks from EXPLAIN BUFFERS in
+    dbms_temp_bytes_written. DuckDB/SQLite may not expose a query-level counter
+    reliably, so fall back to cgroup I/O write bytes when the DBMS counter is
+    missing or zero. This matches the professor's requested "process
+    write_bytes" metric better than treating engine-reported zero as no spill.
+    """
+    dbms = _float(row, "dbms_temp_bytes_written")
+    cgroup = _float(row, "cgroup_io_write_bytes")
+    if dbms and dbms > 0:
+        return dbms
+    return cgroup
+
+
+def load_results(path: Path) -> list[dict]:
+    with path.open(newline="") as f:
+        rows = list(csv.DictReader(f))
+    for row in rows:
+        row["is_warmup"] = _is_warmup(row)
+    return rows
+
+
+def summary_by_engine_cap(rows: list[dict]) -> list[dict]:
+    groups: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
+    for row in rows:
+        if row["is_warmup"]:
+            continue
+        groups[(row.get("bin", ""), row.get("engine", ""), row.get("cap_gb", ""))].append(row)
+
+    out = []
+    for (bin_, engine, cap), group in sorted(groups.items(), key=lambda x: (x[0][0], _cap_key(x[0][2]), x[0][1])):
+        circuits = {r["circuit_hash"] for r in group}
+        successful = [r for r in group if r.get("status") == SUCCESS]
+        success_circuits = {r["circuit_hash"] for r in successful}
+        spillers = [r for r in successful if (_spill_proxy_bytes(r) or 0) > 0]
+        statuses = [r.get("status", "") for r in group]
+        out.append({
             "bin": bin_,
             "engine": engine,
             "cap_gb": cap,
-            "n_circuits": total,
-            "completion_rate": ok / total if total else 0.0,
-            "median_wall_time_s": g[g["status"] == "success"]["wall_time_s"].median(),
-            "median_cgroup_peak_gb": g["cgroup_mem_peak_bytes"].median() / (1 << 30)
-                if not g["cgroup_mem_peak_bytes"].isna().all() else None,
-            "median_spill_gb": g["dbms_temp_bytes_written"].median() / (1 << 30)
-                if not g["dbms_temp_bytes_written"].isna().all() else None,
-            "oom_rate": (g["status"].str.startswith("oom", na=False)).sum() / len(g)
-                if len(g) else 0.0,
-            "timeout_rate": (g["status"] == "timeout").sum() / len(g) if len(g) else 0.0,
+            "n_circuits": len(circuits),
+            "completed": len(success_circuits),
+            "completion_rate": _ratio(len(success_circuits), len(circuits)),
+            "timeout_count": sum(1 for s in statuses if s == "timeout"),
+            "oom_abort_count": sum(1 for s in statuses if _is_oom(s)),
+            "median_wall_time_s": _median(_float(r, "wall_time_s") for r in successful),
+            "median_cgroup_peak_gb": _gb(_median(_float(r, "cgroup_mem_peak_bytes") for r in group)),
+            "spill_rate": _ratio(len({r["circuit_hash"] for r in spillers}), len(success_circuits)),
+            "median_spill_gb": _gb(_median(_spill_proxy_bytes(r) for r in spillers)),
+            "median_write_gb": _gb(_median(_float(r, "cgroup_io_write_bytes") for r in successful)),
         })
-    return pd.DataFrame(out_rows).sort_values(["bin", "cap_gb", "engine"])
+    return out
 
 
-def aer_failure_table(df: pd.DataFrame) -> pd.DataFrame:
-    timed = df[~df["is_warmup"]]
-    aer = timed[timed["engine"] == "aer"]
-    rdbms = timed[timed["engine"].isin(["postgres", "sqlite", "duckdb"])]
-    rows = []
-    for (h, cap), g_aer in aer.groupby(["circuit_hash", "cap_gb"]):
-        aer_success_methods = sorted(g_aer[g_aer["status"] == "success"]["method"].unique())
-        aer_fail = len(aer_success_methods) == 0
-        g_rd = rdbms[(rdbms["circuit_hash"] == h) & (rdbms["cap_gb"] == cap)]
-        rdbms_ok = sorted(g_rd[g_rd["status"] == "success"]["engine"].unique())
-        rows.append({
-            "circuit_hash": h,
+def aer_failure_table(rows: list[dict]) -> list[dict]:
+    timed = [r for r in rows if not r["is_warmup"]]
+    by_circuit_cap: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for row in timed:
+        by_circuit_cap[(row.get("circuit_hash", ""), row.get("cap_gb", ""))].append(row)
+
+    out = []
+    for (circuit_hash, cap), group in sorted(by_circuit_cap.items(), key=lambda x: (_cap_key(x[0][1]), x[0][0])):
+        aer = [r for r in group if r.get("engine") == "aer"]
+        if not aer:
+            continue
+        rdbms = [r for r in group if r.get("engine") in RDBMS_ENGINES]
+        aer_success_methods = sorted({r.get("method", "") for r in aer if r.get("status") == SUCCESS})
+        rdbms_ok = sorted({r.get("engine", "") for r in rdbms if r.get("status") == SUCCESS})
+        first = aer[0]
+        out.append({
+            "circuit_hash": circuit_hash,
             "cap_gb": cap,
-            "num_qubits": int(g_aer["num_qubits"].max()),
-            "bin": g_aer["bin"].iloc[0],
+            "num_qubits": first.get("num_qubits", ""),
+            "bin": first.get("bin", ""),
             "aer_success_methods": ";".join(aer_success_methods),
-            "aer_all_failed": aer_fail,
+            "aer_all_failed": str(not aer_success_methods).lower(),
             "rdbms_success_engines": ";".join(rdbms_ok),
-            "rdbms_any_success": len(rdbms_ok) > 0,
-            "headline_case": aer_fail and len(rdbms_ok) > 0,
+            "rdbms_any_success": str(bool(rdbms_ok)).lower(),
+            "headline_case": str((not aer_success_methods) and bool(rdbms_ok)).lower(),
         })
-    return pd.DataFrame(rows).sort_values(["cap_gb", "headline_case"], ascending=[True, False])
+    return out
 
 
-def per_circuit_wide(df: pd.DataFrame) -> pd.DataFrame:
-    timed = df[~df["is_warmup"]].copy()
-    # Collapse Aer methods to best status per circuit/cap.
-    def engine_status_row(g):
-        if (g["status"] == "success").any():
-            best = g[g["status"] == "success"].sort_values("wall_time_s").iloc[0]
-            return pd.Series({
-                "status": "success",
-                "wall_time_s": best["wall_time_s"],
-                "cgroup_mem_peak_gb": (best["cgroup_mem_peak_bytes"] or 0) / (1 << 30),
-                "spill_gb": (best["dbms_temp_bytes_written"] or 0) / (1 << 30),
-            })
-        return pd.Series({
-            "status": g["status"].iloc[0],
-            "wall_time_s": None,
-            "cgroup_mem_peak_gb": (g["cgroup_mem_peak_bytes"].max() or 0) / (1 << 30),
-            "spill_gb": None,
-        })
+def per_circuit_wide(rows: list[dict]) -> list[dict]:
+    timed = [r for r in rows if not r["is_warmup"]]
+    grouped: dict[tuple[str, str, str, str], list[dict]] = defaultdict(list)
+    for row in timed:
+        grouped[(row.get("circuit_hash", ""), row.get("cap_gb", ""), row.get("bin", ""), row.get("num_qubits", ""))].append(row)
 
-    collapsed = (timed.groupby(["circuit_hash", "cap_gb", "bin", "engine", "num_qubits"])
-                 .apply(engine_status_row).reset_index())
-    wide = collapsed.pivot_table(
-        index=["circuit_hash", "cap_gb", "bin", "num_qubits"],
-        columns="engine",
-        values=["status", "wall_time_s", "cgroup_mem_peak_gb", "spill_gb"],
-        aggfunc="first",
-    )
-    wide.columns = [f"{engine}_{metric}" for metric, engine in wide.columns]
-    return wide.reset_index()
+    out = []
+    for key, group in sorted(grouped.items(), key=lambda x: (x[0][0], _cap_key(x[0][1]))):
+        circuit_hash, cap, bin_, qubits = key
+        row = {
+            "circuit_hash": circuit_hash,
+            "cap_gb": cap,
+            "bin": bin_,
+            "num_qubits": qubits,
+        }
+        for engine in sorted({r.get("engine", "") for r in group}):
+            eg = [r for r in group if r.get("engine") == engine]
+            success = [r for r in eg if r.get("status") == SUCCESS]
+            best = min(success, key=lambda r: _float(r, "wall_time_s") or float("inf")) if success else eg[0]
+            row[f"{engine}_status"] = SUCCESS if success else best.get("status", "")
+            row[f"{engine}_wall_time_s"] = best.get("wall_time_s", "") if success else ""
+            row[f"{engine}_cgroup_mem_peak_gb"] = _gb(_float(best, "cgroup_mem_peak_bytes"))
+            row[f"{engine}_spill_gb"] = _gb(_spill_proxy_bytes(best)) if success else ""
+        out.append(row)
+    return out
 
 
-def main():
+def _ratio(num: int, den: int) -> float:
+    return num / den if den else 0.0
+
+
+def _gb(value: float | None) -> float | None:
+    return value / (1 << 30) if value is not None else None
+
+
+def _cap_key(cap: str) -> int:
+    try:
+        return int(float(cap))
+    except (TypeError, ValueError):
+        return -1
+
+
+def write_csv(path: Path, rows: list[dict]) -> None:
+    if not rows:
+        path.write_text("")
+        return
+    fieldnames = []
+    seen = set()
+    for row in rows:
+        for key in row:
+            if key not in seen:
+                fieldnames.append(key)
+                seen.add(key)
+    with path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--results-csv", type=Path,
                     default=REPO_ROOT / "InferQ" / "scripts" / "ooc" / "results" / "results.csv")
@@ -146,13 +198,13 @@ def main():
     if not args.results_csv.exists():
         raise SystemExit(f"no results file at {args.results_csv}")
 
-    df = load_results(args.results_csv)
-    print(f"[analyze] loaded {len(df)} rows", file=sys.stderr)
+    rows = load_results(args.results_csv)
+    print(f"[analyze] loaded {len(rows)} rows", file=sys.stderr)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    summary_by_engine_cap(df).to_csv(args.out_dir / "summary_by_engine_cap.csv", index=False)
-    aer_failure_table(df).to_csv(args.out_dir / "aer_failures.csv", index=False)
-    per_circuit_wide(df).to_csv(args.out_dir / "per_circuit_wide.csv", index=False)
+    write_csv(args.out_dir / "summary_by_engine_cap.csv", summary_by_engine_cap(rows))
+    write_csv(args.out_dir / "aer_failures.csv", aer_failure_table(rows))
+    write_csv(args.out_dir / "per_circuit_wide.csv", per_circuit_wide(rows))
     print(f"[analyze] wrote 3 summary CSVs to {args.out_dir}", file=sys.stderr)
 
 

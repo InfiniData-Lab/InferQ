@@ -105,7 +105,7 @@ class PipelineConfig:
         # remaining sweep focuses on RDBMS spill behaviour. To run Aer again,
         # set OOC_ENGINES=postgres,duckdb,sqlite,aer or pass --engines.
         "engines": ["postgres", "duckdb", "sqlite"],
-        "n_runs": 3,                        # Timed runs per (circuit, cap, engine)
+        "n_runs": 1,                        # Timed runs per (circuit, cap, engine). Bump via OOC_N_RUNS=3 for variance.
         "warmup_runs": 1,                  # Discarded warm-up runs before timed runs
         "timeout_seconds": 1800,            # 30 min per run
         "drop_page_cache": True,            # sync + echo 3 > /proc/sys/vm/drop_caches between runs
@@ -126,7 +126,12 @@ class PipelineConfig:
         "circuits_per_bin": 20,
         "pilot_circuits_per_bin": 5,
         # Postgres Docker
-        "postgres_image": "postgres:16",
+        "postgres_image": "inferq-ooc-postgres:12.22",
+        # Engine-local memory knobs used inside the cgroup/container cap.
+        # Keep these small for out-of-core debugging so the DBMS has to use
+        # its disk-backed operators before the process reaches the cgroup cap.
+        "duckdb_memory_mb": 64,
+        "sqlite_cache_mb": 64,
         "postgres_host_port": 54320,
         # Worker runtime image (DuckDB / SQLite / Aer). Built from
         # scripts/ooc/docker/worker/. The orchestrator runs `docker run
@@ -171,6 +176,8 @@ class PipelineConfig:
         value = os.getenv(key, default)
         if value is not None and type_cast:
             try:
+                if type_cast is bool and isinstance(value, str):
+                    return value.strip().lower() in {"1", "true", "yes", "on"}
                 return type_cast(value)
             except (ValueError, TypeError):
                 return default
@@ -327,6 +334,8 @@ class PipelineConfig:
         cfg["circuits_manifest"] = self.get_env_or_default("OOC_MANIFEST", cfg["circuits_manifest"])
         cfg["circuits_per_bin"] = self.get_env_or_default("OOC_PER_BIN", cfg["circuits_per_bin"], int)
         cfg["postgres_image"] = self.get_env_or_default("OOC_PG_IMAGE", cfg["postgres_image"])
+        cfg["duckdb_memory_mb"] = self.get_env_or_default("OOC_DUCKDB_MEMORY_MB", cfg["duckdb_memory_mb"], int)
+        cfg["sqlite_cache_mb"] = self.get_env_or_default("OOC_SQLITE_CACHE_MB", cfg["sqlite_cache_mb"], int)
         cfg["postgres_host_port"] = self.get_env_or_default("OOC_PG_PORT", cfg["postgres_host_port"], int)
         cfg["worker_image"] = self.get_env_or_default("OOC_WORKER_IMAGE", cfg["worker_image"])
         cfg["runner"] = self.get_env_or_default("OOC_RUNNER", cfg["runner"])

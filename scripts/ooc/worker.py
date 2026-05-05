@@ -466,7 +466,8 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
         # cgroup OOM-kill before DuckDB's own spill machinery engages.
         # Leave a pad for those external allocations.
         cap_mb = args.cap_gb * 1024
-        eff_mb = max(256, cap_mb - args.duckdb_pad_mb)
+        cgroup_safe_mb = max(256, cap_mb - args.duckdb_pad_mb)
+        eff_mb = min(cgroup_safe_mb, args.duckdb_memory_mb) if args.duckdb_memory_mb > 0 else cgroup_safe_mb
         con.execute(f"SET memory_limit='{eff_mb}MB'")
         con.execute(f"SET threads={args.threads}")
         con.execute(f"SET temp_directory='{tmp_dir}'")
@@ -657,9 +658,11 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
     con = sqlite3.connect(str(db_path))
     cur = con.cursor()
     try:
-        # Negative cache_size = KB; use cap/2 as cache budget
-        cur.execute(f"PRAGMA cache_size = -{args.cap_gb * 512 * 1024}")
+        # Negative cache_size is kibibytes. Keep SQLite's page cache small so
+        # out-of-core behaviour shows up before the outer cgroup cap is hit.
+        cur.execute(f"PRAGMA cache_size = -{args.sqlite_cache_mb * 1024}")
         cur.execute("PRAGMA temp_store = FILE")
+        cur.execute("PRAGMA cache_spill = ON")
         cur.execute(f"PRAGMA temp_store_directory = '{tmp_dir}'")
     except sqlite3.OperationalError:
         pass  # temp_store_directory deprecated on newer SQLite
@@ -851,6 +854,11 @@ def main():
                     help="Subtract this many MB from the cgroup cap when setting "
                          "DuckDB's memory_limit, to leave headroom for parser, "
                          "planner, profiler, and per-thread vector buffers.")
+    ap.add_argument("--duckdb-memory-mb", type=int, default=64,
+                    help="DuckDB memory_limit in MB. Values <=0 fall back to "
+                         "cap minus --duckdb-pad-mb.")
+    ap.add_argument("--sqlite-cache-mb", type=int, default=64,
+                    help="SQLite PRAGMA cache_size budget in MB.")
     ap.add_argument("--mode", choices=["monolithic", "split"], default="split",
                     help="Query execution mode: 'monolithic' runs the IQS query "
                          "as a single WITH ... SELECT (prone to OOM in sqlite/"

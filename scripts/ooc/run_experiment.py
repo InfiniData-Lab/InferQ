@@ -148,6 +148,8 @@ def build_worker_args(
         "--warmup", str(cfg["warmup_runs"]),
         "--timeout-seconds", str(cfg["timeout_seconds"]),
         "--tmp-root", cfg["tmp_root"],
+        "--duckdb-memory-mb", str(cfg["duckdb_memory_mb"]),
+        "--sqlite-cache-mb", str(cfg["sqlite_cache_mb"]),
         "--pg-host", "127.0.0.1",
         "--pg-port", str(cfg["postgres_host_port"]),
     ]

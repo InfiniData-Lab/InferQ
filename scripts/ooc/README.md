@@ -47,7 +47,7 @@ Every engine runs inside a Docker container with `--memory=X --memory-swap=X
 swap is fully disabled, so any non-zero `cgroup_swap_peak_bytes` in the
 results indicates a configuration problem.
 
-- **PostgreSQL**: the postgres server runs in `inferq-ooc-postgres:16` with
+- **PostgreSQL**: the postgres server runs in `inferq-ooc-postgres:12.22` with
   `--memory=cap`. A separate worker container (`inferq-ooc-worker:latest`)
   with a generous 60 GB cap connects via host networking on port 54320.
 - **DuckDB / SQLite / Aer**: a single `inferq-ooc-worker:latest` container
@@ -102,11 +102,11 @@ memory caps are **not enforced** — use only for smoke tests.
 # 2. Build BOTH images (tuned Postgres + worker runtime):
 cd InferQ
 ./scripts/ooc/docker/build.sh
-#   → inferq-ooc-postgres:16
+#   → inferq-ooc-postgres:12.22
 #   → inferq-ooc-worker:latest
 
 # 3. (optional) Override images via env if you tag them differently:
-export OOC_PG_IMAGE=inferq-ooc-postgres:16
+export OOC_PG_IMAGE=inferq-ooc-postgres:12.22
 export OOC_WORKER_IMAGE=inferq-ooc-worker:latest
 
 # 4. NOPASSWD sudoers entry for dropping the page cache between runs.
@@ -263,13 +263,15 @@ overridden with environment variables:
 | `OOC_TIMEOUT`    | `1800`                       | Per-run timeout (seconds) |
 | `OOC_DROP_CACHE` | `True`                       | Drop page cache between runs |
 | `OOC_TMP_ROOT`   | `/data/inferq_ooc`           | DuckDB / SQLite temp dir. **Must be on a real block device (NVMe).** `/tmp` is tmpfs on most distros — writes go to RAM, count against the cgroup cap, and don't appear in `cgroup_io_write_bytes`. The worker logs a warning if it detects tmpfs. |
-| `OOC_PG_IMAGE`     | `postgres:16`                | Postgres Docker image |
+| `OOC_PG_IMAGE`     | `inferq-ooc-postgres:12.22`  | Tuned PostgreSQL 12.22 Docker image |
 | `OOC_PG_PORT`      | `54320`                      | Host port for Postgres container |
 | `OOC_WORKER_IMAGE` | `inferq-ooc-worker:latest`   | Worker runtime image (DuckDB / SQLite / Aer) |
 | `OOC_RUNNER`       | `docker`                     | `docker` (cap-enforced) or `none` (smoke test, no cap) |
+| `OOC_DUCKDB_MEMORY_MB` | `64`                    | DuckDB `memory_limit` inside the cgroup cap |
+| `OOC_SQLITE_CACHE_MB`  | `64`                    | SQLite `PRAGMA cache_size` budget |
 
-**Use `inferq-ooc-postgres:16` for the Postgres image** (built in step 2
-above). The stock `postgres:16` works but skips the tuned `postgresql.conf`
+**Use `inferq-ooc-postgres:12.22` for the Postgres image** (built in step 2
+above). The stock `postgres` image works but skips the tuned `postgresql.conf`
 (shared_buffers, work_mem, temp_file_limit are not scaled to the cap).
 
 ### Aer methods
