@@ -457,6 +457,7 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
     shutil.rmtree(tmp_dir, ignore_errors=True)
     tmp_dir.mkdir(parents=True, exist_ok=True)
     profile_path = tmp_dir / "profile.json"
+    sampler = _TempDirSampler(tmp_dir, interval_s=0.25)
 
     con = duckdb.connect()
     try:
@@ -534,6 +535,7 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
                 pass
 
     t = threading.Thread(target=_execute, daemon=True)
+    sampler.start()
     t.start()
     t.join(timeout=args.timeout_seconds)
 
@@ -552,9 +554,23 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
             result.update({"status": "timeout", "wall_time_s": elapsed})
         else:
             result.update(run_result or {"status": "timeout", "wall_time_s": elapsed})
+        sampler.stop()
+        if sampler.peak_bytes:
+            result["spill_bytes_written"] = max(
+                int(result.get("spill_bytes_written") or 0),
+                int(sampler.peak_bytes),
+            )
         return
 
     result.update(run_result)
+    sampler.stop()
+    if sampler.peak_bytes:
+        result["spill_bytes_written"] = max(
+            int(result.get("spill_bytes_written") or 0),
+            int(sampler.peak_bytes),
+        )
+    result["duckdb_memory_limit_mb"] = eff_mb
+    result["duckdb_threads"] = args.threads
 
 
 def _duckdb_sum_spill(profile: Any) -> int:
@@ -562,8 +578,15 @@ def _duckdb_sum_spill(profile: Any) -> int:
     if isinstance(profile, dict):
         total = 0
         for k, v in profile.items():
-            if k in ("temporary_storage_bytes", "spilled_bytes", "bytes_spilled_to_disk",
-                    "disk_spill") and isinstance(v, (int, float)):
+            if k in (
+                "temporary_storage_bytes",
+                "spilled_bytes",
+                "bytes_spilled_to_disk",
+                "disk_spill",
+                "system_peak_temp_dir_size",
+                "temp_dir_size",
+                "peak_temp_dir_size",
+            ) and isinstance(v, (int, float)):
                 total += int(v)
             else:
                 total += _duckdb_sum_spill(v)

@@ -130,7 +130,8 @@ class PipelineConfig:
         # Engine-local memory knobs used inside the cgroup/container cap.
         # Keep these small for out-of-core debugging so the DBMS has to use
         # its disk-backed operators before the process reaches the cgroup cap.
-        "duckdb_memory_mb": 64,
+        "duckdb_memory_mb": 512,
+        "duckdb_threads": 1,
         "sqlite_cache_mb": 64,
         "postgres_host_port": 54320,
         # Worker runtime image (DuckDB / SQLite / Aer). Built from
@@ -335,6 +336,7 @@ class PipelineConfig:
         cfg["circuits_per_bin"] = self.get_env_or_default("OOC_PER_BIN", cfg["circuits_per_bin"], int)
         cfg["postgres_image"] = self.get_env_or_default("OOC_PG_IMAGE", cfg["postgres_image"])
         cfg["duckdb_memory_mb"] = self.get_env_or_default("OOC_DUCKDB_MEMORY_MB", cfg["duckdb_memory_mb"], int)
+        cfg["duckdb_threads"] = self.get_env_or_default("OOC_DUCKDB_THREADS", cfg["duckdb_threads"], int)
         cfg["sqlite_cache_mb"] = self.get_env_or_default("OOC_SQLITE_CACHE_MB", cfg["sqlite_cache_mb"], int)
         cfg["postgres_host_port"] = self.get_env_or_default("OOC_PG_PORT", cfg["postgres_host_port"], int)
         cfg["worker_image"] = self.get_env_or_default("OOC_WORKER_IMAGE", cfg["worker_image"])
