@@ -484,7 +484,7 @@ def main():
                     help="Comma-separated statuses to re-run even when already in the CSV "
                          "(e.g. 'error,pg_startup_failed'). Matching rows are stripped from "
                          "the CSV before the run so results stay clean.")
-    ap.add_argument("--mode", choices=["monolithic", "split"],
+    ap.add_argument("--mode", choices=["monolithic", "monolithic_materialized", "split"],
                     default=os.getenv("OOC_QUERY_MODE", "split"),
                     help="Query execution mode (default from OOC_QUERY_MODE or 'split'). "
                          "Each row's mode is recorded; resume keys distinguish modes so "

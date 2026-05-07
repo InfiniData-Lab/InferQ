@@ -391,8 +391,12 @@ def _run_postgres(query: str, args, run_idx: str, result: dict) -> None:
         cur.execute("SET statement_timeout = %s", (args.timeout_seconds * 1000,))
         cur.execute("SET log_temp_files = 0")
 
-        statements = (_split_iqs_query_per_step(query) if args.mode == "split"
-                      else [query])
+        if args.mode == "split":
+            statements = _split_iqs_query_per_step(query)
+        elif args.mode == "monolithic_materialized":
+            statements = [_materialize_iqs_ctes(query)]
+        else:
+            statements = [query]
 
         tic = time.perf_counter()
         total_temp_written = 0
@@ -446,6 +450,17 @@ def _pg_sum_plan(plan: Any, key: str) -> int:
     return total
 
 
+def _drain_cursor(cursor, *, chunk_size: int = 8192) -> int:
+    """Consume a result set without retaining all rows in Python memory."""
+    n_rows = 0
+    while True:
+        rows = cursor.fetchmany(chunk_size)
+        if not rows:
+            break
+        n_rows += len(rows)
+    return n_rows
+
+
 def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
     import duckdb
 
@@ -492,8 +507,12 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
     # can't inline the whole cascade into one heap-bound join. In monolithic
     # mode, run the original IQS query unmodified (reproduces the OOM
     # behavior we saw before the fix — useful for the comparison study).
-    statements = (_split_iqs_query_per_step(query) if args.mode == "split"
-                  else [query])
+    if args.mode == "split":
+        statements = _split_iqs_query_per_step(query)
+    elif args.mode == "monolithic_materialized":
+        statements = [_materialize_iqs_ctes(query)]
+    else:
+        statements = [query]
 
     run_result: dict = {}
     tic_holder: list = []
@@ -502,9 +521,12 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
         tic = time.perf_counter()
         tic_holder.append(tic)
         total_spill = 0
+        total_rows = 0
         try:
             for stmt in statements:
-                con.execute(stmt).fetchall()
+                cur = con.execute(stmt)
+                if not stmt.lstrip().upper().startswith("CREATE"):
+                    total_rows += _drain_cursor(cur, chunk_size=args.fetch_chunk_size)
                 # profile_output is overwritten per statement; sum across.
                 try:
                     profile = json.loads(profile_path.read_text())
@@ -517,6 +539,7 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
                 "wall_time_s": toc - tic,
                 "spill_bytes_written": total_spill,
                 "duckdb_n_steps": len(statements),
+                "rows_consumed": total_rows,
             })
         except duckdb.OutOfMemoryException as e:
             run_result.update({"status": "oom_internal", "error": str(e),
@@ -665,6 +688,49 @@ def _split_iqs_query_per_step(query: str, *, temp: bool = True) -> list[str]:
     return statements
 
 
+def _materialize_iqs_ctes(query: str) -> str:
+    """Keep one WITH query but force CTE materialization.
+
+    This is the closest SQL-level knob for making the representative
+    monolithic pipeline less prone to optimizer inlining. SQLite, DuckDB, and
+    PostgreSQL 12+ understand `AS MATERIALIZED`.
+    """
+    s = query.lstrip()
+    if not s.upper().startswith("WITH "):
+        return query
+    s = s[5:]
+
+    cte_defs: list[tuple[str, str, str]] = []
+    pos = 0
+    while True:
+        m = _CTE_HEAD.match(s, pos)
+        if not m:
+            break
+        name = m.group(1)
+        cols = (m.group(2) or "").strip()
+        body_start = m.end()
+        depth = 1
+        i = body_start
+        while i < len(s) and depth > 0:
+            c = s[i]
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+            i += 1
+        cte_defs.append((name, cols, s[body_start:i - 1]))
+        pos = i
+        while pos < len(s) and s[pos] in " \t\n,":
+            pos += 1
+
+    if not cte_defs:
+        return query
+    final_select = s[pos:].strip()
+    return "WITH " + ", ".join(
+        f"{n}{c} AS MATERIALIZED ({b})" for (n, c, b) in cte_defs
+    ) + " " + final_select
+
+
 def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
     import sqlite3
 
@@ -681,14 +747,23 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
     con = sqlite3.connect(str(db_path))
     cur = con.cursor()
     try:
-        # Negative cache_size is kibibytes. Keep SQLite's page cache small so
-        # out-of-core behaviour shows up before the outer cgroup cap is hit.
-        cur.execute(f"PRAGMA cache_size = -{args.sqlite_cache_mb * 1024}")
         cur.execute("PRAGMA temp_store = FILE")
-        cur.execute("PRAGMA cache_spill = ON")
         cur.execute(f"PRAGMA temp_store_directory = '{tmp_dir}'")
     except sqlite3.OperationalError:
         pass  # temp_store_directory deprecated on newer SQLite
+    # Negative cache_size is kibibytes. Apply it to both main and temp schemas:
+    # transient CTE materializations and temp B-trees have their own cache.
+    for schema in ("main", "temp"):
+        try:
+            cur.execute(f"PRAGMA {schema}.cache_size = -{args.sqlite_cache_mb * 1024}")
+            cur.execute(f"PRAGMA {schema}.cache_spill = ON")
+        except sqlite3.OperationalError:
+            pass
+    try:
+        cur.execute("PRAGMA synchronous = OFF")
+        cur.execute("PRAGMA journal_mode = OFF")
+    except sqlite3.OperationalError:
+        pass
     # mmap is uncapped and bypasses cache_size; disable it so the cap is real.
     try:
         cur.execute("PRAGMA mmap_size = 0")
@@ -714,14 +789,19 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
     # the temp schema — the temp schema's backing is controlled by PRAGMA
     # temp_store, which silently no-ops when sqlite was compiled with
     # SQLITE_TEMP_STORE=2. CREATE TABLE in the main DB always hits disk.
-    statements = (_split_iqs_query_per_step(query, temp=False)
-                  if args.mode == "split" else [query])
+    if args.mode == "split":
+        statements = _split_iqs_query_per_step(query, temp=False)
+    elif args.mode == "monolithic_materialized":
+        statements = [_materialize_iqs_ctes(query)]
+    else:
+        statements = [query]
     tic = time.perf_counter()
     try:
+        total_rows = 0
         for stmt in statements:
             cur.execute(stmt)
             if not stmt.lstrip().upper().startswith("CREATE"):
-                cur.fetchall()
+                total_rows += _drain_cursor(cur, chunk_size=args.fetch_chunk_size)
         con.commit()
         toc = time.perf_counter()
         if timed_out["flag"]:
@@ -736,6 +816,7 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
             "wall_time_s": toc - tic,
             "spill_bytes_written": sampler.peak_bytes,
             "sqlite_n_steps": len(statements),
+            "rows_consumed": total_rows,
         })
     except sqlite3.OperationalError as e:
         sampler.stop()
@@ -877,17 +958,21 @@ def main():
                     help="Subtract this many MB from the cgroup cap when setting "
                          "DuckDB's memory_limit, to leave headroom for parser, "
                          "planner, profiler, and per-thread vector buffers.")
-    ap.add_argument("--duckdb-memory-mb", type=int, default=64,
+    ap.add_argument("--duckdb-memory-mb", type=int, default=512,
                     help="DuckDB memory_limit in MB. Values <=0 fall back to "
                          "cap minus --duckdb-pad-mb.")
     ap.add_argument("--sqlite-cache-mb", type=int, default=64,
                     help="SQLite PRAGMA cache_size budget in MB.")
-    ap.add_argument("--mode", choices=["monolithic", "split"], default="split",
+    ap.add_argument("--fetch-chunk-size", type=int, default=8192,
+                    help="Rows to fetch at once when draining embedded-engine "
+                         "results. Prevents Python from materializing the full "
+                         "result set in memory.")
+    ap.add_argument("--mode", choices=["monolithic", "monolithic_materialized", "split"], default="split",
                     help="Query execution mode: 'monolithic' runs the IQS query "
                          "as a single WITH ... SELECT (prone to OOM in sqlite/"
-                         "duckdb); 'split' decomposes into per-step CREATE TEMP "
-                         "TABLE statements that round-trip intermediates through "
-                         "the temp directory. Default: split.")
+                         "duckdb); 'monolithic_materialized' keeps one query but "
+                         "adds AS MATERIALIZED CTE hints; 'split' decomposes into "
+                         "per-step CREATE TEMP TABLE statements. Default: split.")
     args = ap.parse_args()
 
     Path(args.tmp_root).mkdir(parents=True, exist_ok=True)
