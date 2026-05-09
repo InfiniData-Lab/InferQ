@@ -1,4 +1,4 @@
-"""Read cgroup v2 accounting for a systemd-run scope or Docker container.
+"""Read cgroup accounting for Docker containers, with legacy scope helpers.
 
 Works on Linux with cgroup v2 (unified hierarchy). Returns 0 / None on platforms
 without /sys/fs/cgroup (e.g. macOS dev) so the orchestrator can still run in dry
@@ -176,11 +176,12 @@ def read_cgroup(cgroup_path: Path) -> CgroupSnapshot:
 
 
 def find_systemd_scope_cgroup(unit_name: str) -> Optional[Path]:
-    """Find cgroup path for a systemd-run --user --scope unit.
+    """Find cgroup path for a legacy systemd-run --user --scope unit.
 
-    Prefers cgroup v2 unified — that is where systemd-run --scope places the
-    process. The cgroup v1 memory controller often points to a parent slice
-    (user.slice) on hybrid systems and would aggregate unrelated activity.
+    The current orchestrator uses Docker containers. This helper remains for
+    older result-inspection scripts. Prefer cgroup v2 unified; cgroup v1 memory
+    often points to a parent slice on hybrid systems and aggregates unrelated
+    activity.
     """
     uid = os.getuid()
     # v2 first; v1 only as a desperate fallback.

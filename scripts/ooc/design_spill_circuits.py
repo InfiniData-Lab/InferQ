@@ -43,9 +43,16 @@ def _float(row: dict, key: str) -> float | None:
 
 def _spill_proxy_bytes(row: dict) -> float:
     """Use the best available spill/write signal for a successful run."""
+    explicit = _float(row, "spill_proxy_bytes")
+    if explicit is not None:
+        return explicit
     dbms = _float(row, "dbms_temp_bytes_written") or 0.0
-    cgroup = _float(row, "cgroup_io_write_bytes") or 0.0
-    return max(dbms, cgroup)
+    if dbms > 0:
+        return dbms
+    proc = _float(row, "proc_io_write_bytes")
+    if proc is not None:
+        return proc
+    return _float(row, "cgroup_io_write_bytes") or 0.0
 
 
 def _gb(value: float | None) -> float:
@@ -146,6 +153,7 @@ def candidates(rows: list[dict], args: argparse.Namespace) -> list[dict]:
             "mem_pressure": pressure,
             "spill_proxy_gb": _gb(spill_bytes),
             "dbms_temp_gb": _gb(_float(row, "dbms_temp_bytes_written")),
+            "proc_write_gb": _gb(_float(row, "proc_io_write_bytes")),
             "cgroup_write_gb": _gb(_float(row, "cgroup_io_write_bytes")),
         })
     return sorted(out, key=lambda r: (

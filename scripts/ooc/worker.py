@@ -1,9 +1,9 @@
 """Single-engine OOC worker.
 
 Runs one engine (postgres, duckdb, sqlite, or aer) on one circuit N times under
-an already-established memory cap (cgroup for embedded engines, Docker for PG).
-Emits a JSON result for the orchestrator to aggregate. Designed to be invoked
-via `systemd-run --scope --property=MemoryMax=X python -m inferq.ooc.worker ...`.
+an already-established memory cap. In normal experiment runs the orchestrator
+places embedded engines in a memory-capped Docker worker container and places
+Postgres in a memory-capped server container.
 
 The process does NOT set its own memory cap — enforcement is external. It just
 runs the work and records what happened.
@@ -47,7 +47,7 @@ def _resolve_own_cgroup_paths() -> tuple[Path | None, Path | None]:
          and the cgroup files are at the root of /sys/fs/cgroup.
 
     On hybrid v1+v2 hosts, v1 controllers may point to a parent slice
-    (user.slice) rather than the per-scope cgroup. Reading
+    (user.slice) rather than the per-container cgroup. Reading
     memory.max_usage_in_bytes from there yields a session-wide peak, not
     the worker's. Callers MUST prefer the v2 path.
     """
@@ -300,6 +300,35 @@ def _read_vm_peak_bytes() -> int:
     return 0
 
 
+def _read_proc_io_bytes() -> tuple[int | None, int | None]:
+    """Return this process's physical read/write byte counters from /proc/self/io.
+
+    Linux reports `read_bytes` and `write_bytes` as storage-layer I/O caused by
+    the process. These are not DBMS-native spill counters, but they are the
+    cleanest per-run spill proxy for embedded SQLite/DuckDB because cgroup I/O is
+    cumulative over the whole worker container and SQLite has no query-level
+    temp-byte API in Python's stdlib wrapper.
+    """
+    vals: dict[str, int] = {}
+    try:
+        with open("/proc/self/io") as f:
+            for line in f:
+                if ":" not in line:
+                    continue
+                k, v = line.split(":", 1)
+                if k in {"read_bytes", "write_bytes"}:
+                    vals[k] = int(v.strip())
+    except (FileNotFoundError, OSError, ValueError):
+        return None, None
+    return vals.get("read_bytes"), vals.get("write_bytes")
+
+
+def _counter_delta(before: int | None, after: int | None) -> int | None:
+    if before is None or after is None:
+        return None
+    return max(0, after - before)
+
+
 def _load_qiskit_circuit(qpy_path: str):
     from qiskit.qpy import load
 
@@ -537,7 +566,8 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
             run_result.update({
                 "status": "success",
                 "wall_time_s": toc - tic,
-                "spill_bytes_written": total_spill,
+                "spill_bytes_written": total_spill if total_spill else None,
+                "duckdb_profile_temp_bytes": total_spill,
                 "duckdb_n_steps": len(statements),
                 "rows_consumed": total_rows,
             })
@@ -578,20 +608,14 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
         else:
             result.update(run_result or {"status": "timeout", "wall_time_s": elapsed})
         sampler.stop()
-        if sampler.peak_bytes:
-            result["spill_bytes_written"] = max(
-                int(result.get("spill_bytes_written") or 0),
-                int(sampler.peak_bytes),
-            )
+        result["temp_dir_peak_bytes"] = sampler.peak_bytes
+        result["temp_dir_final_bytes"] = _dir_size_bytes(tmp_dir)
         return
 
     result.update(run_result)
     sampler.stop()
-    if sampler.peak_bytes:
-        result["spill_bytes_written"] = max(
-            int(result.get("spill_bytes_written") or 0),
-            int(sampler.peak_bytes),
-        )
+    result["temp_dir_peak_bytes"] = sampler.peak_bytes
+    result["temp_dir_final_bytes"] = _dir_size_bytes(tmp_dir)
     result["duckdb_memory_limit_mb"] = eff_mb
     result["duckdb_threads"] = args.threads
 
@@ -804,17 +828,26 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
                 total_rows += _drain_cursor(cur, chunk_size=args.fetch_chunk_size)
         con.commit()
         toc = time.perf_counter()
-        if timed_out["flag"]:
-            result.update({"status": "timeout", "wall_time_s": toc - tic})
-            return
         sampler.stop()
-        # SQLite creates anonymous (immediately-unlinked) temp files, so the
-        # dir-walking sampler can't see them; the orchestrator's host-side
-        # cgroup_io_write_bytes is the source of truth for sqlite spill volume.
+        if timed_out["flag"]:
+            result.update({
+                "status": "timeout",
+                "wall_time_s": toc - tic,
+                "temp_dir_peak_bytes": sampler.peak_bytes,
+                "temp_dir_final_bytes": _dir_size_bytes(tmp_dir),
+            })
+            return
+        # SQLite has no query-level temp-byte counter exposed through Python's
+        # stdlib sqlite3 module. Directory walking also confounds temp files
+        # with the main on-disk DB used by split mode, and may miss anonymous
+        # temp files. The per-run /proc/self/io write delta recorded by main()
+        # is the spill/workspace proxy for SQLite.
         result.update({
             "status": "success",
             "wall_time_s": toc - tic,
-            "spill_bytes_written": sampler.peak_bytes,
+            "spill_bytes_written": None,
+            "temp_dir_peak_bytes": sampler.peak_bytes,
+            "temp_dir_final_bytes": _dir_size_bytes(tmp_dir),
             "sqlite_cache_mb": args.sqlite_cache_mb,
             "sqlite_n_steps": len(statements),
             "rows_consumed": total_rows,
@@ -822,6 +855,10 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
     except sqlite3.OperationalError as e:
         sampler.stop()
         msg = str(e).lower()
+        result.update({
+            "temp_dir_peak_bytes": sampler.peak_bytes,
+            "temp_dir_final_bytes": _dir_size_bytes(tmp_dir),
+        })
         if "interrupted" in msg:
             result.update({"status": "timeout", "error": str(e)})
         elif "out of memory" in msg:
@@ -830,7 +867,13 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
             result.update({"status": "error", "error": str(e)})
     except Exception as e:
         sampler.stop()
-        result.update({"status": "error", "error": str(e), "traceback": traceback.format_exc()})
+        result.update({
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "temp_dir_peak_bytes": sampler.peak_bytes,
+            "temp_dir_final_bytes": _dir_size_bytes(tmp_dir),
+        })
     finally:
         try:
             cur.close(); con.close()
@@ -850,9 +893,7 @@ class _TempDirSampler(threading.Thread):
     def run(self):
         while not self._stop_event.is_set():
             try:
-                total = sum(
-                    p.stat().st_size for p in self.path.rglob("*") if p.is_file()
-                )
+                total = _dir_size_bytes(self.path)
                 if total > self.peak_bytes:
                     self.peak_bytes = total
             except FileNotFoundError:
@@ -862,6 +903,13 @@ class _TempDirSampler(threading.Thread):
     def stop(self):
         self._stop_event.set()
         self.join(timeout=2)
+
+
+def _dir_size_bytes(path: Path) -> int:
+    try:
+        return sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
+    except FileNotFoundError:
+        return 0
 
 
 def _run_aer(qc, args, run_idx: str, result: dict) -> None:
@@ -1034,10 +1082,22 @@ def main():
             tracemalloc.clear_traces()
             run_result: dict = {"run_idx": run_idx}
             mem_tic, _ = tracemalloc.get_traced_memory()
+            proc_read_before, proc_write_before = _read_proc_io_bytes()
             if args.engine == "aer":
                 runner(qc, args, run_idx, run_result)
             else:
                 runner(query, args, run_idx, run_result)
+            proc_read_after, proc_write_after = _read_proc_io_bytes()
+            proc_read_delta = _counter_delta(proc_read_before, proc_read_after)
+            proc_write_delta = _counter_delta(proc_write_before, proc_write_after)
+            run_result["proc_io_read_bytes"] = proc_read_delta
+            run_result["proc_io_write_bytes"] = proc_write_delta
+            if args.engine in ("duckdb", "sqlite"):
+                run_result["spill_proxy_bytes"] = proc_write_delta
+                run_result["spill_metric_kind"] = "proc_io_write_bytes"
+            elif args.engine == "postgres":
+                run_result["spill_proxy_bytes"] = run_result.get("spill_bytes_written")
+                run_result["spill_metric_kind"] = "postgres_explain_temp_written"
             _, mem_toc = tracemalloc.get_traced_memory()
             run_result["tracemalloc_peak_bytes"] = mem_toc - mem_tic
             run_result["proc_vm_peak_bytes"] = _read_vm_peak_bytes()

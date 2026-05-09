@@ -46,17 +46,28 @@ def _is_oom(status: str) -> bool:
 def _spill_proxy_bytes(row: dict) -> float | None:
     """Best available per-row spill/write proxy.
 
-    PostgreSQL reports temp blocks from EXPLAIN BUFFERS in
-    dbms_temp_bytes_written. DuckDB/SQLite may not expose a query-level counter
-    reliably, so fall back to cgroup I/O write bytes when the DBMS counter is
-    missing or zero. This matches the professor's requested "process
-    write_bytes" metric better than treating engine-reported zero as no spill.
+    New runs write an explicit spill_proxy_bytes column: PostgreSQL uses exact
+    EXPLAIN temp blocks, while DuckDB/SQLite use per-run /proc/self/io write
+    deltas. Older CSVs did not have that column, so keep a conservative
+    fallback for backward compatibility.
     """
+    explicit = _float(row, "spill_proxy_bytes")
+    if explicit is not None:
+        return explicit
     dbms = _float(row, "dbms_temp_bytes_written")
-    cgroup = _float(row, "cgroup_io_write_bytes")
     if dbms and dbms > 0:
         return dbms
-    return cgroup
+    proc = _float(row, "proc_io_write_bytes")
+    if proc is not None:
+        return proc
+    return _float(row, "cgroup_io_write_bytes")
+
+
+def _write_bytes(row: dict) -> float | None:
+    proc = _float(row, "proc_io_write_bytes")
+    if proc is not None:
+        return proc
+    return _float(row, "cgroup_io_write_bytes")
 
 
 def load_results(path: Path) -> list[dict]:
@@ -94,7 +105,7 @@ def summary_by_engine_cap(rows: list[dict]) -> list[dict]:
             "median_cgroup_peak_gb": _gb(_median(_float(r, "cgroup_mem_peak_bytes") for r in group)),
             "spill_rate": _ratio(len({r["circuit_hash"] for r in spillers}), len(success_circuits)),
             "median_spill_gb": _gb(_median(_spill_proxy_bytes(r) for r in spillers)),
-            "median_write_gb": _gb(_median(_float(r, "cgroup_io_write_bytes") for r in successful)),
+            "median_write_gb": _gb(_median(_write_bytes(r) for r in successful)),
         })
     return out
 

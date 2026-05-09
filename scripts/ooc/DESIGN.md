@@ -90,7 +90,7 @@ start via `pg_entrypoint.sh`:
 shared_buffers   = CAP_GB / 4 MB       (e.g. 4 GB at cap=16)
 work_mem         = 64 MB               (fixed; spill is measured, not prevented)
 effective_cache  = CAP_GB / 2 MB
-temp_file_limit  = CAP_GB * 512 MB     (per-query spill budget)
+temp_file_limit  = CAP_GB * 4096 MB    (per-query spill budget)
 ```
 
 ---
@@ -140,36 +140,63 @@ Peak swap usage for the cgroup. Should be zero for all runs because swap
 is disabled (`MemorySwapMax=0` / `--memory-swap=cap`). A non-zero value
 indicates a configuration problem and the run should be discarded.
 
+### `proc_io_read_bytes` / `proc_io_write_bytes`
+
+Per-run physical I/O deltas for the worker process, read from
+`/proc/self/io` immediately before and after each run. For embedded engines
+(SQLite and DuckDB) this is the primary spill/workspace proxy requested by the
+revision guide. It is per-run, unlike cgroup I/O, and it catches SQLite's main
+database writes in split mode as well as temp-file writes.
+
+Do not call this exact spill volume. It also includes non-spill writes such as
+materialized intermediate tables and small profile files. In the paper, report
+it as process write volume or spill proxy.
+
 ### `cgroup_io_read_bytes` / `cgroup_io_write_bytes`
 
 Cumulative bytes read from and written to block devices by the cgroup,
 read from cgroup v2 `io.stat`. This captures all disk I/O including temp
 file spill, WAL, and data file access. For Postgres it covers the entire
-container lifetime including startup I/O.
+container lifetime including startup I/O. For embedded engines it covers the
+whole worker container lifetime, so one value is repeated across warmup/timed
+rows. Use it as a coarse cross-check, not as the per-run spill metric.
 
-These are coarser than the DBMS-reported spill figures but are
-engine-independent and harder to game.
+These are engine-independent and useful for sanity checks, but they are not
+exact spill bytes and should not drive the spill plots.
 
 ### `dbms_temp_bytes_written` / `dbms_temp_bytes_read`
 
-Engine-reported spill to temporary files. More precise than the cgroup I/O
-counters because they exclude startup I/O and background writes.
+Engine-reported spill to temporary files when the engine exposes such a
+counter. These are diagnostics for embedded engines and exact temp accounting
+for Postgres.
 
 - **DuckDB:** parsed from the profiling JSON written to
   `<OOC_TMP_ROOT>/duckdb_<pid>_<run>/profile.json`. The worker sums
   the fields `temporary_storage_bytes`, `spilled_bytes`, and
   `bytes_spilled_to_disk` across the plan tree. DuckDB's profile schema
   has changed across versions, so this may return zero on some versions
-  even when spill occurred — cross-check with `cgroup_io_write_bytes`.
+  even when spill occurred. Cross-check with `proc_io_write_bytes` and
+  `temp_dir_peak_bytes`.
 
 - **PostgreSQL:** extracted from `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`
   by recursively summing `"Temp Written Blocks"` and `"Temp Read Blocks"`
   across the plan tree, then multiplying by 8192 (Postgres block size).
 
-- **SQLite:** SQLite has no query-level spill accounting. The worker
-  samples the size of the temp directory (`<OOC_TMP_ROOT>/sqlite_<pid>_<run>/`)
-  every 250 ms and reports the peak observed size as `dbms_temp_bytes_written`.
-  This is approximate but captures disk usage.
+- **SQLite:** SQLite has no query-level spill accounting exposed through
+  Python's stdlib `sqlite3` wrapper. New runs leave
+  `dbms_temp_bytes_written` empty for SQLite and use `proc_io_write_bytes` /
+  `spill_proxy_bytes` instead. The worker still records
+  `temp_dir_peak_bytes` and `temp_dir_final_bytes` as diagnostics, but those
+  include the main on-disk DB in split mode and are not DBMS temp bytes.
+
+### `spill_proxy_bytes`
+
+The metric used by analysis scripts for spill-related summaries:
+
+- Postgres: exact `EXPLAIN` temp written bytes.
+- DuckDB and SQLite: per-run `proc_io_write_bytes`.
+
+The `spill_metric_kind` column records which source was used.
 
 - **Aer:** no spill concept — always zero.
 

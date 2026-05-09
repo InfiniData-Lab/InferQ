@@ -3,8 +3,8 @@
 Background
 ----------
 The metadata-derived sample in data/ooc/circuits.jsonl is dominated by sparse
-circuits whose contraction never fills memory (cgroup_io_write_bytes=0 in
-prior results.csv — the engines never spilled). The natural dense candidate
+circuits whose contraction never fills memory; prior smoke results had no
+observable disk-write proxy for these rows. The natural dense candidate
 (standard QFT) does not fit the IQS 603-character index alphabet at n>11:
 each transpiled gate consumes up to 3 indices, and full QFT(n) transpiles
 to ~3·n(n+1)/2 gates. Aggressive QFT approximation fits the budget but

@@ -8,8 +8,8 @@ Three plots + one table:
 2. wall_time_vs_cap.pdf         — median wall time for circuits that completed
    on every cap (per-engine line). Shows graceful degradation ("spilling
    without killing performance").
-3. spill_bytes_vs_cap.pdf       — median spill bytes per engine at each cap.
-   Expected: zero for Aer (no spill), growing with tighter caps for RDBMSs.
+3. spill_bytes_vs_cap.pdf       — median spill/write proxy per engine at each
+   cap. Expected: zero for Aer, growing with tighter caps for RDBMSs.
 4. aer_failure_table.tex        — LaTeX booktab: circuits where RDBMS completed
    but every Aer method failed. Drops directly into the revision text.
 """
@@ -88,15 +88,24 @@ def plot_spill(df: pd.DataFrame, out_path: Path) -> None:
     timed = df[(df["is_warmup"] == False) & (df["status"] == "success")]  # noqa: E712
     if timed.empty:
         return
-    piv = (timed.groupby(["engine", "cap_gb"])["dbms_temp_bytes_written"].median()
-                 .unstack("cap_gb"))
+    if "spill_proxy_bytes" in timed.columns:
+        metric = "spill_proxy_bytes"
+    elif "proc_io_write_bytes" in timed.columns:
+        metric = "_spill_proxy_compat"
+        timed = timed.copy()
+        dbms = timed["dbms_temp_bytes_written"] if "dbms_temp_bytes_written" in timed.columns else 0
+        timed[metric] = dbms.fillna(0) if hasattr(dbms, "fillna") else dbms
+        timed.loc[timed[metric] <= 0, metric] = timed["proc_io_write_bytes"]
+    else:
+        metric = "dbms_temp_bytes_written"
+    piv = (timed.groupby(["engine", "cap_gb"])[metric].median().unstack("cap_gb"))
     piv = piv / (1 << 30)   # GB
     piv = piv.reindex([e for e in ENGINE_ORDER if e in piv.index])
     ax = piv.plot(kind="bar", figsize=(7, 4.2), width=0.78)
-    ax.set_ylabel("Median spill bytes (GB, log scale)")
+    ax.set_ylabel("Median spill proxy (GB, log scale)")
     ax.set_xlabel("Engine")
     ax.set_yscale("symlog", linthresh=1e-2)
-    ax.set_title("Disk spill vs. memory cap")
+    ax.set_title("Disk write proxy vs. memory cap")
     ax.legend(title="cap (GB)")
     plt.xticks(rotation=0)
     plt.tight_layout()

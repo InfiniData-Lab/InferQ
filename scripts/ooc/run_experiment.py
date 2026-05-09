@@ -5,12 +5,12 @@ For every (circuit, cap, engine) triple:
 1. (postgres only) Start a fresh Docker container with --memory=CAP and a tuned
    postgresql.conf. Wait for TCP accept.
 2. Drop the OS page cache.
-3. Launch worker.py under `systemd-run --user --scope --property=MemoryMax=CAP`
-   (for embedded engines; postgres worker gets a loose cap since the real
-   enforcement is on the container).
+3. Launch worker.py. Embedded engines run in a fresh Docker worker container
+   with --memory=CAP; postgres uses a lightweight client worker because the
+   database server container owns the memory cap.
 4. Wait for the worker to exit.
 5. Read cgroup counters (memory.peak, memory.swap.peak, io.stat) from the
-   container (postgres) or scope (embedded engines).
+   relevant Docker container.
 6. Stop + remove the container.
 7. Parse the worker's JSON output.
 8. Append one CSV row per timed run (warmup runs are kept with run_idx="warmup").
@@ -48,9 +48,12 @@ CSV_FIELDS = [
     "engine", "method", "cap_gb", "mode", "run_idx",
     "container_cpus", "duckdb_memory_limit_mb", "duckdb_threads", "sqlite_cache_mb",
     "wall_time_s", "tracemalloc_peak_bytes", "proc_vm_peak_bytes",
+    "proc_io_read_bytes", "proc_io_write_bytes",
     "cgroup_mem_peak_bytes", "cgroup_swap_peak_bytes",
     "cgroup_io_read_bytes", "cgroup_io_write_bytes",
     "dbms_temp_bytes_written", "dbms_temp_bytes_read",
+    "spill_proxy_bytes", "temp_dir_peak_bytes", "temp_dir_final_bytes",
+    "spill_metric_kind",
     "status", "error_msg",
     "scope_unit", "container_id", "host_timestamp",
 ]
@@ -98,6 +101,8 @@ def start_pg_container(cap_gb: int, image: str, host_port: int, name: str,
         ("max_parallel_workers_per_gather", "MAX_PARALLEL_WORKERS_PER_GATHER"),
     ):
         value = (pg_tuning or {}).get(key, 0)
+        if key == "temp_file_limit_mb" and not value:
+            value = cap_gb * 4096
         if value and int(value) > 0:
             env_args += ["-e", f"{env_name}={int(value)}"]
     cmd = [
@@ -326,7 +331,10 @@ def emit_rows(writer: csv.DictWriter, circuit: CircuitEntry, envelope: dict,
         writer.writerow({**base,
             "run_idx": "",
             "wall_time_s": None, "tracemalloc_peak_bytes": None, "proc_vm_peak_bytes": None,
+            "proc_io_read_bytes": None, "proc_io_write_bytes": None,
             "dbms_temp_bytes_written": None, "dbms_temp_bytes_read": None,
+            "spill_proxy_bytes": None, "temp_dir_peak_bytes": None,
+            "temp_dir_final_bytes": None, "spill_metric_kind": "",
             "status": envelope.get("status", "error"),
             "error_msg": _flatten_error(envelope.get("error", "")),
         })
@@ -340,8 +348,14 @@ def emit_rows(writer: csv.DictWriter, circuit: CircuitEntry, envelope: dict,
             "sqlite_cache_mb": r.get("sqlite_cache_mb", ""),
             "tracemalloc_peak_bytes": r.get("tracemalloc_peak_bytes"),
             "proc_vm_peak_bytes": r.get("proc_vm_peak_bytes"),
+            "proc_io_read_bytes": r.get("proc_io_read_bytes"),
+            "proc_io_write_bytes": r.get("proc_io_write_bytes"),
             "dbms_temp_bytes_written": r.get("spill_bytes_written"),
             "dbms_temp_bytes_read": r.get("spill_bytes_read"),
+            "spill_proxy_bytes": r.get("spill_proxy_bytes"),
+            "temp_dir_peak_bytes": r.get("temp_dir_peak_bytes"),
+            "temp_dir_final_bytes": r.get("temp_dir_final_bytes"),
+            "spill_metric_kind": r.get("spill_metric_kind", ""),
             "status": r.get("status", "unknown"),
             "error_msg": _flatten_error(r.get("error", "")),
         })
@@ -551,6 +565,7 @@ def main():
           file=sys.stderr)
 
     args.results_csv.parent.mkdir(parents=True, exist_ok=True)
+    _migrate_results_header(args.results_csv)
     is_new = not args.results_csv.exists()
     seen: set[tuple] = set()
     if args.resume and not is_new:
@@ -645,6 +660,29 @@ def main():
 
     f.close()
     print(f"[run] done: {total} triples executed, {skipped} skipped", file=sys.stderr)
+
+
+def _migrate_results_header(path: Path) -> None:
+    """Rewrite an existing results CSV to the current schema before appending.
+
+    The spill instrumentation evolved from a single overloaded temp-byte field
+    to explicit process-I/O and temp-directory columns. Appending new rows under
+    an old header would silently corrupt the CSV shape, so normalize once here.
+    """
+    if not path.exists():
+        return
+    with path.open(newline="") as rf:
+        reader = csv.DictReader(rf)
+        old_fields = reader.fieldnames or []
+        if old_fields == CSV_FIELDS:
+            return
+        rows = list(reader)
+    with path.open("w", newline="") as wf:
+        writer = csv.DictWriter(wf, fieldnames=CSV_FIELDS, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+    print(f"[run] migrated results CSV schema: {path}", file=sys.stderr)
 
 
 if __name__ == "__main__":

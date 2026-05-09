@@ -69,9 +69,13 @@ Each `(circuit, cap, engine, method)` triple produces:
 
 - `wall_time_s` — end-to-end query/simulation time
 - `cgroup_mem_peak_bytes` — peak RSS of the entire cgroup (most reliable)
-- `cgroup_io_write_bytes` — bytes spilled to disk (spill proxy)
-- `dbms_temp_bytes_written` — engine-reported spill (DuckDB profile JSON /
-  Postgres EXPLAIN BUFFERS)
+- `proc_io_write_bytes` — per-run process write volume from `/proc/self/io`
+- `spill_proxy_bytes` — analysis-facing spill proxy: Postgres temp bytes;
+  DuckDB/SQLite process writes
+- `cgroup_io_write_bytes` — coarse container-lifetime disk write cross-check
+- `dbms_temp_bytes_written` — engine-reported spill where available
+  (Postgres EXPLAIN BUFFERS; DuckDB profile JSON when populated; empty for
+  SQLite in new runs)
 - `status` — `success | oom_internal | timeout | oom_kill | error`
 
 Each triple runs once as a warm-up (discarded) and then three timed runs.
@@ -173,6 +177,36 @@ be interrupted and restarted safely.
 Estimated runtime: a few hours (pilot) to a full day (full run), depending
 on how many B3 / B4 circuits are selected.
 
+### Optional — run fine-tuned RDBMS profiles
+
+To run only the three database engines with cap-aware engine settings, use the
+fine-tuned wrapper. It reuses `run_experiment.py`, but executes one
+`(cap, engine)` slice at a time with explicit tuning overrides and writes to a
+separate CSV by default:
+
+```bash
+python -m scripts.ooc.run_finetuned_experiment --resume
+```
+
+Profiles:
+
+- `balanced` (default): larger memory budgets while leaving cgroup headroom.
+- `spill_friendly`: small DBMS memory budgets, optimized for spill visibility.
+- `memory_aggressive`: uses most of the cap, useful for best-case latency
+  comparisons but more likely to hit cgroup OOM.
+
+Useful variants:
+
+```bash
+# Inspect exact per-engine settings without launching the experiment:
+python -m scripts.ooc.run_finetuned_experiment --dry-run --caps-gb 4
+
+# Run the spill manifest with aggressive settings:
+python -m scripts.ooc.run_finetuned_experiment \
+    --manifest data/ooc/circuits_spill.jsonl \
+    --profile memory_aggressive --mode split --resume
+```
+
 ### Step 3 — verify sanity
 
 ```bash
@@ -257,8 +291,8 @@ overridden with environment variables:
 | Env var | Default | Meaning |
 |---------|---------|---------|
 | `OOC_CAPS_GB`    | `16,8,4`                     | Memory caps to sweep |
-| `OOC_ENGINES`    | `postgres,duckdb,sqlite,aer` | Engines to run |
-| `OOC_N_RUNS`     | `3`                          | Timed runs per triple |
+| `OOC_ENGINES`    | `postgres,duckdb,sqlite`     | Engines to run |
+| `OOC_N_RUNS`     | `1`                          | Timed runs per triple |
 | `OOC_WARMUP`     | `1`                          | Warm-up runs (discarded) |
 | `OOC_TIMEOUT`    | `1800`                       | Per-run timeout (seconds) |
 | `OOC_DROP_CACHE` | `True`                       | Drop page cache between runs |
@@ -267,8 +301,14 @@ overridden with environment variables:
 | `OOC_PG_PORT`      | `54320`                      | Host port for Postgres container |
 | `OOC_WORKER_IMAGE` | `inferq-ooc-worker:latest`   | Worker runtime image (DuckDB / SQLite / Aer) |
 | `OOC_RUNNER`       | `docker`                     | `docker` (cap-enforced) or `none` (smoke test, no cap) |
-| `OOC_DUCKDB_MEMORY_MB` | `64`                    | DuckDB `memory_limit` inside the cgroup cap |
+| `OOC_DUCKDB_MEMORY_MB` | `512`                   | DuckDB `memory_limit` inside the cgroup cap |
+| `OOC_DUCKDB_PAD_MB`    | `1024`                  | Headroom kept outside DuckDB `memory_limit` for planner/runtime allocations |
 | `OOC_SQLITE_CACHE_MB`  | `64`                    | SQLite `PRAGMA cache_size` budget |
+| `OOC_PG_SHARED_BUFFERS_MB` | cap-derived          | Override PostgreSQL `shared_buffers` in the tuned image |
+| `OOC_PG_WORK_MEM_MB`       | `64`                 | Override PostgreSQL `work_mem` in the tuned image |
+| `OOC_PG_MAINT_WORK_MEM_MB` | `256`                | Override PostgreSQL `maintenance_work_mem` in the tuned image |
+| `OOC_PG_EFFECTIVE_CACHE_MB` | cap-derived         | Override PostgreSQL `effective_cache_size` in the tuned image |
+| `OOC_PG_TEMP_FILE_LIMIT_MB` | `cap_gb * 4096`     | Override PostgreSQL `temp_file_limit` in the tuned image |
 
 **Use `inferq-ooc-postgres:12.22` for the Postgres image** (built in step 2
 above). The stock `postgres` image works but skips the tuned `postgresql.conf`
@@ -295,9 +335,11 @@ The full sweep is `automatic`, `statevector`, `matrix_product_state`,
 circuit_hash, num_qubits, num_gates, prior_peak_mem_gb, bin,
 engine, method, cap_gb, run_idx,
 wall_time_s, tracemalloc_peak_bytes, proc_vm_peak_bytes,
+proc_io_read_bytes, proc_io_write_bytes,
 cgroup_mem_peak_bytes, cgroup_swap_peak_bytes,
 cgroup_io_read_bytes, cgroup_io_write_bytes,
 dbms_temp_bytes_written, dbms_temp_bytes_read,
+spill_proxy_bytes, temp_dir_peak_bytes, temp_dir_final_bytes, spill_metric_kind,
 status, error_msg, scope_unit, container_id, host_timestamp
 ```
 
@@ -347,12 +389,13 @@ cgroup v2 unified hierarchy is not mounted. Check: `mount | grep cgroup2`.
 
 **`dbms_temp_bytes_written = 0` for DuckDB under a tight cap**
 DuckDB's profile JSON schema varies by version. The parser in
-`_duckdb_sum_spill` is conservative. Inspect the profile file under
-`$OOC_TMP_ROOT/duckdb_*/profile.json` during a run to check field names.
+`_duckdb_sum_spill` is conservative. New runs still emit
+`proc_io_write_bytes`, `spill_proxy_bytes`, and temp-directory diagnostics, so
+do not interpret a zero DuckDB profile counter as no spill by itself.
 
 **`cgroup_mem_peak_bytes` is the same large value (~system memory) on every row**
 Pre-Docker bug — the orchestrator was reading a parent cgroup slice (typically
-`user.slice`) instead of the per-scope cgroup created by `systemd-run`.
+`user.slice`) instead of the intended per-run cgroup.
 The current code runs every engine inside a Docker container with
 `--memory=cap`, so this should not happen. If it does, verify the runner:
 ```bash
@@ -366,3 +409,6 @@ fell back to `--runner=none` — re-run with `--runner=docker` explicitly.
 Newer SQLite versions deprecate the `temp_store_directory` pragma. The
 worker falls back to the `SQLITE_TMPDIR` / `TMPDIR` environment variables.
 Verify temp files appear under `/tmp/inferq_ooc/sqlite_*/` during a run.
+For SQLite, use `spill_proxy_bytes` / `proc_io_write_bytes` in summaries and
+figures; the DBMS temp-byte columns are intentionally empty because Python's
+SQLite wrapper does not expose reliable query-level spill bytes.
