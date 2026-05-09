@@ -61,9 +61,10 @@ from utils.circuit_hash import compute_circuit_hash  # noqa: E402
 DEFAULT_QUBITS = [18, 20, 22, 24, 26, 28]
 DEFAULT_LAYERS = 3
 DEFAULT_SEED = 4
-# DuckDB OOM-kills (rc=137) reliably for n>=26 on this benchmark even at cap=16.
-# Skip duckdb above this threshold; postgres+sqlite still cover the upper bins.
-DEFAULT_DUCKDB_MAX_QUBITS = 24
+# By default, include DuckDB for every generated circuit. Use
+# --duckdb-max-qubits only for targeted debugging runs where known-bad rows
+# should be skipped explicitly.
+DEFAULT_DUCKDB_MAX_QUBITS = 0
 
 
 def assign_bin(num_qubits: int, edges: list[int]) -> tuple[str, int]:
@@ -114,8 +115,8 @@ def main():
                     help="Base seed for the random matchings")
     ap.add_argument("--duckdb-max-qubits", type=int, default=DEFAULT_DUCKDB_MAX_QUBITS,
                     help="Skip duckdb (write skip_engines=['duckdb']) for circuits "
-                         "with num_qubits > this value. Default: %(default)s "
-                         "(duckdb OOM-kills above this threshold on the box benchmark)")
+                         "with num_qubits > this value. Set 0 to never skip. "
+                         "Default: %(default)s")
     ap.add_argument("--circuits-dir", type=Path, default=INFERQ_ROOT / "circuits")
     ap.add_argument("--out", type=Path,
                     default=INFERQ_ROOT / "data" / "ooc" / "circuits_spill.jsonl")
@@ -149,7 +150,7 @@ def main():
         # Peak intermediate is forced to 2^N elements (complex128 = 16 B).
         peak_bytes = (2 ** n) * 16
         peak_mb = peak_bytes / (1024 ** 2)
-        skip_engines = ["duckdb"] if n > args.duckdb_max_qubits else []
+        skip_engines = ["duckdb"] if args.duckdb_max_qubits and n > args.duckdb_max_qubits else []
         rows.append({
             "hash": h,
             "qpy_path": str(qpy_path),

@@ -131,9 +131,24 @@ class PipelineConfig:
         # Keep these small for out-of-core debugging so the DBMS has to use
         # its disk-backed operators before the process reaches the cgroup cap.
         "duckdb_memory_mb": 512,
+        "duckdb_pad_mb": 1024,
         "duckdb_threads": 1,
         "sqlite_cache_mb": 64,
+        # Optional PostgreSQL overrides for the tuned Docker image. Values <= 0
+        # keep the cap-derived defaults in scripts/ooc/docker/pg_entrypoint.sh.
+        "postgres_shared_buffers_mb": 0,
+        "postgres_work_mem_mb": 0,
+        "postgres_maint_work_mem_mb": 0,
+        "postgres_effective_cache_mb": 0,
+        "postgres_temp_file_limit_mb": 0,
+        "postgres_max_worker_processes": 1,
+        "postgres_max_parallel_workers": 1,
+        "postgres_max_parallel_workers_per_gather": 0,
         "postgres_host_port": 54320,
+        # Optional Docker CPU quota applied at the container level. Values <= 0
+        # leave Docker's default CPU scheduling unchanged. Set
+        # OOC_CONTAINER_CPUS=1 or 2 for comparable single-/few-core runs.
+        "container_cpus": 0,
         # Worker runtime image (DuckDB / SQLite / Aer). Built from
         # scripts/ooc/docker/worker/. The orchestrator runs `docker run
         # --memory=cap ... worker_image -m scripts.ooc.worker ...` for every
@@ -336,9 +351,19 @@ class PipelineConfig:
         cfg["circuits_per_bin"] = self.get_env_or_default("OOC_PER_BIN", cfg["circuits_per_bin"], int)
         cfg["postgres_image"] = self.get_env_or_default("OOC_PG_IMAGE", cfg["postgres_image"])
         cfg["duckdb_memory_mb"] = self.get_env_or_default("OOC_DUCKDB_MEMORY_MB", cfg["duckdb_memory_mb"], int)
+        cfg["duckdb_pad_mb"] = self.get_env_or_default("OOC_DUCKDB_PAD_MB", cfg["duckdb_pad_mb"], int)
         cfg["duckdb_threads"] = self.get_env_or_default("OOC_DUCKDB_THREADS", cfg["duckdb_threads"], int)
         cfg["sqlite_cache_mb"] = self.get_env_or_default("OOC_SQLITE_CACHE_MB", cfg["sqlite_cache_mb"], int)
+        cfg["postgres_shared_buffers_mb"] = self.get_env_or_default("OOC_PG_SHARED_BUFFERS_MB", cfg["postgres_shared_buffers_mb"], int)
+        cfg["postgres_work_mem_mb"] = self.get_env_or_default("OOC_PG_WORK_MEM_MB", cfg["postgres_work_mem_mb"], int)
+        cfg["postgres_maint_work_mem_mb"] = self.get_env_or_default("OOC_PG_MAINT_WORK_MEM_MB", cfg["postgres_maint_work_mem_mb"], int)
+        cfg["postgres_effective_cache_mb"] = self.get_env_or_default("OOC_PG_EFFECTIVE_CACHE_MB", cfg["postgres_effective_cache_mb"], int)
+        cfg["postgres_temp_file_limit_mb"] = self.get_env_or_default("OOC_PG_TEMP_FILE_LIMIT_MB", cfg["postgres_temp_file_limit_mb"], int)
+        cfg["postgres_max_worker_processes"] = self.get_env_or_default("OOC_PG_MAX_WORKER_PROCESSES", cfg["postgres_max_worker_processes"], int)
+        cfg["postgres_max_parallel_workers"] = self.get_env_or_default("OOC_PG_MAX_PARALLEL_WORKERS", cfg["postgres_max_parallel_workers"], int)
+        cfg["postgres_max_parallel_workers_per_gather"] = self.get_env_or_default("OOC_PG_MAX_PARALLEL_WORKERS_PER_GATHER", cfg["postgres_max_parallel_workers_per_gather"], int)
         cfg["postgres_host_port"] = self.get_env_or_default("OOC_PG_PORT", cfg["postgres_host_port"], int)
+        cfg["container_cpus"] = self.get_env_or_default("OOC_CONTAINER_CPUS", cfg["container_cpus"], float)
         cfg["worker_image"] = self.get_env_or_default("OOC_WORKER_IMAGE", cfg["worker_image"])
         cfg["runner"] = self.get_env_or_default("OOC_RUNNER", cfg["runner"])
         return cfg

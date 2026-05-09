@@ -46,6 +46,7 @@ WORKER_MODULE = "scripts.ooc.worker"
 CSV_FIELDS = [
     "circuit_hash", "num_qubits", "num_gates", "prior_peak_mem_gb", "bin",
     "engine", "method", "cap_gb", "mode", "run_idx",
+    "container_cpus", "duckdb_memory_limit_mb", "duckdb_threads", "sqlite_cache_mb",
     "wall_time_s", "tracemalloc_peak_bytes", "proc_vm_peak_bytes",
     "cgroup_mem_peak_bytes", "cgroup_swap_peak_bytes",
     "cgroup_io_read_bytes", "cgroup_io_write_bytes",
@@ -81,8 +82,24 @@ class CircuitEntry:
 # ─────────── Postgres Docker lifecycle ───────────
 
 def start_pg_container(cap_gb: int, image: str, host_port: int, name: str,
+                        pg_tuning: Optional[dict[str, int]] = None,
+                        container_cpus: float = 0,
                         ready_timeout: int = 60) -> str:
     """Start a fresh Postgres container with memory cap. Returns container id."""
+    env_args = []
+    for key, env_name in (
+        ("shared_buffers_mb", "SHARED_BUFFERS_MB"),
+        ("work_mem_mb", "WORK_MEM_MB"),
+        ("maint_work_mem_mb", "MAINT_WORK_MEM_MB"),
+        ("effective_cache_mb", "EFFECTIVE_CACHE_MB"),
+        ("temp_file_limit_mb", "TEMP_FILE_LIMIT_MB"),
+        ("max_worker_processes", "MAX_WORKER_PROCESSES"),
+        ("max_parallel_workers", "MAX_PARALLEL_WORKERS"),
+        ("max_parallel_workers_per_gather", "MAX_PARALLEL_WORKERS_PER_GATHER"),
+    ):
+        value = (pg_tuning or {}).get(key, 0)
+        if value and int(value) > 0:
+            env_args += ["-e", f"{env_name}={int(value)}"]
     cmd = [
         "docker", "run", "-d",  # no --rm: we need logs if it crashes before ready
         "--name", name,
@@ -90,9 +107,12 @@ def start_pg_container(cap_gb: int, image: str, host_port: int, name: str,
         "--memory-swappiness", "0",
         "-e", f"CAP_GB={cap_gb}",
         "-e", "POSTGRES_PASSWORD=postgres",
+        *env_args,
         "-p", f"{host_port}:5432",
         image,
     ]
+    if container_cpus and container_cpus > 0:
+        cmd[2:2] = ["--cpus", str(container_cpus)]
     cid = subprocess.check_output(cmd, text=True).strip()
     # Wait for PG to accept connections.
     deadline = time.time() + ready_timeout
@@ -148,7 +168,9 @@ def build_worker_args(
         "--warmup", str(cfg["warmup_runs"]),
         "--timeout-seconds", str(cfg["timeout_seconds"]),
         "--tmp-root", cfg["tmp_root"],
+        "--container-cpus", str(cfg.get("container_cpus") or 0),
         "--duckdb-memory-mb", str(cfg["duckdb_memory_mb"]),
+        "--duckdb-pad-mb", str(cfg["duckdb_pad_mb"]),
         "--sqlite-cache-mb", str(cfg["sqlite_cache_mb"]),
         "--pg-host", "127.0.0.1",
         "--pg-port", str(cfg["postgres_host_port"]),
@@ -205,6 +227,9 @@ def build_worker_cmd(
         # inside as on the host.
         "--cgroupns", "host",
     ]
+    container_cpus = float(cfg.get("container_cpus") or 0)
+    if container_cpus > 0:
+        docker_cmd += ["--cpus", str(container_cpus)]
     # Bind-mount /sys/fs/cgroup. On hybrid v1+v2 hosts, sub-mounts (memory,
     # cpu, unified, …) are NOT propagated by a single `-v` bind, so the worker
     # would see only the empty parent tmpfs. Add explicit mounts for any v1
@@ -286,6 +311,7 @@ def emit_rows(writer: csv.DictWriter, circuit: CircuitEntry, envelope: dict,
         "method": method or "",
         "cap_gb": cap_gb,
         "mode": envelope.get("mode", mode),
+        "container_cpus": envelope.get("container_cpus", ""),
         "cgroup_mem_peak_bytes": cg.memory_peak_bytes if cg else None,
         "cgroup_swap_peak_bytes": cg.memory_swap_peak_bytes if cg else None,
         "cgroup_io_read_bytes": cg.io_read_bytes if cg else None,
@@ -309,6 +335,9 @@ def emit_rows(writer: csv.DictWriter, circuit: CircuitEntry, envelope: dict,
         writer.writerow({**base,
             "run_idx": r.get("run_idx"),
             "wall_time_s": r.get("wall_time_s"),
+            "duckdb_memory_limit_mb": r.get("duckdb_memory_limit_mb", ""),
+            "duckdb_threads": r.get("duckdb_threads", ""),
+            "sqlite_cache_mb": r.get("sqlite_cache_mb", ""),
             "tracemalloc_peak_bytes": r.get("tracemalloc_peak_bytes"),
             "proc_vm_peak_bytes": r.get("proc_vm_peak_bytes"),
             "dbms_temp_bytes_written": r.get("spill_bytes_written"),
@@ -349,6 +378,17 @@ def run_one(
         try:
             pg_container_id = start_pg_container(
                 cap_gb, cfg["postgres_image"], cfg["postgres_host_port"], pg_container_name,
+                {
+                    "shared_buffers_mb": cfg.get("postgres_shared_buffers_mb", 0),
+                    "work_mem_mb": cfg.get("postgres_work_mem_mb", 0),
+                    "maint_work_mem_mb": cfg.get("postgres_maint_work_mem_mb", 0),
+                    "effective_cache_mb": cfg.get("postgres_effective_cache_mb", 0),
+                    "temp_file_limit_mb": cfg.get("postgres_temp_file_limit_mb", 0),
+                    "max_worker_processes": cfg.get("postgres_max_worker_processes", 1),
+                    "max_parallel_workers": cfg.get("postgres_max_parallel_workers", 1),
+                    "max_parallel_workers_per_gather": cfg.get("postgres_max_parallel_workers_per_gather", 0),
+                },
+                container_cpus=float(cfg.get("container_cpus") or 0),
             )
         except Exception as e:
             print(f"    [pg] startup FAILED: {e}", file=sys.stderr)

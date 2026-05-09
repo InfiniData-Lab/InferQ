@@ -815,6 +815,7 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
             "status": "success",
             "wall_time_s": toc - tic,
             "spill_bytes_written": sampler.peak_bytes,
+            "sqlite_cache_mb": args.sqlite_cache_mb,
             "sqlite_n_steps": len(statements),
             "rows_consumed": total_rows,
         })
@@ -943,6 +944,9 @@ def main():
     ap.add_argument("--warmup", type=int, default=1)
     ap.add_argument("--timeout-seconds", type=int, default=1800)
     ap.add_argument("--tmp-root", type=str, default="/data/inferq_ooc")
+    ap.add_argument("--container-cpus", type=float, default=0,
+                    help="Docker --cpus quota applied by the orchestrator; "
+                         "recorded for reproducibility only.")
     ap.add_argument("--threads", type=int, default=16)
     # Postgres-specific
     ap.add_argument("--pg-host", default=os.getenv("POSTGRES_HOST", "localhost"))
@@ -985,6 +989,7 @@ def main():
         "circuit_qpy": args.circuit_qpy,
         "bin": args.bin,
         "mode": args.mode,
+        "container_cpus": args.container_cpus,
         "aer_method": args.aer_method if args.engine == "aer" else None,
         "host": os.uname().nodename if hasattr(os, "uname") else "",
         "pid": os.getpid(),
