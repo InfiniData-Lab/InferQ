@@ -3,7 +3,7 @@ name = "inferq"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "adlfs==2024.12.0",
     "aiohappyeyeballs==2.6.1",
@@ -133,6 +133,8 @@ dependencies = [
     "sqlglot>=28.5.0",
     "xgboost>=3.1.3",
     "infiniquantumsim",
+    "mqt-bench>=2.2",
+    "supermarq>=0.5",
 ]
 
 [project.optional-dependencies]
