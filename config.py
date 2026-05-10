@@ -88,7 +88,7 @@ class PipelineConfig:
         "max_qubits_mps": 20,
         "max_circuit_size": 1000,  # Skip circuits with too many gates
         "infiniquantum": {
-             "omit_methods": ["psql","eqc","ducksql"], # Methods to skip. E.g. ["psql", "sqlite"]
+             "omit_methods": ["psql","eqc","ducksql","umbra"], # Methods to skip. E.g. ["psql", "sqlite"]
              # Available methods: "psql", "sqlite", "ducksql", "eqc", "umbra", "np_mps", "np_one_shot"
              "run_benchmark": True,
              "n_runs": 5
