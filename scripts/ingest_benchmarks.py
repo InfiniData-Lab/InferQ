@@ -7,7 +7,6 @@ primitives:
     extract_features                 (feature_extractors.extractors)
     QuantumSimulator.simulate_all    (simulators.simulate)
     process_simulation_data_for...   (simulators.lib.processor)
-    is_circuit_duplicate             (utils.duplicate_detector)
     save_circuit_locally             (utils.local_storage)
 
 For each loaded `BenchmarkCircuit` we:
@@ -63,10 +62,8 @@ from scripts.benchmark_suites import (  # noqa: E402
 )
 from simulators import process_simulation_data_for_features  # noqa: E402
 from simulators.simulate import QuantumSimulator  # noqa: E402
-from utils.duplicate_detector import (  # noqa: E402
-    initialize_duplicate_detection,
-    is_circuit_duplicate,
-)
+from utils.circuit_hash import compute_circuit_hash_simple  # noqa: E402
+from utils.duplicate_detector import initialize_duplicate_detection, is_circuit_duplicate  # noqa: E402
 from utils.local_storage import save_circuit_locally  # noqa: E402
 
 LOG_FMT = "%(asctime)s - INGEST - %(levelname)s - %(message)s"
@@ -99,12 +96,43 @@ class IngestStats:
         )
 
 
+def load_local_hashes(storage_path: Path) -> set[str]:
+    """Load hashes already present in the target storage directory.
+
+    The local saver writes circuits under `<storage>/<hash>/`, so directory
+    names are enough. If metadata exists, include its `qpy_sha256` too in case
+    the layout was changed by an older run.
+    """
+    import json
+
+    hashes: set[str] = set()
+    if not storage_path.exists():
+        return hashes
+    for child in storage_path.iterdir():
+        if not child.is_dir():
+            continue
+        if len(child.name) == 64:
+            hashes.add(child.name)
+        meta_path = child / "meta.json"
+        if meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text())
+                h = meta.get("qpy_sha256")
+                if isinstance(h, str) and h:
+                    hashes.add(h)
+            except Exception:
+                pass
+    return hashes
+
+
 def _process_one(
     bc: BenchmarkCircuit,
     simulator: QuantumSimulator,
     storage_path: Path,
     max_circuit_size: int,
     dry_run: bool,
+    dedupe_scope: str,
+    known_hashes: set[str],
     stats: IngestStats,
 ) -> None:
     """Run a single circuit through the existing pipeline primitives."""
@@ -119,11 +147,17 @@ def _process_one(
         stats.skipped_too_large += 1
         return
 
-    is_dup, circuit_hash = is_circuit_duplicate(qc)
+    if dedupe_scope == "azure":
+        is_dup, circuit_hash = is_circuit_duplicate(qc)
+    else:
+        circuit_hash = compute_circuit_hash_simple(qc)
+        is_dup = circuit_hash in known_hashes
+
     if is_dup:
         logger.info(f"  skip duplicate (hash={circuit_hash[:8]}…)")
         stats.skipped_duplicate += 1
         return
+    known_hashes.add(circuit_hash)
 
     if dry_run:
         logger.info(f"  [dry-run] would save hash={circuit_hash[:8]}…")
@@ -188,6 +222,7 @@ def run(
     max_circuit_size: int,
     limit_per_suite: int | None,
     dry_run: bool,
+    dedupe_scope: str,
     storage_path: Path,
     simulator: QuantumSimulator,
 ) -> dict[str, IngestStats]:
@@ -200,7 +235,10 @@ def run(
     files are parsed exactly once instead of re-parsed for each qubit step.
     """
     storage_path.mkdir(parents=True, exist_ok=True)
-    if not dry_run:
+    known_hashes = load_local_hashes(storage_path) if dedupe_scope == "local" else set()
+    if dedupe_scope == "local":
+        logger.info(f"loaded {len(known_hashes)} existing local hashes from {storage_path}")
+    if dedupe_scope == "azure" and not dry_run:
         # Loads the prior-circuit hash cache so duplicate detection works
         # against the historical 200k corpus, not just this session's writes.
         initialize_duplicate_detection()
@@ -255,6 +293,8 @@ def run(
                 storage_path=storage_path,
                 max_circuit_size=max_circuit_size,
                 dry_run=dry_run,
+                dedupe_scope=dedupe_scope,
+                known_hashes=known_hashes,
                 stats=stats,
             )
         except Exception as e:
@@ -317,6 +357,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Override storage_config.local_circuits_dir (mainly for tests).",
     )
     parser.add_argument(
+        "--dedupe-scope",
+        choices=["session", "local", "azure"],
+        default="session",
+        help="Duplicate detection scope. 'session' only checks circuits generated "
+        "in this run; 'local' also checks --storage-dir; 'azure' uses the global "
+        "Azure/cache duplicate detector.",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -352,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
     logger.info(
         f"Config: suites={suites}, qubits=[{min_qubits},{max_qubits}], "
         f"max_circuit_size={max_size}, dry_run={args.dry_run}, "
-        f"storage={storage_path}"
+        f"storage={storage_path}, dedupe_scope={args.dedupe_scope}"
     )
 
     if args.dry_run:
@@ -373,6 +421,7 @@ def main(argv: list[str] | None = None) -> int:
         max_circuit_size=max_size,
         limit_per_suite=args.limit,
         dry_run=args.dry_run,
+        dedupe_scope=args.dedupe_scope,
         storage_path=storage_path,
         simulator=simulator,  # type: ignore[arg-type]
     )
