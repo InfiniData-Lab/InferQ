@@ -43,8 +43,6 @@ QISKIT_METHODS = ["density_matrix", "matrix_product_state",
                   "extended_stabilizer", "statevector"]
 
 # ── Models ────────────────────────────────────────────────────────────────────
-# Linear models use StandardScaler for faster convergence & better accuracy.
-# LinearSVM wrapped in CalibratedClassifierCV to expose predict_proba (needed for AUC).
 
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier
@@ -118,7 +116,7 @@ def build_target(df, cfg):
     all_m = RDBMS_METHODS + QISKIT_METHODS
     tcols = [c for m in all_m for c in df.columns if m in c and c.endswith(("time_s", "execution_time"))]
     mcols = [c for m in all_m for c in df.columns if m in c and c.endswith(("memory_usage", "mb"))]
-    def best(pool): 
+    def best(pool):
         return pd.DataFrame({m: df[[c for c in pool if m in c]].min(axis=1) for m in all_m
                              if any(m in c for c in pool)}).idxmin(axis=1)
     df["best_time_method"] = best(tcols)
@@ -174,23 +172,33 @@ def run_ablation():
             n += 1
             cols = [c for c in feats if c in df.columns]
             log.info("%s  %s  (%d features)", _bar(n, len(MODELS) * len(FEATURE_SETS)), fs_name, len(cols))
-            t0 = time.time()
-            m  = fn()
+
+            m = fn()
             from sklearn.pipeline import Pipeline
             fit_params = ({f"{m.steps[-1][0]}__sample_weight": sw} if isinstance(m, Pipeline)
                           else {"sample_weight": sw})
+
+            t0 = time.time()
             m.fit(df.iloc[train_idx][cols], y[train_idx], **fit_params)
+            train_time_s = round(time.time() - t0, 2)
+
+            t0 = time.time()
             metrics = evaluate(m, df.iloc[test_idx][cols], y[test_idx])
+            infer_time_s = round(time.time() - t0, 4)
+
             results.append({"model": name, "features": fs_name, "n_features": len(cols),
-                            "train_time_s": round(time.time() - t0, 2), **metrics})
-            log.info("      acc=%.4f  f1=%.4f  auc=%.4f  (%.1fs)",
-                     metrics["accuracy"], metrics["f1"], metrics["roc_auc"], time.time() - t0)
+                            "train_time_s": train_time_s, "infer_time_s": infer_time_s, **metrics})
+            log.info("      acc=%.4f  f1=%.4f  auc=%.4f  train=%.2fs  infer=%.4fs",
+                     metrics["accuracy"], metrics["f1"], metrics["roc_auc"], train_time_s, infer_time_s)
         log.info("   Done: %s  (%.1fs)", name, time.time() - t_model)
 
     _sep("="); log.info("  RESULTS  (sorted by F1)"); _sep("-")
-    log.info("  %-36s  %-6s  %6s  %6s  %6s", "Feature Set", "Model", "Acc", "F1", "AUC"); _sep("-")
+    log.info("  %-36s  %-6s  %6s  %6s  %6s  %9s  %10s",
+             "Feature Set", "Model", "Acc", "F1", "AUC", "Train(s)", "Infer(s)"); _sep("-")
     for r in sorted(results, key=lambda x: x["f1"], reverse=True):
-        log.info("  %-36s  %-6s  %.4f  %.4f  %.4f", r["features"], r["model"], r["accuracy"], r["f1"], r["roc_auc"])
+        log.info("  %-36s  %-6s  %.4f  %.4f  %.4f  %9.2f  %10.4f",
+                 r["features"], r["model"], r["accuracy"], r["f1"], r["roc_auc"],
+                 r["train_time_s"], r["infer_time_s"])
 
     (out_dir / "results.json").write_text(json.dumps({
         "timestamp": timestamp, "target": DATA["target"], "test_size": DATA["test_size"],
