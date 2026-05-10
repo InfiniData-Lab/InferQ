@@ -365,6 +365,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "Azure/cache duplicate detector.",
     )
     parser.add_argument(
+        "--iq-omit-methods",
+        default=None,
+        help="Comma-separated InfiniQuantumSim methods to skip. Use this to run "
+        "only selected RDBMS backends, e.g. "
+        "'psql,umbra,eqc,np-one-shot,np-mps' for SQLite+DuckDB only.",
+    )
+    parser.add_argument(
+        "--iq-runs",
+        type=int,
+        default=None,
+        help="Override InfiniQuantumSim benchmark repetitions.",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -382,6 +395,13 @@ def main(argv: list[str] | None = None) -> int:
     circuit_cfg = get_circuit_config()
     sim_cfg = get_simulation_config()
     storage_cfg = get_storage_config()
+    infiniquantum_cfg = dict(sim_cfg.get("infiniquantum") or {})
+    if args.iq_omit_methods is not None:
+        infiniquantum_cfg["omit_methods"] = [
+            x.strip() for x in args.iq_omit_methods.split(",") if x.strip()
+        ]
+    if args.iq_runs is not None:
+        infiniquantum_cfg["n_runs"] = args.iq_runs
 
     suites = [s.strip() for s in args.suites.split(",") if s.strip()]
     min_qubits = args.min_qubits if args.min_qubits is not None else circuit_cfg["min_qubits"]
@@ -411,7 +431,7 @@ def main(argv: list[str] | None = None) -> int:
             seed=sim_cfg["seed"],
             shots=sim_cfg["shots"],
             timeout_seconds=sim_cfg["timeout_seconds"],
-            infiniquantum_config=sim_cfg.get("infiniquantum"),
+            infiniquantum_config=infiniquantum_cfg,
         )
 
     stats = run(

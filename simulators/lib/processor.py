@@ -42,6 +42,8 @@ def process_simulation_data_for_features(
              # Special handling for InfiniQuantum renaming and flattening
              prefix = "infinidata_quantum" if method == "infiniquantum" else method
              _flatten_benchmark_results(prefix, result["benchmark_results"], combined_features)
+             if method == "infiniquantum":
+                 _flatten_infiniquantum_rdbms_results(result["benchmark_results"], combined_features)
 
         # 2.5 Extract SQL Features if present
         if "sql_query" in result:
@@ -97,6 +99,19 @@ def _flatten_benchmark_results(base_name: str, benchmark_data: Dict[str, Any], f
         elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], (int, float)):
              # Compute average for lists of numbers (e.g. EQC memory/time)
              features[f"{base_name}_{clean_key}_avg"] = sum(value) / len(value)
+
+def _flatten_infiniquantum_rdbms_results(benchmark_data: Dict[str, Any], features: Dict[str, Any]):
+    """Expose InfiniQuantum SQL backend results under the historical rdbms_* keys."""
+    for method in ("sqlite", "psql", "ducksql"):
+        data = benchmark_data.get(method)
+        if not isinstance(data, dict):
+            continue
+        time_s = data.get("time_avg_s")
+        memory_mb = data.get("memory_avg_mb")
+        if time_s is not None:
+            features[f"rdbms_{method}_time_s"] = time_s
+        if memory_mb is not None:
+            features[f"rdbms_{method}_memory_mb"] = memory_mb
 
 def _set_missing_features(features: Dict[str, Any], method: str):
     """Helper to maintain schema consistency for failed methods."""
