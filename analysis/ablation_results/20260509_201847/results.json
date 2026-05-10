@@ -1,0 +1,72 @@
+{
+  "timestamp": "20260509_201847",
+  "target": "best_mem_method",
+  "test_size": 0.2,
+  "n_samples": 7705,
+  "total_time_s": 6.42,
+  "results": [
+    {
+      "model": "rf",
+      "features": "Static + Graph + SQL + Dynamic",
+      "n_features": 28,
+      "train_time_s": 0.84,
+      "accuracy": 0.9766,
+      "f1": 0.9708,
+      "roc_auc": 0.9962
+    },
+    {
+      "model": "rf",
+      "features": "Static + Dynamic",
+      "n_features": 12,
+      "train_time_s": 0.82,
+      "accuracy": 0.9721,
+      "f1": 0.9652,
+      "roc_auc": 0.9942
+    },
+    {
+      "model": "rf",
+      "features": "Static + Graph + SQL",
+      "n_features": 26,
+      "train_time_s": 0.86,
+      "accuracy": 0.965,
+      "f1": 0.9551,
+      "roc_auc": 0.9911
+    },
+    {
+      "model": "rf",
+      "features": "Static + SQL",
+      "n_features": 16,
+      "train_time_s": 0.91,
+      "accuracy": 0.9611,
+      "f1": 0.9501,
+      "roc_auc": 0.9875
+    },
+    {
+      "model": "rf",
+      "features": "Static + Graph",
+      "n_features": 20,
+      "train_time_s": 0.91,
+      "accuracy": 0.9611,
+      "f1": 0.95,
+      "roc_auc": 0.9889
+    },
+    {
+      "model": "rf",
+      "features": "Static",
+      "n_features": 10,
+      "train_time_s": 0.96,
+      "accuracy": 0.95,
+      "f1": 0.9357,
+      "roc_auc": 0.9863
+    },
+    {
+      "model": "rf",
+      "features": "SQL",
+      "n_features": 6,
+      "train_time_s": 0.95,
+      "accuracy": 0.8436,
+      "f1": 0.7973,
+      "roc_auc": 0.9118
+    }
+  ]
+}
