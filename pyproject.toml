@@ -64,6 +64,7 @@ dependencies = [
     "markdown-it-py==3.0.0",
     "matplotlib>=3.10.3",
     "mdurl==0.1.2",
+    "mlos-core[flaml,smac]>=0.6.2",
     "mpmath==1.3.0",
     "msal==1.32.3",
     "msal-extensions==1.3.1",
@@ -148,5 +149,3 @@ exclude = ["tests*", "circuits*"]
 
 [tool.setuptools]
 package-dir = {"" = "."}
-
-

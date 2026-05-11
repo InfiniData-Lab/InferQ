@@ -400,10 +400,14 @@ def run_duckdb(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size: i
     thread.start()
     thread.join(timeout=timeout_s)
     if thread.is_alive():
+        # DuckDB can block in close() while a monolithic query is still inside
+        # execution/cancellation. Interrupt and return control to the tuner; the
+        # daemon thread is process-scoped and will be reaped when the trial
+        # worker exits.
         try:
             con.interrupt()
-        finally:
-            con.close()
+        except Exception:
+            pass
         raise TimeoutError(f"duckdb timed out after {timeout_s}s")
     con.close()
     if "error" in result:

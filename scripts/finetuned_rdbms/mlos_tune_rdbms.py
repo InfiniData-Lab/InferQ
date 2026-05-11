@@ -12,6 +12,7 @@ import csv
 from dataclasses import dataclass
 import json
 import math
+import multiprocessing as mp
 from pathlib import Path
 import sys
 import time
@@ -213,7 +214,7 @@ def params_to_tuning(engine: str, params: dict[str, Any], tmp_root: Path) -> dic
     raise ValueError(f"unknown engine {engine!r}")
 
 
-def make_optimizer(engine: str, seed: int, trials: int):
+def make_optimizer(engine: str, seed: int, trials: int, optimizer_name: str):
     try:
         from ConfigSpace import (  # type: ignore
             CategoricalHyperparameter,
@@ -226,7 +227,7 @@ def make_optimizer(engine: str, seed: int, trials: int):
     except ImportError as e:
         raise SystemExit(
             "MLOS dependencies are not installed. Install with "
-            "`python -m pip install 'mlos-core[smac]'` or use the repo environment "
+            "`python -m pip install 'mlos-core[flaml,smac]'` or use the repo environment "
             "after syncing the new dependency."
         ) from e
 
@@ -253,11 +254,19 @@ def make_optimizer(engine: str, seed: int, trials: int):
     else:
         raise ValueError(f"unknown engine {engine!r}")
 
+    optimizer_type = {
+        "flaml": OptimizerType.FLAML,
+        "smac": OptimizerType.SMAC,
+    }[optimizer_name]
+    optimizer_kwargs: dict[str, Any] = {"seed": seed}
+    if optimizer_name == "smac":
+        optimizer_kwargs["max_trials"] = trials
+
     return OptimizerFactory.create(
         parameter_space=cs,
         optimization_targets=["score"],
-        optimizer_type=OptimizerType.SMAC,
-        optimizer_kwargs={"seed": seed, "max_trials": trials},
+        optimizer_type=optimizer_type,
+        optimizer_kwargs=optimizer_kwargs,
         space_adapter_type=SpaceAdapterType.IDENTITY,
         space_adapter_kwargs={},
     )
@@ -287,6 +296,89 @@ def score_rows(rows: list[dict[str, Any]]) -> float:
     return (successes[mid - 1] + successes[mid]) / 2.0
 
 
+def _engine_child(
+    queue,
+    engine: str,
+    query: str,
+    tuning: dict[str, Any],
+    timeout_s: int,
+    fetch_chunk_size: int,
+) -> None:
+    try:
+        runner = RUNNERS[engine]
+        result = run_with_tracemalloc(
+            lambda runner=runner, tuning=tuning: runner(
+                query, tuning, timeout_s, fetch_chunk_size
+            )
+        )
+    except Exception as e:
+        result = {
+            "status": "error",
+            "wall_time_s": "",
+            "rows_consumed": "",
+            "tracemalloc_peak_bytes": "",
+            "error_msg": flatten_error(f"{e}\n{traceback.format_exc(limit=4)}"),
+        }
+    queue.put(result)
+
+
+def run_engine_isolated(
+    engine: str,
+    query: str,
+    tuning: dict[str, Any],
+    timeout_s: int,
+    fetch_chunk_size: int,
+) -> dict[str, Any]:
+    """Run one engine invocation in a child process with a hard timeout.
+
+    The in-process runners use threads because that is convenient for normal
+    benchmarking. During autotuning, some suggested monolithic configurations
+    can block inside DuckDB/SQLite cancellation paths, so the optimizer needs a
+    stronger process boundary.
+    """
+    ctx = mp.get_context("spawn")
+    queue = ctx.Queue(maxsize=1)
+    proc = ctx.Process(
+        target=_engine_child,
+        args=(queue, engine, query, tuning, timeout_s, fetch_chunk_size),
+        daemon=True,
+    )
+    start = time.perf_counter()
+    proc.start()
+    proc.join(timeout_s + 5)
+    if proc.is_alive():
+        proc.terminate()
+        proc.join(3)
+        if proc.is_alive():
+            proc.kill()
+            proc.join(3)
+        return {
+            "status": "timeout",
+            "wall_time_s": time.perf_counter() - start,
+            "rows_consumed": 0,
+            "tracemalloc_peak_bytes": 0,
+            "error_msg": f"{engine} subprocess timed out after {timeout_s}s",
+        }
+    if proc.exitcode != 0 and queue.empty():
+        return {
+            "status": "error",
+            "wall_time_s": time.perf_counter() - start,
+            "rows_consumed": 0,
+            "tracemalloc_peak_bytes": 0,
+            "error_msg": f"{engine} subprocess exited with rc={proc.exitcode}",
+        }
+    try:
+        return queue.get_nowait()
+    except Exception:
+        return {
+            "status": "error",
+            "wall_time_s": time.perf_counter() - start,
+            "rows_consumed": 0,
+            "tracemalloc_peak_bytes": 0,
+            "error_msg": f"{engine} subprocess produced no result",
+        }
+
+
 def run_trial(
     *,
     phase: str,
@@ -303,7 +395,6 @@ def run_trial(
     fetch_chunk_size: int,
     writer: csv.DictWriter,
 ) -> tuple[float, list[dict[str, Any]]]:
-    runner = RUNNERS[engine]
     profile = trial_id
     tuning_json = json.dumps(tuning, sort_keys=True)
     params_json = json.dumps(params or {}, sort_keys=True)
@@ -346,10 +437,8 @@ def run_trial(
             continue
 
         for run_idx in labels:
-            result = run_with_tracemalloc(
-                lambda runner=runner, tuning=tuning: runner(
-                    bundle.query, tuning, timeout_s, fetch_chunk_size
-                )
+            result = run_engine_isolated(
+                engine, bundle.query, tuning, timeout_s, fetch_chunk_size
             )
             row = {
                 "circuit_hash": candidate.circuit_hash,
@@ -427,7 +516,7 @@ def tune(args, candidates: list[CandidateCircuit]) -> dict[str, Any]:
 
         for engine in engines:
             print(f"[mlos] tuning {engine} on {len(pilot)} pilot circuits", file=sys.stderr)
-            opt = make_optimizer(engine, args.seed, args.trials) if args.trials > 0 else None
+            opt = make_optimizer(engine, args.seed, args.trials, args.optimizer) if args.trials > 0 else None
             best_score = math.inf
             best_entry: dict[str, Any] | None = None
 
@@ -554,6 +643,7 @@ def main() -> int:
     parser.add_argument("--pilot-size", type=int, default=12)
     parser.add_argument("--trials", type=int, default=20,
                         help="MLOS-suggested trials per engine, after seed profile baselines.")
+    parser.add_argument("--optimizer", choices=("flaml", "smac"), default="flaml")
     parser.add_argument("--seed-profiles", default="balanced,fast,spill_safe")
     parser.add_argument("--seed", type=int, default=4)
     parser.add_argument("--n-runs", type=int, default=1)
