@@ -1,0 +1,72 @@
+{
+  "timestamp": "20260509_195722",
+  "target": "best_mem_method",
+  "test_size": 0.2,
+  "n_samples": 7705,
+  "total_time_s": 3.53,
+  "results": [
+    {
+      "model": "XGBoost",
+      "features": "Static + Graph + SQL + Dynamic",
+      "n_features": 28,
+      "train_time_s": 0.34,
+      "accuracy": 0.9799,
+      "f1": 0.975,
+      "roc_auc": 0.9967
+    },
+    {
+      "model": "XGBoost",
+      "features": "Static + Dynamic",
+      "n_features": 12,
+      "train_time_s": 0.26,
+      "accuracy": 0.9734,
+      "f1": 0.967,
+      "roc_auc": 0.9954
+    },
+    {
+      "model": "XGBoost",
+      "features": "Static + Graph + SQL",
+      "n_features": 26,
+      "train_time_s": 0.34,
+      "accuracy": 0.9689,
+      "f1": 0.9611,
+      "roc_auc": 0.9924
+    },
+    {
+      "model": "XGBoost",
+      "features": "Static + SQL",
+      "n_features": 16,
+      "train_time_s": 0.29,
+      "accuracy": 0.965,
+      "f1": 0.9557,
+      "roc_auc": 0.9892
+    },
+    {
+      "model": "XGBoost",
+      "features": "Static + Graph",
+      "n_features": 20,
+      "train_time_s": 0.32,
+      "accuracy": 0.9611,
+      "f1": 0.9511,
+      "roc_auc": 0.9908
+    },
+    {
+      "model": "XGBoost",
+      "features": "Static",
+      "n_features": 10,
+      "train_time_s": 0.28,
+      "accuracy": 0.9507,
+      "f1": 0.938,
+      "roc_auc": 0.9866
+    },
+    {
+      "model": "XGBoost",
+      "features": "SQL",
+      "n_features": 6,
+      "train_time_s": 1.4,
+      "accuracy": 0.8507,
+      "f1": 0.8145,
+      "roc_auc": 0.9156
+    }
+  ]
+}
