@@ -1,0 +1,7 @@
+{
+  "cache_mb": 64,
+  "db_path": ":memory:",
+  "mmap_mb": 0,
+  "temp_store": "MEMORY",
+  "threads": 1
+}
