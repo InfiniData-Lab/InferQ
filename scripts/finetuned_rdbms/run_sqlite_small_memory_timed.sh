@@ -2,12 +2,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-INFERQ_ROOT="${REPO_ROOT}/InferQ"
+INFERQ_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PROJECT_ROOT="$(cd "${INFERQ_ROOT}/.." && pwd)"
 
-OUT_DIR="${OUT_DIR:-${REPO_ROOT}/res/finetuned/sqlite_small_memory}"
+OUT_DIR="${OUT_DIR:-${PROJECT_ROOT}/res/finetuned/sqlite_small_memory}"
 OUT_CSV="${OUT_CSV:-${OUT_DIR}/results_sqlite_small_memory.csv}"
-HASHES_FILE="${HASHES_FILE:-${REPO_ROOT}/res/finetuned_circuit_group_small_median_hashes.txt}"
+HASHES_FILE="${HASHES_FILE:-${SCRIPT_DIR}/profiles/small_median_hashes.txt}"
 QPY_DIR="${QPY_DIR:-${INFERQ_ROOT}/analysis/finetuned_rdbms_116/qpy}"
 PROFILE_JSON="${PROFILE_JSON:-${SCRIPT_DIR}/profiles/sqlite_small_memory.json}"
 TMP_ROOT="${TMP_ROOT:-${OUT_DIR}/tmp}"

@@ -9,11 +9,12 @@ import statistics
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_RESULTS = REPO_ROOT / "res" / "finetuned" / "sqlite_small_memory" / "results_sqlite_small_memory.csv"
-DEFAULT_BASELINE = REPO_ROOT / "res" / "finetuned_small_group_param_vs_baseline_by_circuit.csv"
-DEFAULT_SUMMARY = REPO_ROOT / "res" / "finetuned" / "sqlite_small_memory" / "summary_vs_baseline.csv"
-DEFAULT_BY_CIRCUIT = REPO_ROOT / "res" / "finetuned" / "sqlite_small_memory" / "by_circuit_vs_baseline.csv"
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_RESULTS = PROJECT_ROOT / "res" / "finetuned" / "sqlite_small_memory" / "results_sqlite_small_memory.csv"
+DEFAULT_BASELINE = SCRIPT_DIR / "baselines" / "sqlite_small_group_baseline.csv"
+DEFAULT_SUMMARY = PROJECT_ROOT / "res" / "finetuned" / "sqlite_small_memory" / "summary_vs_baseline.csv"
+DEFAULT_BY_CIRCUIT = PROJECT_ROOT / "res" / "finetuned" / "sqlite_small_memory" / "by_circuit_vs_baseline.csv"
 
 
 def percentile(values: list[float], q: float) -> float:
@@ -35,7 +36,7 @@ def load_baseline(path: Path) -> dict[str, float]:
     baseline: dict[str, float] = {}
     with path.open(newline="") as f:
         for row in csv.DictReader(f):
-            if row.get("engine") != "sqlite":
+            if row.get("engine") and row.get("engine") != "sqlite":
                 continue
             circuit_hash = row["circuit_hash"]
             baseline.setdefault(circuit_hash, float(row["baseline_s"]))
