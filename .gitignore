@@ -28,6 +28,7 @@ venv
 
 *.csv
 *.log
+scripts/finetuned_rdbms/profiles/small_median_qpy_paths.txt
 data/*
 !data/metadata/
 !data/metadata/*.parquet
