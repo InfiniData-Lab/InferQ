@@ -307,8 +307,8 @@ def main() -> int:
                         help="Quantile used when --size-threshold is omitted.")
     parser.add_argument("--engines", default="sqlite,duckdb,postgres")
     parser.add_argument("--sqlite-timeout-seconds", type=int, default=10)
-    parser.add_argument("--timeout-seconds", type=int, default=300,
-                        help="Timeout for non-SQLite engines.")
+    parser.add_argument("--timeout-seconds", type=int, default=10,
+                        help="Timeout for DuckDB/Postgres engines.")
     parser.add_argument("--query-timeout-seconds", type=int, default=300)
     parser.add_argument("--n-runs", type=int, default=1)
     parser.add_argument("--warmup", type=int, default=1)
