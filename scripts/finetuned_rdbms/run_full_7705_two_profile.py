@@ -286,6 +286,10 @@ def read_seen(path: Path) -> dict[tuple[str, str, str, str], str]:
     return seen
 
 
+def is_complete_status(status: str | None) -> bool:
+    return bool(status) and status != "skipped_sqlite_timeout"
+
+
 def write_result_row(
     writer: csv.DictWriter,
     *,
@@ -505,6 +509,18 @@ def main() -> int:
             circuit_hash = qpy_path.stem
             profile = profile_by_hash[circuit_hash]
             parquet_size = circuit_size_by_hash[circuit_hash]
+            expected_keys = [
+                (circuit_hash, engine, profile, run_idx)
+                for engine in engines
+                for run_idx in labels
+            ]
+            if expected_keys and all(is_complete_status(seen.get(key)) for key in expected_keys):
+                if idx == 1 or idx % 100 == 0:
+                    print(
+                        f"[{idx}/{len(found_paths)}] {circuit_hash[:8]} already complete; skipping",
+                        file=sys.stderr,
+                    )
+                continue
             dynamic_timeout_s = float(timeout_by_hash[circuit_hash])
             sqlite_timeout_s = (
                 dynamic_timeout_s
@@ -554,7 +570,7 @@ def main() -> int:
 
             for run_idx in labels:
                 key = (circuit_hash, "sqlite", profile, run_idx)
-                if key in seen:
+                if is_complete_status(seen.get(key)):
                     continue
                 sqlite_result = run_engine_once(
                     query=query,
@@ -592,7 +608,7 @@ def main() -> int:
                     continue
                 for run_idx in labels:
                     key = (circuit_hash, engine, profile, run_idx)
-                    if key in seen:
+                    if is_complete_status(seen.get(key)):
                         continue
                     result = run_engine_once(
                         query=query,
