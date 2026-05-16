@@ -19,9 +19,9 @@ SPARSITY_COL    = "statevector_saved_sparsity"
 ROWKEY_COL      = "RowKey"
 NQUBITS_COL     = "num_qubits"
 
-VALID_QUBITS    = [20, 21, 22, 23, 24, 25]
+VALID_QUBITS    = [5, 7, 9, 11]
 N_SPARSITY_BINS = 3    # equal-width sparsity bins per qubit level
-SAMPLES_PER_CELL = 6  # rows to draw per (num_qubits, sparsity_bin) cell
+SAMPLES_PER_CELL = 3  # rows to draw per (num_qubits, sparsity_bin) cell
 RANDOM_STATE    = 42
 # ─────────────────────────────────────────────────────────────────────────────
 
