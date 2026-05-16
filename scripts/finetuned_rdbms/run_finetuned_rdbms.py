@@ -438,32 +438,26 @@ def run_sqlite(query: str, tuning: dict[str, Any], timeout_s: float, chunk_size:
     cur.execute(f"PRAGMA mmap_size={int(tuning['mmap_mb']) * 1024 * 1024}")
     execute_optional(cur.execute, f"PRAGMA threads={int(tuning['threads'])}")
 
-    result: dict[str, Any] = {}
+    deadline = time.perf_counter() + timeout_s
 
-    def execute():
-        try:
-            cur.execute(query)
-            rows = drain_cursor(cur, chunk_size)
-            con.commit()
-            execute_optional(cur.execute, "PRAGMA optimize")
-            result["rows"] = rows
-        except Exception as e:
-            result["error"] = e
+    def progress_handler() -> int:
+        return 1 if time.perf_counter() >= deadline else 0
 
-    thread = threading.Thread(target=execute, daemon=True)
-    thread.start()
-    thread.join(timeout=timeout_s)
-    if thread.is_alive():
-        try:
-            con.interrupt()
-        finally:
-            con.close()
-        raise TimeoutError(f"sqlite timed out after {timeout_s}s")
-    cur.close()
-    con.close()
-    if "error" in result:
-        raise result["error"]
-    return int(result.get("rows", 0))
+    con.set_progress_handler(progress_handler, 100)
+    try:
+        cur.execute(query)
+        rows = drain_cursor(cur, chunk_size)
+        con.commit()
+        execute_optional(cur.execute, "PRAGMA optimize")
+        return rows
+    except sqlite3.OperationalError as e:
+        if time.perf_counter() >= deadline:
+            raise TimeoutError(f"sqlite timed out after {timeout_s}s") from e
+        raise
+    finally:
+        con.set_progress_handler(None, 0)
+        cur.close()
+        con.close()
 
 
 def run_postgres(query: str, tuning: dict[str, Any], timeout_s: float, chunk_size: int) -> int:
