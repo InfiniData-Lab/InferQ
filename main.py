@@ -1,220 +1,316 @@
-from generators.circuit_merger import CircuitMerger
-from generators.lib.generator import BaseParams
-from config import get_circuit_config, get_simulation_config, get_storage_config, get_azure_config, config
+#!/usr/bin/env python3
+"""Canonical InferQ pipeline entry point.
 
-from utils.save_utils import (
-    save_circuit_locally,
-    save_circuit_metadata_to_table,
-    upload_circuit_blob
-)
-from utils.azure_connection import AzureConnection
+The default mode runs the production multiprocessing pipeline. The legacy
+single-circuit path is kept as `python main.py single` because environment
+tests import `run_extraction_pipeline` directly.
+"""
 
-from feature_extractors.extractors import extract_features
-from simulators.simulate import QuantumSimulator
+from __future__ import annotations
 
-from pathlib import Path
+import argparse
+import cProfile
 import logging
+import pstats
+import sys
+from pathlib import Path
+from typing import TYPE_CHECKING
 
+import numpy as np
 
-# Suppress verbose Qiskit logging
-logging.getLogger('qiskit').setLevel(logging.WARNING)
-logging.getLogger('qiskit.passmanager').setLevel(logging.WARNING)
-logging.getLogger('qiskit.compiler').setLevel(logging.WARNING)
-logging.getLogger('qiskit.transpiler').setLevel(logging.WARNING)
-logging.getLogger('qiskit_aer').setLevel(logging.WARNING)
-
-# Suppress verbose Azure logging
-logging.getLogger('azure.core.pipeline.policies.http_logging_policy').setLevel(logging.WARNING)
-logging.getLogger('azure.storage.blob').setLevel(logging.WARNING)
-logging.getLogger('azure.data.tables').setLevel(logging.WARNING)
-logging.getLogger('azure.core').setLevel(logging.WARNING)
-
-# Configure main logger - use level from config
-logging_config = config.LOGGING
-logging.basicConfig(
-    level=getattr(logging, logging_config['level'].upper(), logging.INFO),
-    format=logging_config['format']
+from config import (
+    config,
+    get_azure_config,
+    get_circuit_config,
+    get_simulation_config,
+    get_storage_config,
 )
+
+if TYPE_CHECKING:
+    from generators.circuit_merger import CircuitMerger
+    from simulators.simulate import QuantumSimulator
+    from utils.azure_connection import AzureConnection
+
+
 logger = logging.getLogger(__name__)
 
-def run_extraction_pipeline(circuitMerger: CircuitMerger, quantumSimulator: QuantumSimulator, azure_conn: AzureConnection = None):
-    # Minimal logging for HPC - only essential messages
-    circuit_config=get_circuit_config()
-    storage_config=get_storage_config()
-    
-    # Step 1: Circuit Generation
+
+def configure_logging(*, log_file: str | None = None) -> None:
+    """Configure concise process-wide logging once."""
+    logging_config = config.LOGGING
+    level = getattr(logging, logging_config["level"].upper(), logging.INFO)
+    formatter = logging.Formatter(logging_config["format"])
+
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    if log_file:
+        handlers.append(logging.FileHandler(log_file))
+
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.setLevel(level)
+    for handler in handlers:
+        handler.setLevel(level)
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
+
+    noisy_loggers = [
+        "qiskit",
+        "qiskit.passmanager",
+        "qiskit.compiler",
+        "qiskit.transpiler",
+        "qiskit_aer",
+        "azure.core",
+        "azure.storage",
+        "azure.data.tables",
+        "azure.storage.blob",
+        "azure.core.pipeline.policies.http_logging_policy",
+        "rustworkx",
+        "rx",
+    ]
+    for logger_name in noisy_loggers:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+    np.set_printoptions(suppress=True, threshold=0)
+
+
+def run_extraction_pipeline(
+    circuitMerger: CircuitMerger,
+    quantumSimulator: QuantumSimulator,
+    azure_conn: AzureConnection | None = None,
+) -> None:
+    """Run one generate/extract/simulate/store pipeline iteration."""
+    from feature_extractors.extractors import extract_features
+    from utils.save_utils import (
+        save_circuit_locally,
+        save_circuit_metadata_to_table,
+        upload_circuit_blob,
+    )
+
+    circuit_config = get_circuit_config()
+    storage_config = get_storage_config()
+
     logger.info("STEP 1: Circuit Generation")
     logger.info("-" * 30)
     try:
-        circ = circuitMerger.generate_hierarchical_circuit(
-            stopping_probability=circuit_config['stopping_probability'],
-            max_generators=circuit_config['max_generators']
+        circuit = circuitMerger.generate_hierarchical_circuit(
+            stopping_probability=circuit_config["stopping_probability"],
+            max_generators=circuit_config["max_generators"],
         )
-        logger.info(f"✓ Generated circuit: {circ.num_qubits} qubits, depth {circ.depth()}, size {circ.size()}")
-    except Exception as e:
-        logger.error(f"Circuit generation failed: {e}")
-        raise
-    
-    # Step 2: Feature Extraction
-    logger.info("\nSTEP 2: Feature Extraction")
-    logger.info("-" * 30)
-    try:
-        extracted_features = extract_features(circuit=circ)
-        logger.info(f"✓ Feature extraction completed: {len(extracted_features)} features")
-        logger.debug(f"Feature keys: {list(extracted_features.keys())}")
-    except Exception as e:
-        logger.error(f"Feature extraction failed: {e}")
+        logger.info(
+            "Generated circuit: %s qubits, depth %s, size %s",
+            circuit.num_qubits,
+            circuit.depth(),
+            circuit.size(),
+        )
+    except Exception as exc:
+        logger.error("Circuit generation failed: %s", exc)
         raise
 
-    # Step 3: Quantum Simulation
-    logger.info("\nSTEP 3: Quantum Simulation")
+    logger.info("STEP 2: Feature Extraction")
     logger.info("-" * 30)
     try:
-        res = quantumSimulator.simulate_all_methods(circ)
-        successful_sims = sum(1 for r in res.values() if r.get('success', False))
-        total_sims = len(res)
-        logger.info(f"✓ Simulation completed: {successful_sims}/{total_sims} methods successful")
-    except Exception as e:
-        logger.error(f"Simulation failed: {e}")
+        extracted_features = extract_features(circuit=circuit)
+        logger.info("Feature extraction completed: %s features", len(extracted_features))
+    except Exception as exc:
+        logger.error("Feature extraction failed: %s", exc)
         raise
-    
-    # Step 3.5: Process Simulation Data
-    logger.info("\nSTEP 3.5: Processing Simulation Data")
+
+    logger.info("STEP 3: Quantum Simulation")
+    logger.info("-" * 30)
+    try:
+        simulation_results = quantumSimulator.simulate_all_methods(circuit)
+        successful_sims = sum(
+            1 for result in simulation_results.values() if result.get("success", False)
+        )
+        logger.info(
+            "Simulation completed: %s/%s methods successful",
+            successful_sims,
+            len(simulation_results),
+        )
+    except Exception as exc:
+        logger.error("Simulation failed: %s", exc)
+        raise
+
+    logger.info("STEP 4: Processing Simulation Data")
     logger.info("-" * 30)
     try:
         from simulators import process_simulation_data_for_features
-        combined_features = process_simulation_data_for_features(res, extracted_features)
-    except Exception as e:
-        logger.error(f"Simulation data processing failed: {e}")
-        # Continue with just extracted features if simulation data processing fails
+
+        combined_features = process_simulation_data_for_features(
+            simulation_results,
+            extracted_features,
+        )
+    except Exception as exc:
+        logger.error("Simulation data processing failed: %s", exc)
         combined_features = extracted_features
-    
-    # Step 4: Local Storage
-    logger.info("\nSTEP 4: Local Storage")
+
+    logger.info("STEP 5: Local Storage")
     logger.info("-" * 30)
     try:
-        storage_path = Path(storage_config['local_circuits_dir'])
+        storage_path = Path(storage_config["local_circuits_dir"])
         storage_path.mkdir(parents=True, exist_ok=True)
-        qpy_hash, features, written = save_circuit_locally(circ, combined_features, storage_path)
+        qpy_hash, features, written = save_circuit_locally(
+            circuit,
+            combined_features,
+            storage_path,
+        )
         if written:
-            logger.info(f"✓ Circuit saved locally with hash: {qpy_hash}")
-            logger.info(f"✓ Serialization method: {features.get('serialization_method', 'unknown')}")
+            logger.info("Circuit saved locally with hash: %s", qpy_hash)
+            logger.info(
+                "Serialization method: %s",
+                features.get("serialization_method", "unknown"),
+            )
         else:
-            logger.info(f"Circuit {qpy_hash} already exists locally")
-    except Exception as e:
-        logger.error(f"Local storage failed: {e}")
+            logger.info("Circuit %s already exists locally", qpy_hash)
+    except Exception as exc:
+        logger.error("Local storage failed: %s", exc)
         raise
-    
-    # Step 5: Cloud Storage (if available)
+
     if written and azure_conn:
-        logger.info("\nSTEP 5: Cloud Storage")
+        logger.info("STEP 6: Cloud Storage")
         logger.info("-" * 30)
-        
         try:
-            # Sub-step 5a: Blob Storage
-            logger.info("5a. Uploading to Azure Blob Storage...")
             container_client = azure_conn.get_container_client()
-            serialization_method = features.get('serialization_method', 'qpy')
-            blob_path = upload_circuit_blob(container_client, circ, qpy_hash, serialization_method)
-            features["blob_path"] = blob_path.split("circuits/")[1] if "circuits/" in blob_path else blob_path
-            logger.info(f"✓ Circuit uploaded to blob storage")
-            
-            # Sub-step 5b: Table Storage
-            logger.info("5b. Saving metadata to Azure Table Storage...")
+            serialization_method = features.get("serialization_method", "qpy")
+            blob_path = upload_circuit_blob(
+                container_client,
+                circuit,
+                qpy_hash,
+                serialization_method,
+            )
+            features["blob_path"] = (
+                blob_path.split("circuits/")[1] if "circuits/" in blob_path else blob_path
+            )
+
             table_client = azure_conn.get_circuits_table_client()
-            table_success = save_circuit_metadata_to_table(table_client, features)
-            
-            if table_success:
-                logger.info("✓ Circuit metadata saved to Azure Table Storage")
+            if save_circuit_metadata_to_table(table_client, features):
+                logger.info("Circuit metadata saved to Azure Table Storage")
             else:
-                logger.error("✗ Failed to save metadata to Azure Table Storage")
-                
-        except Exception as e:
-            logger.error(f"Cloud storage failed: {e}")
+                logger.error("Failed to save metadata to Azure Table Storage")
+        except Exception as exc:
+            logger.error("Cloud storage failed: %s", exc)
             logger.info("Circuit is still available locally")
-            
     elif written:
-        logger.info("\nSTEP 5: Cloud Storage")
-        logger.info("-" * 30)
-        logger.info("Azure connection not provided - skipping cloud storage")
+        logger.info("Azure connection not provided; skipping cloud storage")
     elif azure_conn:
-        logger.info("\nSTEP 5: Cloud Storage")
-        logger.info("-" * 30)
-        logger.info("Circuit already exists - skipping cloud storage")
-    
-    logger.info("\n" + "=" * 60)
-    logger.info("PIPELINE COMPLETED SUCCESSFULLY")
-    logger.info("=" * 60)
+        logger.info("Circuit already exists; skipping cloud storage")
+
+    logger.info("Pipeline completed successfully")
 
 
-def main():
-    # Apply performance optimizations
-    
-    logger.info("🚀 Starting Quantum Circuit Processing Application")
-    logger.info("=" * 80)
-    
-    # Get circuit, simulation, and storage configuration
+def run_single_pipeline() -> None:
+    """Run the legacy single-circuit pipeline."""
+    from generators.circuit_merger import CircuitMerger
+    from generators.lib.generator import BaseParams
+    from simulators.simulate import QuantumSimulator
+    from utils.azure_connection import AzureConnection
+
     circuit_config = get_circuit_config()
     simulation_config = get_simulation_config()
-    storage_config = get_storage_config()
     azure_config = get_azure_config()
 
-    seed = circuit_config['seed']
-    logger.info(f"Using random seed: {seed}")
-    
-    azure_conn=None
-    # Initialize Azure connection for cloud storage
-    logger.info("\nInitializing Azure Connection...")
-    if azure_config['enabled']:
+    seed = circuit_config["seed"]
+    logger.info("Starting single-circuit InferQ pipeline")
+    logger.info("Using random seed: %s", seed)
+
+    azure_conn = None
+    if azure_config["enabled"]:
         try:
             azure_conn = AzureConnection()
-            logger.warning("✓ Azure connection established for remote storage")
-        except Exception as e:
-            logger.warning(f"⚠️  Azure connection failed: {e}")
-            logger.warning("⚠️  Remote storage disabled - LOCAL ONLY mode")
+            logger.warning("Azure connection established for remote storage")
+        except Exception as exc:
+            logger.warning("Azure connection failed: %s", exc)
+            logger.warning("Remote storage disabled; local-only mode")
     else:
-        logger.warning("⚠️  Azure disabled in configuration - LOCAL ONLY mode")
+        logger.warning("Azure disabled in configuration; local-only mode")
 
-    # Configure circuit generation using centralized config
-    logger.info("\nConfiguring Circuit Generation...")
     base_params = BaseParams(
-        max_qubits=circuit_config['max_qubits'], 
-        min_qubits=circuit_config['min_qubits'], 
-        max_depth=circuit_config['max_depth'], 
-        min_depth=circuit_config['min_depth'], 
-        seed=seed, 
-        measure=circuit_config['measure']
+        max_qubits=circuit_config["max_qubits"],
+        min_qubits=circuit_config["min_qubits"],
+        max_depth=circuit_config["max_depth"],
+        min_depth=circuit_config["min_depth"],
+        seed=seed,
+        measure=circuit_config["measure"],
     )
-    logger.info(f"Circuit parameters: {base_params.min_qubits}-{base_params.max_qubits} qubits, {base_params.min_depth}-{base_params.max_depth} depth")
-    
-    try:
-        circuitMerger = CircuitMerger(base_params=base_params)
-        logger.info("✓ Circuit merger initialized")
-    except Exception as e:
-        logger.error(f"Failed to initialize circuit merger: {e}")
-        raise
+    circuit_merger = CircuitMerger(base_params=base_params)
+    quantum_simulator = QuantumSimulator(
+        seed=simulation_config["seed"],
+        shots=simulation_config["shots"],
+        timeout_seconds=simulation_config["timeout_seconds"],
+        infiniquantum_config=simulation_config.get("infiniquantum"),
+    )
+    run_extraction_pipeline(circuit_merger, quantum_simulator, azure_conn)
 
-    # Initialize quantum simulator
-    logger.info("\nInitializing Quantum Simulator...")
-    try:
-        quantumSimulator = QuantumSimulator(
-            seed=simulation_config['seed'], 
-            shots=simulation_config['shots'],
-            timeout_seconds=simulation_config['timeout_seconds'],
-            infiniquantum_config=simulation_config.get('infiniquantum')
-        )
-        logger.info("✓ Quantum simulator initialized")
-    except Exception as e:
-        logger.error(f"Failed to initialize quantum simulator: {e}")
-        raise
-    
-    # Run the extraction pipeline
-    logger.info("\nStarting Pipeline Execution...")
-    try:
-        run_extraction_pipeline(circuitMerger, quantumSimulator, azure_conn)
-        logger.info("\n🎉 Application completed successfully!")
-    except Exception as e:
-        logger.error(f"\n💥 Application failed: {e}")
-        raise
+
+def run_parallel_from_args(args: argparse.Namespace) -> dict:
+    """Run the production parallel pipeline from parsed CLI args."""
+    from pipeline.manager import run_parallel_pipeline
+
+    if args.profile:
+        profiler = cProfile.Profile()
+        profiler.enable()
+        try:
+            return run_parallel_pipeline(
+                num_workers=args.workers,
+                max_iterations=args.iterations,
+                batch_size=args.batch_size,
+                azure_upload_interval=args.azure_interval,
+                batch_timeout_seconds=args.batch_timeout,
+            )
+        finally:
+            profiler.disable()
+            stats = pstats.Stats(profiler)
+            stats.sort_stats("cumulative")
+            stats.print_stats(20)
+
+    return run_parallel_pipeline(
+        num_workers=args.workers,
+        max_iterations=args.iterations,
+        batch_size=args.batch_size,
+        azure_upload_interval=args.azure_interval,
+        batch_timeout_seconds=args.batch_timeout,
+    )
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="InferQ circuit generation pipeline")
+    parser.add_argument(
+        "mode",
+        nargs="?",
+        choices=["parallel", "single"],
+        default="parallel",
+        help="Pipeline mode. Defaults to parallel.",
+    )
+    parser.add_argument("--workers", type=int, default=None, help="Number of parallel workers")
+    parser.add_argument("--iterations", type=int, default=None, help="Maximum batch iterations")
+    parser.add_argument("--batch-size", type=int, default=None, help="Circuits per batch")
+    parser.add_argument(
+        "--azure-interval",
+        type=int,
+        default=None,
+        help="Upload to Azure after this many buffered circuits",
+    )
+    parser.add_argument(
+        "--batch-timeout",
+        type=int,
+        default=None,
+        help="Timeout for each parallel batch in seconds",
+    )
+    parser.add_argument("--profile", action="store_true", help="Enable cProfile output")
+    parser.add_argument("--log-file", default="pipeline.log", help="Log file path")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    configure_logging(log_file=args.log_file)
+
+    if args.mode == "single":
+        run_single_pipeline()
+    else:
+        run_parallel_from_args(args)
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
