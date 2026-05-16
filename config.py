@@ -7,6 +7,8 @@ import os
 import multiprocessing as mp
 from pathlib import Path
 
+from utils.sql_query_modes import normalize_sql_query_mode
+
 
 class PipelineConfig:
     """Central configuration for the quantum circuit pipeline."""
@@ -90,6 +92,7 @@ class PipelineConfig:
         "infiniquantum": {
              "omit_methods": ["psql","eqc","ducksql","umbra"], # Methods to skip. E.g. ["psql", "sqlite"]
              # Available methods: "psql", "sqlite", "ducksql", "eqc", "umbra", "np_mps", "np_one_shot"
+             "query_mode": "monolithic", # "monolithic", "monolithic_materialized", or "split"
              "run_benchmark": True,
              "n_runs": 5
         }
@@ -267,6 +270,13 @@ class PipelineConfig:
 
     def get_simulation_config(self):
         """Get simulation configuration."""
+        query_mode = normalize_sql_query_mode(
+            self.get_env_or_default(
+                "IQ_QUERY_MODE",
+                self.SIMULATION["infiniquantum"]["query_mode"],
+                str,
+            )
+        )
         return {
             "shots": self.get_env_or_default("SHOTS", self.SIMULATION["shots"], int),
             "seed": self.get_env_or_default("SIM_SEED", self.SIMULATION["seed"], int),
@@ -298,6 +308,7 @@ class PipelineConfig:
                     self.SIMULATION["infiniquantum"]["run_benchmark"],
                     bool
                 ),
+                "query_mode": query_mode,
                 "n_runs": self.get_env_or_default(
                     "IQ_N_RUNS",
                     self.SIMULATION["infiniquantum"]["n_runs"],
@@ -416,6 +427,7 @@ class PipelineConfig:
         print(f"Simulation shots: {simulation_config['shots'] or 'Exact'}")
         print(f"Simulation seed: {simulation_config['seed']}")
         print(f"Simulation timeout: {simulation_config['timeout_seconds']}s")
+        print(f"InfiniQuantumSim query mode: {simulation_config['infiniquantum']['query_mode']}")
         print()
         print(f"Local circuits dir: {storage_config['local_circuits_dir']}")
         print(

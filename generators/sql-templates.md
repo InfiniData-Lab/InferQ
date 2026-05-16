@@ -143,6 +143,10 @@ the production InfiniQuantumSim integration or by the out-of-core workers under
 
 - Production pipeline database-method acceptance is controlled by
   `config.py::PipelineConfig.SIMULATION["infiniquantum"]["omit_methods"]`.
+- Production pipeline SQL shape is controlled by
+  `config.py::PipelineConfig.SIMULATION["infiniquantum"]["query_mode"]`, or the
+  `IQ_QUERY_MODE` environment variable. Accepted values are `monolithic`,
+  `monolithic_materialized`, and `split`; the default is `monolithic`.
 - OOC query mode is controlled by the worker `--mode` option:
   `monolithic`, `monolithic_materialized`, or `split`.
 - Fine-tuned RDBMS runs in `scripts/finetuned_rdbms/` benchmark selected circuit

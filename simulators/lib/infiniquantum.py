@@ -1,7 +1,15 @@
 import time
 import logging
 import numpy as np
+import gc
+import tracemalloc
+from timeit import default_timer as timer
 from qiskit import transpile
+from utils.sql_query_modes import (
+    apply_sql_query_mode,
+    normalize_sql_query_mode,
+    statement_block,
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -15,10 +23,223 @@ class IQSGateWrapper:
 try:
     from InfiniQuantumSim.TLtensor import QuantumCircuit as IQSQuantumCircuit, Gate as IQSGate, INDICES
     import InfiniQuantumSim.mps as iqs_mps
+    import InfiniQuantumSim.sqlEinSum as ses
+    from InfiniQuantumSim.sql_commands import sql_einsum_query
+    import opt_einsum as oe
     INFINI_QUANTUM_AVAILABLE = True
 except ImportError as e:
     # logger.debug(f"InfiniQuantumSim import failed: {e}")
     INFINI_QUANTUM_AVAILABLE = False
+
+
+_IQS_METHOD_ALIASES = {
+    "np_mps": "np-mps",
+    "np-one-shot": "np-one-shot",
+    "np_one_shot": "np-one-shot",
+    "duckdb": "ducksql",
+}
+
+
+def _normalise_omit_methods(methods):
+    return [_IQS_METHOD_ALIASES.get(method, method) for method in (methods or [])]
+
+
+def _execute_statement_sequence(method: str, statements: list[str], timeout: int | None, p_size=None):
+    """Execute SQL statements in one DB session and return the final result rows."""
+    if method == "sqlite":
+        import sqlite3
+
+        con = sqlite3.connect(":memory:", check_same_thread=False)
+        cur = con.cursor()
+        try:
+            if p_size is not None:
+                ses.change_page_size_sqlite(con, cur, size=p_size)
+            result = None
+            for statement in statements:
+                result = ses.contraction_eval_sqlite(statement, con, cur, timeout=timeout)
+                if result is None:
+                    return None
+            return result
+        finally:
+            con.close()
+
+    if method in {"psql", "umbra"}:
+        import threading
+
+        con, cur = ses.connect_and_setup_db(method)
+        try:
+            result = None
+            for statement in statements:
+                result_data = [None]
+                exception = [None]
+                is_result_statement = not statement.lstrip().upper().startswith("CREATE")
+
+                def run_statement():
+                    try:
+                        cur.execute(statement)
+                        result_data[0] = cur.fetchall() if is_result_statement else []
+                    except Exception as exc:
+                        exception[0] = exc
+
+                thread = threading.Thread(target=run_statement, daemon=True)
+                thread.start()
+                thread.join(timeout=timeout)
+                if thread.is_alive():
+                    try:
+                        con.cancel()
+                    except Exception:
+                        pass
+                    thread.join(timeout=0.5)
+                    return None
+                if exception[0] is not None:
+                    raise exception[0]
+                result = result_data[0]
+                if result is None:
+                    return None
+            return result
+        finally:
+            cur.close()
+            con.close()
+
+    if method == "ducksql":
+        import duckdb
+        import threading
+
+        con = duckdb.connect()
+        result = [None]
+        exception = [None]
+
+        def run_query():
+            try:
+                final_result = None
+                for statement in statements:
+                    final_result = con.sql(statement).fetchall()
+                result[0] = final_result
+            except Exception as exc:
+                exception[0] = exc
+
+        thread = threading.Thread(target=run_query, daemon=True)
+        thread.start()
+        thread.join(timeout=timeout)
+        if thread.is_alive():
+            try:
+                con.interrupt()
+            except Exception:
+                pass
+            thread.join(timeout=0.5)
+            try:
+                con.close()
+            except Exception:
+                pass
+            return None
+        try:
+            con.close()
+        except Exception:
+            pass
+        if exception[0] is not None:
+            raise exception[0]
+        return result[0]
+
+    raise ValueError(f"unsupported SQL benchmark method: {method}")
+
+
+def _time_db_method(method: str, statements: list[str], n_runs: int, timeout: int | None, p_size=None):
+    mems = []
+    times = []
+    timeout_count = 0
+    last_result = None
+
+    tracemalloc.start()
+    for _ in range(n_runs):
+        tic = timer()
+        mem_tic, _ = tracemalloc.get_traced_memory()
+        last_result = _execute_statement_sequence(method, statements, timeout, p_size=p_size)
+        if last_result is None:
+            timeout_count += 1
+            if timeout_count >= 3:
+                break
+            continue
+        _, mem_toc = tracemalloc.get_traced_memory()
+        toc = timer()
+        mems.append(mem_toc - mem_tic)
+        times.append(toc - tic)
+        tracemalloc.clear_traces()
+    tracemalloc.stop()
+    gc.collect()
+
+    if not times:
+        return {"runs": 0, "time": None, "memory": None, "non-zero": None, "timeout": True}
+    return {
+        "runs": len(times),
+        "time": times,
+        "memory": mems,
+        "non-zero": len(last_result) if last_result is not None else None,
+        "timeout": timeout_count > 0,
+    }
+
+
+def _build_iqs_query_and_path(iqs_qc):
+    einstein, index_sizes, parameters = iqs_qc.convert_to_einsum()
+    opt_rg = oe.RandomGreedy(max_repeats=256, parallel=False)
+    views = oe.helpers.build_views(einstein, index_sizes)
+    np_path, sql_path_info = oe.contract_path(einstein, *views, optimize=opt_rg)
+    query = sql_einsum_query(
+        einstein,
+        parameters,
+        iqs_qc.tensor_uniques,
+        path_info=sql_path_info,
+        complex=True,
+    )
+    return einstein, parameters, np_path, query
+
+
+def _benchmark_iqs_with_query_mode(iqs_qc, n_runs: int, omit_methods: list[str], timeout: int | None, query_mode: str, p_size=None):
+    performance = {
+        "psql": {},
+        "sqlite": {},
+        "ducksql": {},
+        "umbra": {},
+        "np-one-shot": {},
+        "np-mps": {},
+        "eqc": {},
+    }
+    einstein, parameters, path, monolithic_query = _build_iqs_query_and_path(iqs_qc)
+
+    np_perf = ses.np_time_contraction_eval(
+        einstein,
+        parameters,
+        iqs_qc.tensor_uniques,
+        path,
+        iqs_qc,
+        n_runs,
+        skip_method=omit_methods,
+    )
+    performance["np-one-shot"] = np_perf["one-shot"]
+    performance["np-mps"] = np_perf["mps"]
+
+    mode_output = apply_sql_query_mode(monolithic_query, query_mode)
+    statements = mode_output if isinstance(mode_output, list) else [mode_output]
+
+    if "eqc" not in omit_methods:
+        performance["eqc"] = {
+            "query_mode": query_mode,
+            "num_statements": len(statements),
+        }
+
+    for method in ("sqlite", "psql", "ducksql", "umbra"):
+        if method in omit_methods:
+            performance[method] = {"time": None, "memory": None, "non-zero": None}
+            continue
+        performance[method] = _time_db_method(
+            method,
+            statements,
+            n_runs,
+            timeout,
+            p_size=p_size,
+        )
+
+    sql_query = statement_block(statements) if isinstance(mode_output, list) else mode_output
+    return performance, sql_query
 
 
 def _execute_infiniquantum_simulation(qc, **kwargs):
@@ -95,13 +316,32 @@ def _execute_infiniquantum_simulation(qc, **kwargs):
 
         # Run benchmark
         n_runs = kwargs.get("n_runs", 1)
-        # Default to skipping database methods unless explicitly requested
-        # This prevents connection errors if DBs are not set up
-        oom = kwargs.get("oom", ["psql", "sqlite", "ducksql", "eqc"])
+        run_benchmark = kwargs.get("run_benchmark", True)
+        query_mode = normalize_sql_query_mode(kwargs.get("query_mode", "monolithic"))
+        # Default to skipping database methods unless explicitly requested.
+        # This prevents connection errors if DBs are not set up.
+        oom = _normalise_omit_methods(kwargs.get("oom", ["psql", "sqlite", "ducksql", "umbra", "eqc"]))
         timeout = kwargs.get("timeout", None)
         
-        logger.info(f"Running InfiniQuantumSim benchmark with {n_runs} runs...")
-        benchmark_results = iqs_qc.benchmark_ciruit_performance(n_runs, oom=oom, timeout_seconds=timeout)
+        logger.info(f"Running InfiniQuantumSim benchmark with {n_runs} runs (query_mode={query_mode})...")
+        if run_benchmark:
+            if query_mode == "monolithic":
+                benchmark_results = iqs_qc.benchmark_ciruit_performance(n_runs, oom=oom, timeout_seconds=timeout)
+                _, _, _, sql_query = _build_iqs_query_and_path(iqs_qc)
+            else:
+                benchmark_results, sql_query = _benchmark_iqs_with_query_mode(
+                    iqs_qc,
+                    n_runs=n_runs,
+                    omit_methods=oom,
+                    timeout=timeout,
+                    query_mode=query_mode,
+                    p_size=kwargs.get("p_size"),
+                )
+        else:
+            _, _, _, raw_query = _build_iqs_query_and_path(iqs_qc)
+            mode_output = apply_sql_query_mode(raw_query, query_mode)
+            sql_query = statement_block(mode_output) if isinstance(mode_output, list) else mode_output
+            benchmark_results = {}
         
         # Process results
         processed_results = {}
@@ -147,7 +387,8 @@ def _execute_infiniquantum_simulation(qc, **kwargs):
             "benchmark_results": processed_results,
             "execution_time": execution_time,
             "backend_name": "InfiniQuantumSim",
-            "sql_query": iqs_qc.to_query()
+            "sql_query": sql_query,
+            "sql_query_mode": query_mode,
         }
 
     except Exception as e:
@@ -162,7 +403,7 @@ def _execute_infiniquantum_simulation(qc, **kwargs):
         }
 
 
-def extract_sql(qc, circuit_hash: str, sql_only:bool=False) -> dict:
+def extract_sql(qc, circuit_hash: str, sql_only:bool=False, query_mode: str = "monolithic") -> dict:
         """Extract SQL features from a quantum circuit"""
         from feature_extractors.sql_analyzer import SQLFeatureExtractor
         
@@ -217,7 +458,10 @@ def extract_sql(qc, circuit_hash: str, sql_only:bool=False) -> dict:
                 iqs_qc.add_gate(gate)
             
             # Generate SQL query and extract features
-            sql_query = iqs_qc.to_query()
+            query_mode = normalize_sql_query_mode(query_mode)
+            _, _, _, raw_query = _build_iqs_query_and_path(iqs_qc)
+            mode_output = apply_sql_query_mode(raw_query, query_mode)
+            sql_query = statement_block(mode_output) if isinstance(mode_output, list) else mode_output
             if sql_only:
                 return sql_query
             sql_features, join_edges = SQLFeatureExtractor.extract_sql_features(sql_query)

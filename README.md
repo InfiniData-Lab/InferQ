@@ -88,6 +88,16 @@ InfiniQuantumSim configuration in `config.py`. The accepted method names are
 default config currently omits the heavier database backends (`psql`,
 `ducksql`, and `umbra`) unless explicitly enabled, while still allowing the
 pipeline to record SQL-derived features and run the configured simulator set.
+The SQL execution shape is selected by
+`SIMULATION["infiniquantum"]["query_mode"]`, or by `IQ_QUERY_MODE` in the
+environment. Accepted values are `monolithic` (default),
+`monolithic_materialized`, and `split`.
+
+`config.py` is the main driver for production behavior. It centralizes worker
+counts, generator bounds, synergy rules, simulator limits, InfiniQuantumSim
+database acceptance, SQL query mode, storage, Azure, and logging defaults. Use
+environment variables for run-local overrides; edit `PipelineConfig` when a
+default should become part of the repository configuration.
 
 Run the parallel production pipeline:
 
