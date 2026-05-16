@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Run the full RDBMS training parquet with two size-based tuned profiles.
 
-For each circuit, this runner generates the SQL query once, runs SQLite first,
-and only runs the remaining engines if SQLite does not time out. The default
-SQLite gate timeout is intentionally short because the goal is to avoid spending
-time on DuckDB/Postgres for circuits SQLite already rejects under the tuned
-profile.
+For each circuit, this runner generates the SQL query once and runs the selected
+engines under the corresponding size-based profile. SQLite is run first so its
+result is recorded consistently, but SQLite timeouts do not gate the remaining
+engines.
 """
 from __future__ import annotations
 
@@ -553,80 +552,40 @@ def main() -> int:
                 f.flush()
                 continue
 
-            sqlite_timed_out = any(
-                seen.get((circuit_hash, "sqlite", profile, run_idx)) == "timeout"
-                for run_idx in labels
-            )
-            if not sqlite_timed_out:
-                for run_idx in labels:
-                    key = (circuit_hash, "sqlite", profile, run_idx)
-                    if key in seen:
-                        sqlite_timed_out = seen[key] == "timeout"
-                        if sqlite_timed_out:
-                            break
-                        continue
-                    sqlite_result = run_engine_once(
-                        query=query,
-                        engine="sqlite",
-                        profile=profile,
-                        run_idx=run_idx,
-                        tuning=tunings[profile]["sqlite"],
-                        timeout_s=sqlite_timeout_s,
-                        fetch_chunk_size=args.fetch_chunk_size,
-                    )
-                    write_result_row(
-                        writer,
-                        circuit_hash=circuit_hash,
-                        qpy_path=qpy_path,
-                        num_qubits=num_qubits,
-                        num_gates=num_gates,
-                        query_gen_s=query_gen_s,
-                        query=query,
-                        shape=shape,
-                        engine="sqlite",
-                        profile=profile,
-                        run_idx=run_idx,
-                        status=sqlite_result["status"],
-                        rows_consumed=sqlite_result["rows_consumed"],
-                        wall_time_s=sqlite_result["wall_time_s"],
-                        tracemalloc_peak_bytes=sqlite_result["tracemalloc_peak_bytes"],
-                        tuning=tunings[profile]["sqlite"],
-                        error_msg=sqlite_result["error_msg"],
-                    )
-                    f.flush()
-                    seen[key] = sqlite_result["status"]
-                    if sqlite_result["status"] == "timeout":
-                        sqlite_timed_out = True
-                        break
-
-            if sqlite_timed_out:
-                print("    sqlite timed out; skipping remaining engines", file=sys.stderr)
-                for engine in engines:
-                    if engine == "sqlite":
-                        continue
-                    for run_idx in labels:
-                        key = (circuit_hash, engine, profile, run_idx)
-                        if key in seen:
-                            continue
-                        write_result_row(
-                            writer,
-                            circuit_hash=circuit_hash,
-                            qpy_path=qpy_path,
-                            num_qubits=num_qubits,
-                            num_gates=num_gates,
-                            query_gen_s=query_gen_s,
-                            query=query,
-                            shape=shape,
-                            engine=engine,
-                            profile=profile,
-                            run_idx=run_idx,
-                            status="skipped_sqlite_timeout",
-                            tuning=tunings[profile][engine],
-                            error_msg="sqlite timed out before this engine was run",
-                        )
-                        seen[key] = "skipped_sqlite_timeout"
+            for run_idx in labels:
+                key = (circuit_hash, "sqlite", profile, run_idx)
+                if key in seen:
+                    continue
+                sqlite_result = run_engine_once(
+                    query=query,
+                    engine="sqlite",
+                    profile=profile,
+                    run_idx=run_idx,
+                    tuning=tunings[profile]["sqlite"],
+                    timeout_s=sqlite_timeout_s,
+                    fetch_chunk_size=args.fetch_chunk_size,
+                )
+                write_result_row(
+                    writer,
+                    circuit_hash=circuit_hash,
+                    qpy_path=qpy_path,
+                    num_qubits=num_qubits,
+                    num_gates=num_gates,
+                    query_gen_s=query_gen_s,
+                    query=query,
+                    shape=shape,
+                    engine="sqlite",
+                    profile=profile,
+                    run_idx=run_idx,
+                    status=sqlite_result["status"],
+                    rows_consumed=sqlite_result["rows_consumed"],
+                    wall_time_s=sqlite_result["wall_time_s"],
+                    tracemalloc_peak_bytes=sqlite_result["tracemalloc_peak_bytes"],
+                    tuning=tunings[profile]["sqlite"],
+                    error_msg=sqlite_result["error_msg"],
+                )
                 f.flush()
-                continue
+                seen[key] = sqlite_result["status"]
 
             for engine in engines:
                 if engine == "sqlite":
