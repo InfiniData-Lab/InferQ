@@ -136,6 +136,7 @@ dependencies = [
     "infiniquantumsim",
     "mqt-bench>=2.2",
     "supermarq>=0.5",
+    "fastparquet>=2026.5.0",
 ]
 
 [project.optional-dependencies]

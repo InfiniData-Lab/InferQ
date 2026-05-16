@@ -41,3 +41,6 @@ data/*
 !rdbms_no_psql_methods_training_data.parquet
 !rdbms_training_data.parquet
 !selector_training_data.parquet
+!benchmark_algorithms_deduplicated.csv
+!benchmark_algorithms_full.csv
+pgdata/
