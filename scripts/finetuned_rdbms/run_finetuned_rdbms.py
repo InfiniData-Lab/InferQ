@@ -20,6 +20,7 @@ import argparse
 import csv
 from dataclasses import dataclass
 import json
+import math
 import os
 import re
 import shutil
@@ -371,7 +372,7 @@ def run_with_tracemalloc(fn: Callable[[], int]) -> dict[str, Any]:
     }
 
 
-def run_duckdb(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size: int) -> int:
+def run_duckdb(query: str, tuning: dict[str, Any], timeout_s: float, chunk_size: int) -> int:
     import duckdb
 
     temp_dir = Path(tuning["temp_directory"])
@@ -415,7 +416,7 @@ def run_duckdb(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size: i
     return int(result.get("rows", 0))
 
 
-def run_sqlite(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size: int) -> int:
+def run_sqlite(query: str, tuning: dict[str, Any], timeout_s: float, chunk_size: int) -> int:
     import sqlite3
 
     db_path = Path(tuning["db_path"])
@@ -465,7 +466,7 @@ def run_sqlite(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size: i
     return int(result.get("rows", 0))
 
 
-def run_postgres(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size: int) -> int:
+def run_postgres(query: str, tuning: dict[str, Any], timeout_s: float, chunk_size: int) -> int:
     import psycopg2
 
     con = psycopg2.connect(
@@ -477,7 +478,8 @@ def run_postgres(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size:
     )
     con.set_session(autocommit=True)
     cur = con.cursor()
-    cur.execute("SET statement_timeout = %s", (timeout_s * 1000,))
+    statement_timeout_ms = max(1, math.ceil(timeout_s * 1000))
+    cur.execute("SET statement_timeout = %s", (statement_timeout_ms,))
     cur.execute(f"SET work_mem = '{tuning['work_mem']}'")
     cur.execute(f"SET temp_buffers = '{tuning['temp_buffers']}'")
     cur.execute(f"SET max_parallel_workers_per_gather = {int(tuning['max_parallel_workers_per_gather'])}")
@@ -516,7 +518,7 @@ def run_postgres(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size:
     return int(result.get("rows", 0))
 
 
-RUNNERS: dict[str, Callable[[str, dict[str, Any], int, int], int]] = {
+RUNNERS: dict[str, Callable[[str, dict[str, Any], float, int], int]] = {
     "duckdb": run_duckdb,
     "sqlite": run_sqlite,
     "postgres": run_postgres,

@@ -39,6 +39,17 @@ BASELINE_TIME_COLS = [
     "rdbms_psql_time_s",
 ]
 
+QISKIT_TIME_COLS = [
+    "statevector_saved_execution_time",
+    "statevector_execution_time",
+    "stabilizer_execution_time",
+    "density_matrix_execution_time",
+    "matrix_product_state_execution_time",
+    "extended_stabilizer_execution_time",
+    "unitary_execution_time",
+    "automatic_execution_time",
+]
+
 MANIFEST_COLS = [
     "RowKey",
     "num_qubits",
@@ -55,6 +66,9 @@ MANIFEST_COLS = [
     "rdbms_psql_memory_mb",
     "best_time_method",
     "best_mem_method",
+    "baseline_sqlite_time_s",
+    "best_qiskit_time_s",
+    "engine_timeout_s",
 ]
 
 
@@ -77,6 +91,35 @@ def normalize_hash(value: Any) -> str:
     return str(value).strip()
 
 
+def finite_positive_float(value: Any) -> float | None:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(out) or out <= 0.0:
+        return None
+    return out
+
+
+def best_qiskit_time(row: Any) -> float | None:
+    times = [
+        finite_positive_float(row.get(col))
+        for col in QISKIT_TIME_COLS
+    ]
+    times = [t for t in times if t is not None]
+    return min(times) if times else None
+
+
+def compute_engine_timeout(row: Any) -> float:
+    sqlite_time = finite_positive_float(row.get("rdbms_sqlite_time_s"))
+    qiskit_time = best_qiskit_time(row)
+    if sqlite_time is None:
+        raise ValueError("missing positive rdbms_sqlite_time_s")
+    if qiskit_time is None:
+        raise ValueError("missing positive Qiskit execution-time columns")
+    return min(sqlite_time, qiskit_time)
+
+
 def load_dataset(parquet_path: Path, require_all_engine_baselines: bool):
     import pandas as pd
 
@@ -91,6 +134,13 @@ def load_dataset(parquet_path: Path, require_all_engine_baselines: bool):
         raise SystemExit(f"{parquet_path} is missing RowKey")
     if "circuit_size" not in df.columns:
         raise SystemExit(f"{parquet_path} is missing circuit_size")
+    timeout_cols = ["rdbms_sqlite_time_s", *QISKIT_TIME_COLS]
+    missing_timeout_cols = [c for c in timeout_cols if c not in df.columns]
+    if missing_timeout_cols:
+        raise SystemExit(
+            f"{parquet_path} is missing columns required for dynamic timeouts: "
+            f"{missing_timeout_cols}"
+        )
     if require_all_engine_baselines:
         missing_cols = [c for c in BASELINE_TIME_COLS if c not in df.columns]
         if missing_cols:
@@ -100,6 +150,12 @@ def load_dataset(parquet_path: Path, require_all_engine_baselines: bool):
     df["RowKey"] = df["RowKey"].map(normalize_hash)
     df = df.drop_duplicates("RowKey", keep="first").sort_values("RowKey")
     df["circuit_size"] = df["circuit_size"].astype(float)
+    df["baseline_sqlite_time_s"] = df["rdbms_sqlite_time_s"].map(finite_positive_float)
+    df["best_qiskit_time_s"] = df.apply(best_qiskit_time, axis=1)
+    try:
+        df["engine_timeout_s"] = df.apply(compute_engine_timeout, axis=1)
+    except ValueError as e:
+        raise SystemExit(f"could not compute dynamic timeouts: {e}") from e
     return df
 
 
@@ -280,10 +336,10 @@ def run_engine_once(
     profile: str,
     run_idx: str,
     tuning: dict[str, Any],
-    timeout_s: int,
+    timeout_s: float,
     fetch_chunk_size: int,
 ) -> dict[str, Any]:
-    print(f"    {engine}/{profile} run={run_idx} timeout={timeout_s}s", file=sys.stderr)
+    print(f"    {engine}/{profile} run={run_idx} timeout={timeout_s:.6g}s", file=sys.stderr)
     engine_runner = runner.RUNNERS[engine]
     return runner.run_with_tracemalloc(
         lambda: engine_runner(query, tuning, timeout_s, fetch_chunk_size)
@@ -306,6 +362,12 @@ def main() -> int:
     parser.add_argument("--split-quantile", type=float, default=0.5,
                         help="Quantile used when --size-threshold is omitted.")
     parser.add_argument("--engines", default="sqlite,duckdb,postgres")
+    parser.add_argument("--timeout-policy", choices=("baseline_min", "static"),
+                        default="baseline_min",
+                        help=(
+                            "baseline_min uses each circuit's min(rdbms_sqlite_time_s, "
+                            "best Qiskit execution time); static uses the fixed timeout flags."
+                        ))
     parser.add_argument("--sqlite-timeout-seconds", type=int, default=10)
     parser.add_argument("--timeout-seconds", type=int, default=10,
                         help="Timeout for DuckDB/Postgres engines.")
@@ -379,6 +441,7 @@ def main() -> int:
     write_lines(missing_file, missing_hashes)
     profile_by_hash = dict(zip(selected["RowKey"], selected["size_profile"]))
     circuit_size_by_hash = dict(zip(selected["RowKey"], selected["circuit_size"]))
+    timeout_by_hash = dict(zip(selected["RowKey"], selected["engine_timeout_s"]))
     selected_by_hash = {str(row.RowKey): row for row in selected.itertuples(index=False)}
 
     tunings = load_profile_tunings(args.profile_tunings, tmp_root)
@@ -399,8 +462,12 @@ def main() -> int:
         "missing_file": str(missing_file),
         "profile_tunings": str(tunings_file),
         "results_csv": str(out_csv),
+        "timeout_policy": args.timeout_policy,
         "sqlite_timeout_seconds": args.sqlite_timeout_seconds,
         "timeout_seconds": args.timeout_seconds,
+        "dynamic_timeout_min_s": float(selected["engine_timeout_s"].min()),
+        "dynamic_timeout_median_s": float(selected["engine_timeout_s"].median()),
+        "dynamic_timeout_max_s": float(selected["engine_timeout_s"].max()),
     }
     summary_file.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
 
@@ -439,9 +506,21 @@ def main() -> int:
             circuit_hash = qpy_path.stem
             profile = profile_by_hash[circuit_hash]
             parquet_size = circuit_size_by_hash[circuit_hash]
+            dynamic_timeout_s = float(timeout_by_hash[circuit_hash])
+            sqlite_timeout_s = (
+                dynamic_timeout_s
+                if args.timeout_policy == "baseline_min"
+                else args.sqlite_timeout_seconds
+            )
+            engine_timeout_s = (
+                dynamic_timeout_s
+                if args.timeout_policy == "baseline_min"
+                else args.timeout_seconds
+            )
             print(
                 f"[{idx}/{len(found_paths)}] {circuit_hash[:8]} "
-                f"profile={profile} parquet_circuit_size={parquet_size}",
+                f"profile={profile} parquet_circuit_size={parquet_size} "
+                f"timeout={engine_timeout_s:.6g}s",
                 file=sys.stderr,
             )
             try:
@@ -492,7 +571,7 @@ def main() -> int:
                         profile=profile,
                         run_idx=run_idx,
                         tuning=tunings[profile]["sqlite"],
-                        timeout_s=args.sqlite_timeout_seconds,
+                        timeout_s=sqlite_timeout_s,
                         fetch_chunk_size=args.fetch_chunk_size,
                     )
                     write_result_row(
@@ -562,7 +641,7 @@ def main() -> int:
                         profile=profile,
                         run_idx=run_idx,
                         tuning=tunings[profile][engine],
-                        timeout_s=args.timeout_seconds,
+                        timeout_s=engine_timeout_s,
                         fetch_chunk_size=args.fetch_chunk_size,
                     )
                     write_result_row(
