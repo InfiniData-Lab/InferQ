@@ -204,8 +204,8 @@ Benchmark tooling:
 - `data/extremes/` and `data/ooc/`: selected circuit sets used by analysis and
   out-of-core experiments.
 
-See `scripts/benchmark_suites/README.md` for the benchmark-family inventory and
-deduplication notes.
+See `scripts/benchmark_suites/README.md` for the full benchmark table, per-file
+folder inventory, algorithm descriptions, and duplicate-name markings.
 
 ## OOC And Fine-Tuning Experiments
 
