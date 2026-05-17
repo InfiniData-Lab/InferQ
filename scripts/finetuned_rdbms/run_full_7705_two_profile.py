@@ -340,12 +340,15 @@ def run_engine_once(
     run_idx: str,
     tuning: dict[str, Any],
     timeout_s: float,
+    timing_scope: str,
     fetch_chunk_size: int,
 ) -> dict[str, Any]:
     print(f"    {engine}/{profile} run={run_idx} timeout={timeout_s:.6g}s", file=sys.stderr)
     engine_runner = runner.RUNNERS[engine]
+    runner_tuning = dict(tuning)
+    runner_tuning["_timing_scope"] = timing_scope
     return runner.run_with_tracemalloc(
-        lambda: engine_runner(query, tuning, timeout_s, fetch_chunk_size)
+        lambda: engine_runner(query, runner_tuning, timeout_s, fetch_chunk_size)
     )
 
 
@@ -378,6 +381,8 @@ def main() -> int:
                         help="Multiplier applied to baseline_min timeouts before execution.")
     parser.add_argument("--timeout-floor-seconds", type=float, default=0.0,
                         help="Minimum execution timeout when --timeout-policy=baseline_min.")
+    parser.add_argument("--timing-scope", choices=("full", "contraction"), default="full",
+                        help="full times setup plus execution; contraction times only execute/fetch.")
     parser.add_argument("--query-timeout-seconds", type=int, default=300)
     parser.add_argument("--n-runs", type=int, default=1)
     parser.add_argument("--warmup", type=int, default=1)
@@ -493,6 +498,7 @@ def main() -> int:
         "timeout_seconds": args.timeout_seconds,
         "timeout_multiplier": args.timeout_multiplier,
         "timeout_floor_seconds": args.timeout_floor_seconds,
+        "timing_scope": args.timing_scope,
         "dynamic_timeout_min_s": float(selected["engine_timeout_s"].min()),
         "dynamic_timeout_median_s": float(selected["engine_timeout_s"].median()),
         "dynamic_timeout_max_s": float(selected["engine_timeout_s"].max()),
@@ -609,6 +615,7 @@ def main() -> int:
                     run_idx=run_idx,
                     tuning=tunings[profile]["sqlite"],
                     timeout_s=sqlite_timeout_s,
+                    timing_scope=args.timing_scope,
                     fetch_chunk_size=args.fetch_chunk_size,
                 )
                 write_result_row(
@@ -647,6 +654,7 @@ def main() -> int:
                         run_idx=run_idx,
                         tuning=tunings[profile][engine],
                         timeout_s=engine_timeout_s,
+                        timing_scope=args.timing_scope,
                         fetch_chunk_size=args.fetch_chunk_size,
                     )
                     write_result_row(
