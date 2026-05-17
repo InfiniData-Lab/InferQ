@@ -374,6 +374,10 @@ def main() -> int:
     parser.add_argument("--sqlite-timeout-seconds", type=int, default=10)
     parser.add_argument("--timeout-seconds", type=int, default=10,
                         help="Timeout for DuckDB/Postgres engines.")
+    parser.add_argument("--timeout-multiplier", type=float, default=1.0,
+                        help="Multiplier applied to baseline_min timeouts before execution.")
+    parser.add_argument("--timeout-floor-seconds", type=float, default=0.0,
+                        help="Minimum execution timeout when --timeout-policy=baseline_min.")
     parser.add_argument("--query-timeout-seconds", type=int, default=300)
     parser.add_argument("--n-runs", type=int, default=1)
     parser.add_argument("--warmup", type=int, default=1)
@@ -399,6 +403,10 @@ def main() -> int:
         raise SystemExit("sqlite must be included because it is the gate engine")
     if not 0.0 <= args.split_quantile <= 1.0:
         raise SystemExit("--split-quantile must be between 0 and 1")
+    if args.timeout_multiplier <= 0.0:
+        raise SystemExit("--timeout-multiplier must be positive")
+    if args.timeout_floor_seconds < 0.0:
+        raise SystemExit("--timeout-floor-seconds must be non-negative")
 
     out_dir = args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -468,6 +476,8 @@ def main() -> int:
         "timeout_policy": args.timeout_policy,
         "sqlite_timeout_seconds": args.sqlite_timeout_seconds,
         "timeout_seconds": args.timeout_seconds,
+        "timeout_multiplier": args.timeout_multiplier,
+        "timeout_floor_seconds": args.timeout_floor_seconds,
         "dynamic_timeout_min_s": float(selected["engine_timeout_s"].min()),
         "dynamic_timeout_median_s": float(selected["engine_timeout_s"].median()),
         "dynamic_timeout_max_s": float(selected["engine_timeout_s"].max()),
@@ -522,20 +532,24 @@ def main() -> int:
                     )
                 continue
             dynamic_timeout_s = float(timeout_by_hash[circuit_hash])
+            baseline_min_timeout_s = max(
+                args.timeout_floor_seconds,
+                dynamic_timeout_s * args.timeout_multiplier,
+            )
             sqlite_timeout_s = (
-                dynamic_timeout_s
+                baseline_min_timeout_s
                 if args.timeout_policy == "baseline_min"
                 else args.sqlite_timeout_seconds
             )
             engine_timeout_s = (
-                dynamic_timeout_s
+                baseline_min_timeout_s
                 if args.timeout_policy == "baseline_min"
                 else args.timeout_seconds
             )
             print(
                 f"[{idx}/{len(found_paths)}] {circuit_hash[:8]} "
                 f"profile={profile} parquet_circuit_size={parquet_size} "
-                f"timeout={engine_timeout_s:.6g}s",
+                f"threshold={dynamic_timeout_s:.6g}s timeout={engine_timeout_s:.6g}s",
                 file=sys.stderr,
             )
             try:
