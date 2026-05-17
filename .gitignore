@@ -40,3 +40,6 @@ data/*
 !rdbms_no_psql_methods_training_data.parquet
 !rdbms_training_data.parquet
 !selector_training_data.parquet
+
+
+*ooc_old_figures/
