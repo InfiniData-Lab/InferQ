@@ -183,6 +183,8 @@ def build_worker_args(
     ]
     if engine == "duckdb":
         args += ["--threads", str(cfg["duckdb_threads"])]
+    if engine == "aer":
+        args += ["--threads", str(cfg["aer_threads"])]
     if engine == "aer" and aer_method:
         args += ["--aer-method", aer_method, "--aer-pad-mb", str(cfg["aer_max_memory_pad_mb"])]
     return args

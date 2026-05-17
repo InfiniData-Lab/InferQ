@@ -162,6 +162,8 @@ class PipelineConfig:
         "runner": "docker",
         # Aer method sweep — ordered by increasing cost; worker runs each and records per-method status
         "aer_methods": ["automatic", "statevector", "matrix_product_state", "density_matrix", "stabilizer"],
+        # Qiskit Aer max_parallel_threads. 0 means no explicit Aer thread cap.
+        "aer_threads": 0,
         # Pad Aer's internal max_memory_mb below the cgroup cap to let Aer raise before OOM-kill
         "aer_max_memory_pad_mb": 512,
     }
@@ -377,6 +379,7 @@ class PipelineConfig:
         cfg["container_cpus"] = self.get_env_or_default("OOC_CONTAINER_CPUS", cfg["container_cpus"], float)
         cfg["worker_image"] = self.get_env_or_default("OOC_WORKER_IMAGE", cfg["worker_image"])
         cfg["runner"] = self.get_env_or_default("OOC_RUNNER", cfg["runner"])
+        cfg["aer_threads"] = self.get_env_or_default("OOC_AER_THREADS", cfg["aer_threads"], int)
         return cfg
 
     def get_azure_config(self):
