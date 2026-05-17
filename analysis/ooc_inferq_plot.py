@@ -5,7 +5,7 @@ SIGMOD-ready figures. Redesigned after inspecting actual data:
 
 KEY INSIGHT: The 'sparse' bin (density~0) has near-zero entropy — these
 are trivial circuits that produce tiny CTEs and zero/minimal spill.
-'Mixed' and 'dense' bins both contain high-entropy circuits and dominate
+'Medium' and 'dense' bins both contain high-entropy circuits and dominate
 spill. The CTE size is the mechanistic link: large CTEs overflow the
 memory budget and materialise as disk spill.
 
@@ -17,9 +17,11 @@ FIGURE GUIDE
                             coloured by density bin (continuous x)
   fig4_spill_vs_density.pdf Spill vs density — scatter, log y
                             (no connecting lines: many points share x=1.0)
-  fig5_cte_vs_spill.pdf    Largest CTE vs spill — log-log scatter,
-                            annotated with circuit labels; the key
-                            causal figure. One panel per engine.
+  fig5_cte_vs_spill.pdf    CTE vs spill — log-log scatter, 2 rows ×
+                            3 engine panels: top = largest CTE, bottom =
+                            total CTE.  Spearman rho per panel; slope-1
+                            guide.  Lets you compare which CTE metric
+                            is the stronger spill predictor.
   fig6_cte_vs_entropy.pdf  CTE vs entropy — scatter, log y, per engine
   fig7_cte_vs_density.pdf  CTE vs density — scatter, log y, per engine
   fig8_walltime_vs_spill.pdf Wall time vs spill — log-log, per engine
@@ -105,15 +107,15 @@ ENG_COLOR = {"postgres": "#2166AC", "duckdb": "#CB4335", "sqlite": "#1A7A40"}
 ENG_LABEL = {"postgres": "PostgreSQL", "duckdb": "DuckDB", "sqlite": "SQLite"}
 ENG_MARK  = {"postgres": "o", "duckdb": "s", "sqlite": "^"}
 
-# Bin colours: blue=sparse, orange=mixed, red=dense
-BIN_COLOR = {"sparse": "#4393C3", "mixed": "#F4A582", "dense": "#B2182B"}
-BIN_MARK  = {"sparse": "o",       "mixed": "s",       "dense": "^"}
+# Bin colours: blue=sparse, orange=Medium, red=dense
+BIN_COLOR = {"sparse": "#4393C3", "Medium": "#F4A582", "dense": "#B2182B"}
+BIN_MARK  = {"sparse": "o",       "Medium": "s",       "dense": "^"}
 BIN_LABEL = {
     "sparse": "Sparse  [0, 0.33)",
-    "mixed":  "Mixed   [0.33, 0.67)",
+    "Medium":  "Medium   [0.33, 0.67)",
     "dense":  "Dense   [0.67, 1.0]",
 }
-BINS = ["sparse", "mixed", "dense"]
+BINS = ["sparse", "Medium", "dense"]
 
 QUBIT_COLORS = {20:"#92C5DE", 21:"#4393C3", 22:"#2166AC", 23:"#053061"}
 
@@ -131,6 +133,7 @@ def log_fmt(x, _):
 
 def set_log_y(ax):
     ax.set_yscale("log")
+    ax.yaxis.set_major_locator(ticker.LogLocator(base=10, numticks=20))
     ax.yaxis.set_major_formatter(ticker.FuncFormatter(log_fmt))
     ax.yaxis.set_minor_locator(ticker.NullLocator())
     # only horizontal grid lines — clean, no vertical clutter
@@ -237,7 +240,7 @@ def load_data(results_path, sampled_path):
                   on=["circuit_hash","num_qubits"], how="left")
 
     pc["sp_bin"] = pd.cut(pc["density"], bins=[0,0.33,0.67,1.01],
-                           labels=["sparse","mixed","dense"],
+                           labels=["sparse","Medium","dense"],
                            include_lowest=True)
     _print_summary(pc)
     return pc
@@ -254,9 +257,15 @@ def _print_summary(pc):
            ["sp_bin"].value_counts().sort_index().to_string())
     print("\nSpearman(spill, predictor) — postgres:")
     sub = pc[pc["engine"]=="postgres"]
-    for m in ["density","entropy","num_qubits","largest_cte"]:
+    for m in ["density","entropy","num_qubits","largest_cte","total_cte"]:
         r = spearman(sub[m].values, sub["spill"].values)
         print(f"  rho(spill, {m:12s}) = {r:+.3f}")
+    # Direct comparison of the two CTE predictors
+    r_lrg = spearman(sub["largest_cte"].values, sub["spill"].values)
+    r_tot = spearman(sub["total_cte"].values,   sub["spill"].values)
+    winner = "largest_cte" if abs(r_lrg) >= abs(r_tot) else "total_cte"
+    print(f"\n  → stronger CTE predictor (postgres): {winner}"
+          f"  (|ρ|={max(abs(r_lrg),abs(r_tot)):.3f} vs {min(abs(r_lrg),abs(r_tot)):.3f})")
     print("\nSpearman(largest_cte, predictor) — postgres:")
     for m in ["density","entropy","num_qubits"]:
         r = spearman(sub[m].values, sub["largest_cte"].values)
@@ -320,7 +329,7 @@ def plot_spill_vs_qubits(pc, outdir):
     """
     _WC = 3.33   # single SIGMOD column width
     qubits = sorted(pc["num_qubits"].dropna().unique())
-    bin_offsets = {"sparse": -0.22, "mixed": 0.0, "dense": 0.22}
+    bin_offsets = {"sparse": -0.22, "Medium": 0.0, "dense": 0.22}
     np.random.seed(42)
 
     fig, axes = plt.subplots(1, 3, figsize=(_WC, 1.85), sharey=True,
@@ -455,44 +464,123 @@ def plot_spill_vs_density(pc, outdir):
 
 def plot_cte_vs_spill(pc, outdir):
     """
-    Log-log scatter: largest_cte (x) vs spill (y).
-    One panel per engine. Colour = density bin.
-    Annotate the top-3 outliers with (qubits, entropy) to show what
-    makes them expensive.  Slope-1 reference line.
+    Log-log scatter: both largest_cte and total_cte vs spill, overlaid in
+    each panel.  Filled markers = largest CTE; open markers = total CTE.
+    Colour = density bin (same palette as other figures).
+    Slope-1 reference line anchored on largest-CTE non-zero points.
+    Two Spearman rhos annotated per panel so the reader can compare directly.
+    One panel per engine — clean 1×3 layout.
     """
-    fig, axes = plt.subplots(1, 3, figsize=(_W, 2.7), sharey=True,
+    fig, axes = plt.subplots(1, 3, figsize=(_W, 2.9), sharey=True,
                               gridspec_kw={"wspace": 0.10})
 
     for col, (ax, eng) in enumerate(zip(axes, ENGINES)):
-        d  = pc[pc["engine"]==eng].dropna(subset=["largest_cte","spill"])
-        ec = ENG_COLOR[eng]
+        d = pc[pc["engine"] == eng].dropna(
+            subset=["largest_cte", "total_cte", "spill"])
 
-        scatter_by_bin(ax, d, "largest_cte", "spill", ms=24)
+        # ── draw points: filled = largest CTE, open = total CTE ──────────
+        for bname in BINS:
+            bc = BIN_COLOR[bname]
+            mk = BIN_MARK[bname]
+            bd = d[d["sp_bin"] == bname]
+            if bd.empty:
+                continue
 
-        # Slope-1 guide anchored at median of non-zero points
-        nz = d[d["spill"]>0]
-        if len(nz) >= 2:
-            ratio = np.median(nz["spill"].values / nz["largest_cte"].values)
+            # largest CTE — filled, solid edge
+            nz = bd[bd["spill"] > 0]
+            zr = bd[bd["spill"] == 0]
+            if len(nz):
+                ax.scatter(nz["largest_cte"], nz["spill"],
+                           color=bc, marker=mk, s=22, alpha=0.85,
+                           edgecolors="white", linewidths=0.4, zorder=5)
+            if len(zr):
+                ax.scatter(zr["largest_cte"],
+                           np.full(len(zr), ZERO_SENT),
+                           color=bc, marker=mk, s=22, alpha=0.85,
+                           edgecolors=bc, facecolors="none",
+                           linewidths=0.8, zorder=5)
+
+            # total CTE — open (white fill, coloured edge), slightly smaller
+            if len(nz):
+                ax.scatter(nz["total_cte"], nz["spill"],
+                           color="none", marker=mk, s=16, alpha=0.90,
+                           edgecolors=bc, linewidths=0.9, zorder=4)
+            if len(zr):
+                ax.scatter(zr["total_cte"],
+                           np.full(len(zr), ZERO_SENT),
+                           color="none", marker=mk, s=16, alpha=0.70,
+                           edgecolors=bc, linewidths=0.7, zorder=4,
+                           linestyle=":")
+
+        # ── slope-1 guide anchored on largest-CTE non-zero points ────────
+        nz_all = d[d["spill"] > 0]
+        if len(nz_all) >= 2:
+            ratio = np.median(
+                nz_all["spill"].values / nz_all["largest_cte"].values)
             xl = np.array([d["largest_cte"].min(), d["largest_cte"].max()])
-            ax.plot(xl, ratio*xl, color="0.60", lw=0.8, ls="--", zorder=1)
+            ax.plot(xl, ratio * xl,
+                    color="0.65", lw=0.8, ls="--", zorder=1)
 
-        r = spearman(d["largest_cte"].values, d["spill"].values)
-        annotate_rho(ax, r)
+        # ── Spearman rhos: two lines, top-right corner ────────────────────
+        r_lrg = spearman(d["largest_cte"].values, d["spill"].values)
+        r_tot = spearman(d["total_cte"].values,   d["spill"].values)
+        # bold the stronger one
+        def _rho_str(label, r, stronger):
+            weight = "bold" if stronger else "normal"
+            return label, f"{r:+.2f}", weight
+
+        winner_lrg = np.isfinite(r_lrg) and (
+            not np.isfinite(r_tot) or abs(r_lrg) >= abs(r_tot))
+        for i, (label, val, w) in enumerate([
+            _rho_str("ρ(largest)", r_lrg, winner_lrg),
+            _rho_str("ρ(total)  ", r_tot, not winner_lrg),
+        ]):
+            ax.annotate(
+                f"{label} = {val}",
+                xy=(0.97, 0.05 + i * 0.10),
+                xycoords="axes fraction", ha="right",
+                fontsize=_FST, color="0.35",
+                fontweight=w,
+            )
+
+        print(f"  {eng}: ρ(largest)={r_lrg:+.3f}  ρ(total)={r_tot:+.3f}"
+              f"  → {'largest' if winner_lrg else 'total'} stronger")
 
         set_log_y(ax)
         set_log_x_bytes(ax)
-        ax.set_xlabel("Largest single CTE (bytes, log scale)")
+        ax.set_xlabel("CTE size (bytes, log scale)")
         ax.set_title(ENG_LABEL[eng], color=ENG_COLOR[eng], pad=4)
+
         if col == 0:
             ax.set_ylabel("Spill (log scale)")
-            bin_legend(ax, outside=True)
         else:
             ax.tick_params(labelleft=False)
 
+    # ── combined legend: density bins + filled/open encoding ─────────────
+    bin_handles = [
+        Line2D([0],[0], marker=BIN_MARK[b], color=BIN_COLOR[b],
+               lw=0, ms=5, mew=0.4, mec="white", label=BIN_LABEL[b])
+        for b in BINS
+    ]
+    type_handles = [
+        Line2D([0],[0], marker="o", color="0.4", lw=0,
+               ms=5, mew=0.4, mec="white",  label="Largest CTE (filled)"),
+        Line2D([0],[0], marker="o", color="none", lw=0,
+               ms=4, mew=0.9, mec="0.4",   label="Total CTE (open)"),
+    ]
+    axes[0].legend(
+        handles=bin_handles + type_handles,
+        loc="upper left", bbox_to_anchor=(0, -0.28),
+        ncol=3, handlelength=0.6,
+        borderpad=0.45, labelspacing=0.22, columnspacing=0.9,
+        fontsize=_FST,
+    )
+
     fig.suptitle(
-        "Spill vs largest CTE  (log-log) — CTE size is the proximate cause of spill",
+        "Spill vs CTE size  (log-log) — filled = largest CTE, open = total CTE"
+        "  (bolder ρ = stronger predictor)",
         fontsize=_FS, y=1.01)
-    fig.subplots_adjust(left=0.09, right=0.995, top=0.88, bottom=0.28)
+    fig.subplots_adjust(left=0.09, right=0.995, top=0.89, bottom=0.30)
     save(fig, outdir, "fig5_cte_vs_spill.pdf")
 
 
@@ -567,10 +655,10 @@ def plot_cte_vs_entropy(pc, outdir):
 def plot_cte_vs_density(pc, outdir):
     """
     One panel per engine. Filled = total CTE; open = largest CTE.
-    Single-column SIGMOD layout: 3.33" wide x 1.85" tall.
+    Single-column SIGMOD layout: 3.33" wide x 1.65" tall.
     """
     _WC = 3.33
-    fig, axes = plt.subplots(1, 3, figsize=(_WC, 1.85), sharey=True,
+    fig, axes = plt.subplots(1, 3, figsize=(_WC, 1.65), sharey=True,
                               gridspec_kw={"wspace": 0.04})
 
     for col, (ax, eng) in enumerate(zip(axes, ENGINES)):
