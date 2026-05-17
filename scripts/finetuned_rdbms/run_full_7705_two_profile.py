@@ -388,6 +388,10 @@ def main() -> int:
     parser.add_argument("--require-all-engine-baselines", action="store_true",
                         help="Only select rows with all three baseline RDBMS times present.")
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--num-shards", type=int, default=1,
+                        help="Split selected QPY paths into this many deterministic modulo shards.")
+    parser.add_argument("--shard-index", type=int, default=0,
+                        help="Zero-based shard index to run when --num-shards > 1.")
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-resume", action="store_true")
@@ -407,6 +411,10 @@ def main() -> int:
         raise SystemExit("--timeout-multiplier must be positive")
     if args.timeout_floor_seconds < 0.0:
         raise SystemExit("--timeout-floor-seconds must be non-negative")
+    if args.num_shards < 1:
+        raise SystemExit("--num-shards must be >= 1")
+    if not 0 <= args.shard_index < args.num_shards:
+        raise SystemExit("--shard-index must satisfy 0 <= shard-index < num-shards")
 
     out_dir = args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -439,7 +447,11 @@ def main() -> int:
 
     qpy_index = index_qpy_files(qpy_roots)
     wanted_hashes = [str(x) for x in selected["RowKey"]]
-    found_paths = [qpy_index[h] for h in wanted_hashes if h in qpy_index]
+    all_found_paths = [qpy_index[h] for h in wanted_hashes if h in qpy_index]
+    found_paths = [
+        path for i, path in enumerate(all_found_paths)
+        if i % args.num_shards == args.shard_index
+    ]
     missing_hashes = [h for h in wanted_hashes if h not in qpy_index]
     hashes_file = out_dir / "full_7705_hashes.txt"
     qpy_list = out_dir / "found_qpy_paths.txt"
@@ -462,8 +474,11 @@ def main() -> int:
         "parquet": str(args.parquet),
         "selected_circuits": len(wanted_hashes),
         "qpy_roots": [str(p) for p in qpy_roots],
+        "total_found_qpy": len(all_found_paths),
         "found_qpy": len(found_paths),
         "missing_qpy": len(missing_hashes),
+        "num_shards": args.num_shards,
+        "shard_index": args.shard_index,
         "size_threshold": size_threshold,
         "split_quantile": args.split_quantile,
         "profile_counts": selected["size_profile"].value_counts().to_dict(),
@@ -486,7 +501,8 @@ def main() -> int:
 
     print(
         f"[prepare] selected={len(wanted_hashes)} found_qpy={len(found_paths)} "
-        f"missing_qpy={len(missing_hashes)} size_threshold={size_threshold}",
+        f"missing_qpy={len(missing_hashes)} size_threshold={size_threshold} "
+        f"shard={args.shard_index}/{args.num_shards}",
         file=sys.stderr,
     )
     print(f"[prepare] profile_counts={summary['profile_counts']}", file=sys.stderr)
