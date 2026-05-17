@@ -316,21 +316,18 @@ def plot_coverage(pc, outdir):
 def plot_spill_vs_qubits(pc, outdir):
     """
     One panel per engine.  X = num_qubits (integer).
-    Each circuit is one dot, coloured by density bin.
-    Jitter by bin position so dots don't overlap.
-    Median bar per bin per qubit shown as a thick horizontal tick.
-    No connecting lines — they mislead when n=1 per cell.
+    Single-column SIGMOD layout: 3.33" wide x 1.85" tall.
     """
+    _WC = 3.33   # single SIGMOD column width
     qubits = sorted(pc["num_qubits"].dropna().unique())
     bin_offsets = {"sparse": -0.22, "mixed": 0.0, "dense": 0.22}
     np.random.seed(42)
 
-    fig, axes = plt.subplots(1, 3, figsize=(_W, 2.7), sharey=True,
-                              gridspec_kw={"wspace": 0.07})
+    fig, axes = plt.subplots(1, 3, figsize=(_WC, 1.85), sharey=True,
+                              gridspec_kw={"wspace": 0.04})
 
     for col, (ax, eng) in enumerate(zip(axes, ENGINES)):
-        d  = pc[pc["engine"]==eng]
-        ec = ENG_COLOR[eng]
+        d = pc[pc["engine"]==eng]
 
         for bname in BINS:
             bc  = BIN_COLOR[bname]
@@ -342,8 +339,7 @@ def plot_spill_vs_qubits(pc, outdir):
                 qd  = bd[bd["num_qubits"]==qb]
                 n   = len(qd)
                 if n == 0: continue
-                # small random jitter within the bin slot
-                jit = np.random.uniform(-0.07, 0.07, n)
+                jit = np.random.uniform(-0.06, 0.06, n)
                 xpos = qb + off + jit
                 yvals = qd["spill"].values.copy()
                 nz_mask = yvals > 0
@@ -351,37 +347,47 @@ def plot_spill_vs_qubits(pc, outdir):
 
                 if nz_mask.any():
                     ax.scatter(xpos[nz_mask], yvals[nz_mask],
-                               color=bc, marker=mk, s=20, alpha=0.85,
-                               edgecolors="white", linewidths=0.35, zorder=4)
+                               color=bc, marker=mk, s=10, alpha=0.85,
+                               edgecolors="white", linewidths=0.25, zorder=4)
                 if zr_mask.any():
                     ax.scatter(xpos[zr_mask], np.full(zr_mask.sum(), ZERO_SENT),
-                               color=bc, marker=mk, s=20, alpha=0.85,
+                               color=bc, marker=mk, s=10, alpha=0.85,
                                edgecolors=bc, facecolors="none",
-                               linewidths=0.8, zorder=4)
+                               linewidths=0.7, zorder=4)
 
-                # Median tick: visible only for non-zero values
                 nz_vals = yvals[nz_mask]
                 if len(nz_vals):
                     med = np.median(nz_vals)
-                    ax.plot([qb+off-0.10, qb+off+0.10], [med, med],
-                            color=bc, lw=1.8, zorder=5, solid_capstyle="butt")
+                    ax.plot([qb+off-0.09, qb+off+0.09], [med, med],
+                            color=bc, lw=1.4, zorder=5, solid_capstyle="butt")
 
         set_log_y(ax)
         ax.set_xticks(qubits)
-        ax.set_xticklabels([str(int(q)) for q in qubits])
-        ax.set_xlabel("Number of qubits")
-        ax.set_title(ENG_LABEL[eng], color=ENG_COLOR[eng], pad=4)
+        ax.set_xticklabels([str(int(q)) for q in qubits], fontsize=_FST)
+        ax.tick_params(axis="y", labelsize=_FST)
+        ax.set_title(ENG_LABEL[eng], color=ENG_COLOR[eng], pad=2,
+                     fontsize=_FSS, fontweight="bold")
         if col == 0:
-            ax.set_ylabel("Spill (log scale)")
-            bin_legend(ax, outside=True)
+            ax.set_ylabel("Spill (log scale)", fontsize=_FSS)
         else:
             ax.tick_params(labelleft=False)
 
-    fig.suptitle(
-        "Spill per circuit vs qubit count — dots = individual circuits,"
-        " tick = bin median,  open = zero spill (4 KB sentinel)",
-        fontsize=_FS, y=1.01)
-    fig.subplots_adjust(left=0.09, right=0.995, top=0.88, bottom=0.28)
+    # shared x-label centred under middle panel
+    fig.text(0.5, 0.1, "Number of qubits", ha="center", va="bottom",
+             fontsize=_FSS)
+
+    # single-line legend below, no frame, no title
+    leg_handles = [
+        Line2D([0],[0], marker=BIN_MARK[b], color=BIN_COLOR[b],
+               lw=0, ms=4, mew=0.3, mec="white", label=BIN_LABEL[b])
+        for b in BINS
+    ]
+    fig.legend(handles=leg_handles, loc="lower center",
+               bbox_to_anchor=(0.5, -0.04), ncol=3,
+               handlelength=0.5, borderpad=0.3, labelspacing=0.15,
+               columnspacing=0.6, fontsize=_FST, frameon=False)
+
+    fig.subplots_adjust(left=0.18, right=0.99, top=0.91, bottom=0.28)
     save(fig, outdir, "fig2_spill_vs_qubits.pdf")
 
 
@@ -537,7 +543,7 @@ def plot_cte_vs_entropy(pc, outdir):
             ]
             type_handles = [
                 Line2D([0],[0], marker="o", color="0.4", lw=0,
-                       ms=5, mew=0.4, mec="white", label="Total CTE"),
+                       ms=5, mew=0.4, mec="white", label="Total CTEs"),
                 Line2D([0],[0], marker="o", color="none", lw=0,
                        ms=4, mew=0.9, mec="0.4",    label="Largest CTE"),
             ]
@@ -561,67 +567,67 @@ def plot_cte_vs_entropy(pc, outdir):
 def plot_cte_vs_density(pc, outdir):
     """
     One panel per engine. Filled = total CTE; open = largest CTE.
-    Colour = density bin. Log y, linear x.
+    Single-column SIGMOD layout: 3.33" wide x 1.85" tall.
     """
-    fig, axes = plt.subplots(1, 3, figsize=(_W, 2.7), sharey=True,
-                              gridspec_kw={"wspace": 0.07})
- 
+    _WC = 3.33
+    fig, axes = plt.subplots(1, 3, figsize=(_WC, 1.85), sharey=True,
+                              gridspec_kw={"wspace": 0.04})
+
     for col, (ax, eng) in enumerate(zip(axes, ENGINES)):
         sub = pc[(pc["engine"]==eng)].dropna(
               subset=["density","total_cte","largest_cte"])
- 
+
         for bname in BINS:
             bc = BIN_COLOR[bname]
             mk = BIN_MARK[bname]
             bd = sub[sub["sp_bin"]==bname]
             if bd.empty: continue
             ax.scatter(bd["density"], bd["total_cte"],
-                       color=bc, marker=mk, s=26, alpha=0.85,
-                       edgecolors="white", linewidths=0.4, zorder=4)
+                       color=bc, marker=mk, s=14, alpha=0.85,
+                       edgecolors="white", linewidths=0.3, zorder=4)
             ax.scatter(bd["density"], bd["largest_cte"],
-                       color="none", marker=mk, s=18, alpha=0.85,
-                       edgecolors=bc, linewidths=0.9, zorder=5)
- 
+                       color="none", marker=mk, s=10, alpha=0.85,
+                       edgecolors=bc, linewidths=0.7, zorder=5)
+
         r_tot = spearman(sub["density"].values, sub["total_cte"].values)
         r_lrg = spearman(sub["density"].values, sub["largest_cte"].values)
-        # Most points cluster at density=1; place annotation in the emptier left half
-        left_n  = (sub["density"] < 0.5).sum()
-        right_n = (sub["density"] >= 0.5).sum()
-        ann_xy = (0.03, 0.97) if left_n <= right_n else (0.97, 0.97)
-        ann_ha = "left"       if left_n <= right_n else "right"
-        ax.annotate(f"ρ(total)={r_tot:+.2f}\nρ(largest)={r_lrg:+.2f}",
-                    xy=ann_xy, xycoords="axes fraction",
-                    ha=ann_ha, va="top", fontsize=_FST, color="0.38",
-                    linespacing=1.5)
- 
+        ax.annotate(f"ρ(tot)={r_tot:+.2f}\nρ(lrg)={r_lrg:+.2f}",
+                    xy=(0.97, 0.03), xycoords="axes fraction",
+                    ha="right", va="bottom", fontsize=_FST, color="0.38",
+                    linespacing=1.4)
+
         set_log_y(ax)
-        ax.set_xlabel("Output density  (0=sparse, 1=dense)")
-        ax.set_title(ENG_LABEL[eng], color=ENG_COLOR[eng], pad=4)
+        ax.tick_params(axis="both", labelsize=_FST)
+        ax.set_title(ENG_LABEL[eng], color=ENG_COLOR[eng], pad=2,
+                     fontsize=_FSS, fontweight="bold")
         if col == 0:
-            ax.set_ylabel("CTE size")
-            bin_handles = [
-                Line2D([0],[0], marker=BIN_MARK[b], color=BIN_COLOR[b],
-                       lw=0, ms=5, mew=0.4, mec="white", label=BIN_LABEL[b])
-                for b in BINS
-            ]
-            type_handles = [
-                Line2D([0],[0], marker="o", color="0.4", lw=0,
-                       ms=5, mew=0.4, mec="white", label="Total CTE"),
-                Line2D([0],[0], marker="o", color="none", lw=0,
-                       ms=4, mew=0.9, mec="0.4",    label="Largest CTE"),
-            ]
-            ax.legend(handles=bin_handles + type_handles,
-                      loc="upper left", bbox_to_anchor=(0, -0.32),
-                      ncol=3, handlelength=0.6,
-                      borderpad=0.45, labelspacing=0.22, columnspacing=0.8,
-                      fontsize=_FST)
+            ax.set_ylabel("CTE size", fontsize=_FSS)
         else:
             ax.tick_params(labelleft=False)
- 
-    fig.suptitle(
-        "CTE intermediate size vs output density — filled = total, open = largest",
-        fontsize=_FS, y=1.01)
-    fig.subplots_adjust(left=0.09, right=0.995, top=0.88, bottom=0.30)
+
+    # shared x-label — sits just above the legend
+    fig.text(0.5, 0.13, "Output density  (0=sparse, 1=dense)",
+             ha="center", va="bottom", fontsize=_FSS)
+
+    # single-line legend, no frame, no title — below the x-label
+    bin_handles = [
+        Line2D([0],[0], marker=BIN_MARK[b], color=BIN_COLOR[b],
+               lw=0, ms=4, mew=0.3, mec="white", label=BIN_LABEL[b])
+        for b in BINS
+    ]
+    type_handles = [
+        Line2D([0],[0], marker="o", color="0.4", lw=0,
+               ms=4, mew=0.3, mec="white", label="Total CTEs"),
+        Line2D([0],[0], marker="o", color="none", lw=0,
+               ms=3.5, mew=0.7, mec="0.4", label="Largest CTE"),
+    ]
+    fig.legend(handles=bin_handles + type_handles,
+               loc="lower center", bbox_to_anchor=(0.5, 0.0),
+               ncol=5, handlelength=0.5, borderpad=0.3,
+               labelspacing=0.15, columnspacing=0.5,
+               fontsize=_FST, frameon=False)
+
+    fig.subplots_adjust(left=0.17, right=0.99, top=0.97, bottom=0.32)
     save(fig, outdir, "fig7_cte_vs_density.pdf")
 
 # ── F8 — Wall time vs spill ───────────────────────────────────────────────────
