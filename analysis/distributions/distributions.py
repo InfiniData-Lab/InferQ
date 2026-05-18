@@ -1,25 +1,25 @@
 """
-distributions_metadata.py
-=========================
-Aggregate circuit/workload distribution figures over the full metadata corpus
-(data/metadata/metadata_part_*.parquet). Companion to analysis/distributions.py
-(which runs on the training_data parquet).
+distributions.py
+================
+Aggregate circuit/workload distribution figures over a benchmark parquet
+corpus (defaults to data/metadata/metadata_part_*.parquet).
 
 Addresses SIGMOD revision E4 (R2:O1, R2:O3): aggregate gate mix, depth/width,
 and interaction-graph statistics across the benchmark dataset.
 
-Outputs:
-    analysis/distributions_metadata/
-        01_gate_mix.png            -- top-N gate frequencies, by family
-        02_circuit_structure.png   -- num_qubits, depth, size, 2Q gate stats, ...
-        03_depth_vs_width.png      -- 2-D coverage heatmap (qubits x depth)
-        04_graph_features.png      -- interaction-graph statistics
-        05_dynamic_features.png    -- sparsity vs Shannon entropy
-        summary_stats.csv          -- per-feature count/median/p5/p95
+Outputs (default `analysis/distributions/`, override with --out):
+    01_gate_mix.png            -- top-N gate frequencies
+    02_circuit_structure.png   -- num_qubits, depth, size, 2Q gate stats, ...
+    03_depth_vs_width.png      -- 2-D coverage heatmap (qubits x depth)
+    04_graph_features.png      -- interaction-graph statistics
+    05_dynamic_features.png    -- sparsity vs Shannon entropy
+    summary_stats.csv          -- per-feature count/median/p5/p95
 
 Usage:
-    python analysis/distributions_metadata.py
-    python analysis/distributions_metadata.py --data 'data/metadata/metadata_part_*.parquet'
+    python analysis/distributions/distributions.py
+    python analysis/distributions/distributions.py \\
+        --data analysis/training_data/estimator_training_data.parquet \\
+        --out  analysis/distributions_estimator
 """
 
 from __future__ import annotations
@@ -29,7 +29,6 @@ import glob
 import json
 import logging
 import os
-import re
 import sys
 import warnings
 from collections import Counter
@@ -67,11 +66,12 @@ DYNAMIC = ["statevector_saved_sparsity", "statevector_saved_shannon_entropy"]
 
 # Columns we read; everything else stays on disk.
 NEEDED_COLS = (
-    ["name", "gate_counts"]
+    ["gate_counts"]
     + STRUCTURE + GRAPH + DYNAMIC
 )
 
-OUT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_OUT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUT_DIR = DEFAULT_OUT_DIR
 
 ACCENT_COLOR = "#4C72B0"
 GRAPH_COLOR  = "#E88B4E"
@@ -89,13 +89,6 @@ plt.rcParams.update({
     "figure.dpi":        FIG_DPI,
 })
 
-FAMILY_PALETTE = {
-    "HierarchicalCircuit": "#4C72B0",
-    "Random":              "#DD8452",
-    "Other":               "#8172B2",
-}
-
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def save(fig: plt.Figure, name: str) -> None:
     path = os.path.join(OUT_DIR, name)
@@ -106,16 +99,6 @@ def save(fig: plt.Figure, name: str) -> None:
 
 def present_cols(df: pd.DataFrame, cols: list[str]) -> list[str]:
     return [c for c in cols if c in df.columns]
-
-
-def family_of(name: object) -> str:
-    if not isinstance(name, str):
-        return "Other"
-    if name.startswith("HierarchicalCircuit"):
-        return "HierarchicalCircuit"
-    if re.match(r"^circuit-\d", name):
-        return "Random"
-    return "Other"
 
 
 def load_corpus(pattern: str) -> pd.DataFrame:
@@ -137,14 +120,11 @@ def load_corpus(pattern: str) -> pd.DataFrame:
         log.info("  %s: %d rows", os.path.basename(f), len(parts[-1]))
     df = pd.concat(parts, ignore_index=True)
     log.info("Corpus: %d rows × %d columns", *df.shape)
-
-    df["family"] = df["name"].apply(family_of)
-    log.info("Family counts: %s", df["family"].value_counts().to_dict())
     return df
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 1. Gate-mix bar chart (overall + per family)
+# 1. Gate-mix bar chart
 # ═══════════════════════════════════════════════════════════════════════════════
 def plot_gate_mix(df: pd.DataFrame) -> None:
     log.info("[1/5] Gate-mix frequency chart …")
@@ -163,16 +143,11 @@ def plot_gate_mix(df: pd.DataFrame) -> None:
                 return {}
         return {}
 
-    families = list(df["family"].unique())
-    family_counters: dict[str, Counter] = {f: Counter() for f in families}
     overall: Counter = Counter()
-
-    for fam, row in zip(df["family"].values, df["gate_counts"].values):
+    for row in df["gate_counts"].values:
         d = parse(row)
-        if not d:
-            continue
-        family_counters[fam].update(d)
-        overall.update(d)
+        if d:
+            overall.update(d)
 
     if not overall:
         log.warning("  No gate data found – skipping.")
@@ -183,34 +158,13 @@ def plot_gate_mix(df: pd.DataFrame) -> None:
     total  = sum(overall.values())
     pcts   = [100 * overall[g] / total for g in gates]
 
-    fig, (ax_a, ax_b) = plt.subplots(
-        1, 2, figsize=(15, 6),
-        gridspec_kw={"width_ratios": [1.0, 1.1]},
-    )
-
-    bars = ax_a.barh(gates[::-1], pcts[::-1],
-                     color=ACCENT_COLOR, alpha=0.85)
-    ax_a.bar_label(bars, labels=[f"{p:.1f}%" for p in pcts[::-1]],
-                   padding=3, fontsize=8)
-    ax_a.set_xlabel("Share of total gate count (%)")
-    ax_a.set_title(f"(a) Overall gate mix (top {top_n}, N={len(df):,} circuits)")
-
-    # Per-family stacked shares for the same top-N gates.
-    fam_order = [f for f in ["HierarchicalCircuit", "Random", "Other"]
-                 if f in family_counters and sum(family_counters[f].values()) > 0]
-    bottom = np.zeros(len(gates))
-    for fam in fam_order:
-        fc = family_counters[fam]
-        fam_total = sum(fc.values()) or 1
-        shares = np.array([100 * fc.get(g, 0) / fam_total for g in gates])
-        ax_b.bar(gates, shares, bottom=bottom,
-                 label=fam, color=FAMILY_PALETTE.get(fam, "#888"),
-                 alpha=0.85)
-        bottom += shares
-    ax_b.set_ylabel("Within-family share (%)  — stacked")
-    ax_b.set_title("(b) Gate-mix composition per workload family")
-    ax_b.tick_params(axis="x", rotation=45)
-    ax_b.legend(title="Family", loc="upper right", fontsize=8)
+    fig, ax = plt.subplots(figsize=(9, 6))
+    bars = ax.barh(gates[::-1], pcts[::-1],
+                   color=ACCENT_COLOR, alpha=0.85)
+    ax.bar_label(bars, labels=[f"{p:.1f}%" for p in pcts[::-1]],
+                 padding=3, fontsize=8)
+    ax.set_xlabel("Share of total gate count (%)")
+    ax.set_title(f"Overall gate mix (top {top_n}, N={len(df):,} circuits)")
 
     fig.tight_layout()
     save(fig, "01_gate_mix.png")
@@ -282,45 +236,29 @@ def plot_depth_vs_width(df: pd.DataFrame) -> None:
         log.warning("  num_qubits / depth missing – skipping.")
         return
 
-    sub = df[["num_qubits", "depth", "family"]].dropna()
+    sub = df[["num_qubits", "depth"]].dropna()
     sub = sub[(sub["num_qubits"] > 0) & (sub["depth"] > 0)]
     if sub.empty:
         log.warning("  No positive (qubits, depth) – skipping.")
         return
 
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    fig, ax = plt.subplots(figsize=(7, 5.5))
 
-    # (a) Heatmap of all circuits.
     q_max = int(sub["num_qubits"].max())
     d_max = int(sub["depth"].max())
     x_edges = np.arange(1, q_max + 2) - 0.5  # integer qubits
     y_edges = np.logspace(0, np.log10(d_max + 1), 40)
     h, xe, ye = np.histogram2d(sub["num_qubits"], sub["depth"],
                                bins=[x_edges, y_edges])
-    pcm = axes[0].pcolormesh(xe, ye, h.T,
-                             norm=LogNorm(vmin=1, vmax=max(h.max(), 1)),
-                             cmap="viridis")
-    axes[0].set_yscale("log")
-    axes[0].set_xlabel("num_qubits")
-    axes[0].set_ylabel("depth (log)")
-    axes[0].set_title(f"(a) (qubits, depth) coverage — {len(sub):,} circuits")
-    cbar = fig.colorbar(pcm, ax=axes[0])
+    pcm = ax.pcolormesh(xe, ye, h.T,
+                        norm=LogNorm(vmin=1, vmax=max(h.max(), 1)),
+                        cmap="viridis")
+    ax.set_yscale("log")
+    ax.set_xlabel("num_qubits")
+    ax.set_ylabel("depth (log)")
+    ax.set_title(f"(qubits, depth) coverage — {len(sub):,} circuits")
+    cbar = fig.colorbar(pcm, ax=ax)
     cbar.set_label("# circuits (log)")
-
-    # (b) Family-coloured scatter w/ marginal medians.
-    for fam, g in sub.groupby("family"):
-        axes[1].scatter(g["num_qubits"], g["depth"],
-                        s=4, alpha=0.18,
-                        color=FAMILY_PALETTE.get(fam, "#666"),
-                        label=f"{fam} (n={len(g):,})")
-    axes[1].set_yscale("log")
-    axes[1].set_xlabel("num_qubits")
-    axes[1].set_ylabel("depth (log)")
-    axes[1].set_title("(b) Coverage per workload family")
-    leg = axes[1].legend(title="Family", fontsize=8, markerscale=2,
-                         loc="lower right")
-    for lh in leg.legend_handles:
-        lh.set_alpha(0.9)
 
     fig.tight_layout()
     save(fig, "03_depth_vs_width.png")
@@ -447,8 +385,14 @@ def main() -> None:
         help="Glob for metadata parquet files "
              "(default: data/metadata/metadata_part_*.parquet)",
     )
+    parser.add_argument(
+        "--out", default=DEFAULT_OUT_DIR,
+        help=f"Output directory for figures + CSV (default: {DEFAULT_OUT_DIR})",
+    )
     args = parser.parse_args()
 
+    global OUT_DIR
+    OUT_DIR = args.out
     os.makedirs(OUT_DIR, exist_ok=True)
     log.info("Output directory: %s/", OUT_DIR)
 
