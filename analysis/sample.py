@@ -20,11 +20,11 @@ ROWKEY_COL      = "RowKey"
 NQUBITS_COL     = "num_qubits"
 DEPTH_COL       = "depth"
 
-VALID_QUBITS    = [28, 29, 30]
+VALID_QUBITS    = [28]
 DEPTH_MIN       = None   # set to an int to apply a lower bound, e.g. 10
 DEPTH_MAX       = 75   # set to an int to apply an upper bound, e.g. 100
 N_SPARSITY_BINS = 3    # equal-width sparsity bins per qubit level
-SAMPLES_PER_CELL = 2  # rows to draw per (num_qubits, sparsity_bin) cell
+SAMPLES_PER_CELL = 3  # rows to draw per (num_qubits, sparsity_bin) cell
 RANDOM_STATE    = 42
 # ─────────────────────────────────────────────────────────────────────────────
 
