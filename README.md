@@ -17,7 +17,8 @@ extractors, duplicate detection, local storage, and optional Azure upload.
 - `scripts/`: operational scripts, out-of-core experiments, and benchmark utilities.
 - `config.py`: the main control plane for generation, simulation, storage,
   database backend selection, synergies, and experiment defaults.
-- `main.py`: the only top-level pipeline entry point.
+- `main.py`: the only top-level pipeline entry point. It supports `parallel`,
+  `single`, and `interactive` pipeline modes.
 
 ## Setup
 
@@ -99,7 +100,15 @@ database acceptance, SQL query mode, storage, Azure, and logging defaults. Use
 environment variables for run-local overrides; edit `PipelineConfig` when a
 default should become part of the repository configuration.
 
-Run the parallel production pipeline:
+`main.py` supports three production pipeline modes:
+
+| Mode | Command | Use when |
+| --- | --- | --- |
+| `parallel` | `python main.py` or `python main.py parallel` | Generating dataset batches with multiprocessing. |
+| `single` | `python main.py single` | Running one generated circuit through extraction, simulation, and storage. |
+| `interactive` | `python main.py interactive` | Manually composing a circuit from generator templates before optionally running the normal pipeline. |
+
+Run the default parallel production pipeline:
 
 ```bash
 python main.py
@@ -132,18 +141,21 @@ For an interactive composition run, use:
 python main.py interactive
 ```
 
-This mode enumerates the templates in `generators/`, accepts indexes, names, or
-ranges such as `1,13` or `GHZ,QFTGenerator`, previews each template's generated
-default parameters, and lets you override parameters before running the normal
-feature extraction, simulation, and storage pipeline. To only build the composed
-circuit without processing it:
+Interactive mode is a guided pipeline entry point. It enumerates the templates
+in `generators/`, accepts indexes, names, or ranges such as `1,13` or
+`GHZ,QFTGenerator`, previews each template's generated default parameters, and
+lets you override parameters. After the circuit is built, it can run the same
+feature extraction, simulation, local storage, and optional Azure upload path as
+the generated pipeline.
+
+To only build the composed circuit without processing it:
 
 ```bash
 python main.py interactive --generate-only
 ```
 
 `main_parallel.py` has been removed; `main.py` is now the canonical entry point
-for both parallel and single-run modes.
+for parallel, single-run, and interactive modes.
 
 ## Generator Templates And Synergies
 
