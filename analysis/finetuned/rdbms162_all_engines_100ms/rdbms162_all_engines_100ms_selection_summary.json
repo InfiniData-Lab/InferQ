@@ -1,0 +1,37 @@
+{
+  "dynamic_timeout_max_s": 0.0041356086730957,
+  "dynamic_timeout_median_s": 0.0012087821960448499,
+  "dynamic_timeout_min_s": 0.0001153024844825,
+  "found_qpy": 162,
+  "hashes_file": "analysis/finetuned_rdbms_162_baseline_min_floor_100ms_contraction_all_engines/full_7705_hashes.txt",
+  "manifest_csv": "analysis/finetuned_rdbms_162_baseline_min_floor_100ms_contraction_all_engines/full_7705_two_profile_manifest.csv",
+  "missing_file": "analysis/finetuned_rdbms_162_baseline_min_floor_100ms_contraction_all_engines/missing_hashes.txt",
+  "missing_qpy": 0,
+  "num_shards": 1,
+  "parquet": "analysis/training_data/rdbms_all_methods_training_data.parquet",
+  "profile_counts": {
+    "large_size": 80,
+    "small_size": 82
+  },
+  "profile_tunings": "analysis/finetuned_rdbms_162_baseline_min_floor_100ms_contraction_all_engines/profile_tunings.json",
+  "qpy_list": "analysis/finetuned_rdbms_162_baseline_min_floor_100ms_contraction_all_engines/found_qpy_paths.txt",
+  "qpy_roots": [
+    "/home/timlittau/Documents/InferQ/analysis/finetuned_rdbms_7705/qpy",
+    "/home/timlittau/Documents/InferQ/analysis/finetuned_rdbms_162/qpy",
+    "/home/timlittau/Documents/InferQ/analysis/finetuned_rdbms_116/qpy",
+    "/home/timlittau/Documents/InferQ/circuits",
+    "/home/timlittau/Documents/InferQ/data/extremes"
+  ],
+  "results_csv": "analysis/finetuned_rdbms_162_baseline_min_floor_100ms_contraction_all_engines/results_two_profile.csv",
+  "selected_circuits": 162,
+  "shard_index": 0,
+  "size_threshold": 33.0,
+  "split_quantile": 0.5,
+  "sqlite_timeout_seconds": 10,
+  "timeout_floor_seconds": 0.1,
+  "timeout_multiplier": 1.0,
+  "timeout_policy": "baseline_min",
+  "timeout_seconds": 10,
+  "timing_scope": "contraction",
+  "total_found_qpy": 162
+}

@@ -407,6 +407,57 @@ def _build_iqs_query_with_timeout(qc, timeout_seconds: int) -> tuple[str, int, i
 
 # ─────────────────── Per-engine run wrappers ────────────────────
 
+class _PgTempDirSampler(threading.Thread):
+    """Poll postgres's `base/pgsql_tmp` total bytes via a side connection.
+
+    Uses pg_ls_dir + pg_stat_file (both available since PG 12, both require
+    superuser — which the `postgres` role is). Top-level only: per-backend
+    spill files are flat names like `pgsql_tmp<pid>.<seq>`. Parallel-worker
+    shared filesets would land in subdirectories, but the orchestrator pins
+    `max_parallel_workers_per_gather=0` so they shouldn't appear.
+    """
+    _SQL = (
+        "SELECT COALESCE(SUM((pg_stat_file('base/pgsql_tmp/' || name, true)).size), 0)::bigint "
+        "FROM pg_ls_dir('base/pgsql_tmp', true, false) AS name"
+    )
+
+    def __init__(self, *, interval_s: float = 0.25, **conn_kwargs):
+        super().__init__(daemon=True)
+        self.conn_kwargs = conn_kwargs
+        self.interval = interval_s
+        self.peak_bytes = 0
+        # See _CgroupMemSampler for why this is _stop_event, not _stop.
+        self._stop_event = threading.Event()
+
+    def run(self):
+        try:
+            import psycopg2
+            con = psycopg2.connect(**self.conn_kwargs)
+            con.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+        except Exception:
+            return
+        cur = con.cursor()
+        while not self._stop_event.is_set():
+            try:
+                cur.execute(self._SQL)
+                row = cur.fetchone()
+                v = int(row[0]) if row and row[0] is not None else 0
+                if v > self.peak_bytes:
+                    self.peak_bytes = v
+            except Exception:
+                pass
+            self._stop_event.wait(self.interval)
+        try:
+            cur.close(); con.close()
+        except Exception:
+            pass
+
+    def stop(self):
+        self._stop_event.set()
+        if self.ident is not None:
+            self.join(timeout=2)
+
+
 def _run_postgres(query: str, args, run_idx: str, result: dict) -> None:
     import psycopg2
 
@@ -416,6 +467,11 @@ def _run_postgres(query: str, args, run_idx: str, result: dict) -> None:
     )
     con.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
     cur = con.cursor()
+    sampler = _PgTempDirSampler(
+        host=args.pg_host, port=args.pg_port,
+        user=args.pg_user, password=args.pg_password, dbname=args.pg_db,
+        interval_s=0.25,
+    )
     try:
         cur.execute("SET statement_timeout = %s", (args.timeout_seconds * 1000,))
         cur.execute("SET log_temp_files = 0")
@@ -427,11 +483,14 @@ def _run_postgres(query: str, args, run_idx: str, result: dict) -> None:
         else:
             statements = [query]
 
+        sampler.start()
         tic = time.perf_counter()
         total_temp_written = 0
         total_temp_read = 0
         total_exec_ms = 0.0
         total_plan_ms = 0.0
+        largest_cte_bytes = 0
+        total_cte_bytes = 0
         for stmt in statements:
             explain_q = f"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {stmt}"
             cur.execute(explain_q)
@@ -441,6 +500,15 @@ def _run_postgres(query: str, args, run_idx: str, result: dict) -> None:
             if isinstance(plan, list) and plan:
                 total_exec_ms += plan[0].get("Execution Time") or 0
                 total_plan_ms += plan[0].get("Planning Time") or 0
+            m = _CREATE_TABLE_KX.search(stmt)
+            if m:
+                try:
+                    cur.execute("SELECT pg_total_relation_size(%s::regclass)", (m.group(1),))
+                    sz = int(cur.fetchone()[0] or 0)
+                    largest_cte_bytes = max(largest_cte_bytes, sz)
+                    total_cte_bytes += sz
+                except Exception:
+                    pass
         toc = time.perf_counter()
 
         result.update({
@@ -451,6 +519,8 @@ def _run_postgres(query: str, args, run_idx: str, result: dict) -> None:
             "spill_bytes_written": total_temp_written * 8192,
             "spill_bytes_read": total_temp_read * 8192,
             "pg_n_steps": len(statements),
+            "largest_cte_bytes": largest_cte_bytes or None,
+            "total_cte_bytes": total_cte_bytes or None,
         })
     except psycopg2.errors.QueryCanceled as e:
         result.update({"status": "timeout", "error": str(e)})
@@ -459,6 +529,8 @@ def _run_postgres(query: str, args, run_idx: str, result: dict) -> None:
     except Exception as e:
         result.update({"status": "error", "error": str(e), "traceback": traceback.format_exc()})
     finally:
+        sampler.stop()
+        result["temp_dir_peak_bytes"] = sampler.peak_bytes
         try:
             cur.close(); con.close()
         except Exception:
@@ -551,6 +623,8 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
         tic_holder.append(tic)
         total_spill = 0
         total_rows = 0
+        largest_cte_bytes = 0
+        total_cte_bytes = 0
         try:
             for stmt in statements:
                 cur = con.execute(stmt)
@@ -562,6 +636,12 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
                     total_spill += _duckdb_sum_spill(profile)
                 except Exception:
                     pass
+                m = _CREATE_TABLE_KX.search(stmt)
+                if m:
+                    sz = _duckdb_table_bytes(con, m.group(1))
+                    if sz is not None:
+                        largest_cte_bytes = max(largest_cte_bytes, sz)
+                        total_cte_bytes += sz
             toc = time.perf_counter()
             run_result.update({
                 "status": "success",
@@ -570,6 +650,8 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
                 "duckdb_profile_temp_bytes": total_spill,
                 "duckdb_n_steps": len(statements),
                 "rows_consumed": total_rows,
+                "largest_cte_bytes": largest_cte_bytes or None,
+                "total_cte_bytes": total_cte_bytes or None,
             })
         except duckdb.OutOfMemoryException as e:
             run_result.update({"status": "oom_internal", "error": str(e),
@@ -620,6 +702,48 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
     result["duckdb_threads"] = args.threads
 
 
+def _duckdb_table_bytes(con, name: str) -> int | None:
+    """Best-effort byte size for a (TEMP) table just created in DuckDB.
+
+    Order of preference:
+      1. pragma_storage_info — only populated for tables backed by storage
+         blocks. For in-memory temp tables this often returns empty/zero,
+         which we treat as "unknown" and fall through.
+      2. COUNT(*) * sum-of-column-widths — gives an in-memory footprint
+         estimate. DOUBLE = 8, BIGINT = 8, INTEGER = 4, BOOLEAN = 1; anything
+         else falls back to 8.
+    Returns None when neither yields a value.
+    """
+    for qualified in (name, f"temp.{name}", f"main.{name}"):
+        try:
+            sz = con.execute(
+                f"SELECT COALESCE(SUM(compressed_size), 0)::BIGINT FROM pragma_storage_info('{qualified}')"
+            ).fetchone()[0]
+            if sz and sz > 0:
+                return int(sz)
+        except Exception:
+            continue
+    try:
+        n_rows = int(con.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0])
+    except Exception:
+        return None
+    width = 0
+    try:
+        for row in con.execute(f"DESCRIBE {name}").fetchall():
+            t = (row[1] or "").upper()
+            if "DOUBLE" in t or "BIGINT" in t:
+                width += 8
+            elif "INTEGER" in t or "INT4" in t:
+                width += 4
+            elif "BOOLEAN" in t or "BOOL" in t:
+                width += 1
+            else:
+                width += 8
+    except Exception:
+        return None
+    return n_rows * width if width else None
+
+
 def _duckdb_sum_spill(profile: Any) -> int:
     """Walk DuckDB profile JSON and sum spill/temp_storage byte counters."""
     if isinstance(profile, dict):
@@ -644,6 +768,43 @@ def _duckdb_sum_spill(profile: Any) -> int:
 
 
 _CTE_HEAD = re.compile(r"\s*(\w+)(\s*\([^)]*\))?\s+AS\s*\(", re.IGNORECASE)
+_CREATE_TABLE_KX = re.compile(
+    r"CREATE\s+(?:TEMP\s+)?TABLE\s+(K\w+)\s+AS\b", re.IGNORECASE
+)
+
+
+def _parse_iqs_ctes(query: str) -> dict:
+    """Count CTEs in an IQS `WITH H#..., K#..., SELECT ...` query.
+
+    K# CTEs are intermediary contraction steps; the rest (H#, helpers) are
+    tensor-literal CTEs. Returns zeros for queries without a leading WITH.
+    """
+    s = query.lstrip()
+    if not s.upper().startswith("WITH "):
+        return {"num_k_ctes": 0, "num_h_ctes": 0}
+    s = s[5:]
+    names: list[str] = []
+    pos = 0
+    while True:
+        m = _CTE_HEAD.match(s, pos)
+        if not m:
+            break
+        names.append(m.group(1))
+        body_start = m.end()
+        depth = 1
+        i = body_start
+        while i < len(s) and depth > 0:
+            c = s[i]
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+            i += 1
+        pos = i
+        while pos < len(s) and s[pos] in " \t\n,":
+            pos += 1
+    n_k = sum(1 for n in names if n.startswith("K"))
+    return {"num_k_ctes": n_k, "num_h_ctes": len(names) - n_k}
 
 
 def _split_iqs_query_per_step(query: str, *, temp: bool = True) -> list[str]:
@@ -822,10 +983,22 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
     tic = time.perf_counter()
     try:
         total_rows = 0
+        largest_cte_bytes = 0
+        total_cte_bytes = 0
         for stmt in statements:
+            m = _CREATE_TABLE_KX.search(stmt)
+            sz_before = db_path.stat().st_size if (m and db_path.exists()) else 0
             cur.execute(stmt)
             if not stmt.lstrip().upper().startswith("CREATE"):
                 total_rows += _drain_cursor(cur, chunk_size=args.fetch_chunk_size)
+            elif m:
+                # journal_mode=OFF + synchronous=OFF means each CREATE TABLE
+                # writes straight to db_path. Delta = K# table bytes.
+                con.commit()
+                sz_after = db_path.stat().st_size if db_path.exists() else 0
+                delta = max(0, sz_after - sz_before)
+                largest_cte_bytes = max(largest_cte_bytes, delta)
+                total_cte_bytes += delta
         con.commit()
         toc = time.perf_counter()
         sampler.stop()
@@ -851,6 +1024,8 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
             "sqlite_cache_mb": args.sqlite_cache_mb,
             "sqlite_n_steps": len(statements),
             "rows_consumed": total_rows,
+            "largest_cte_bytes": largest_cte_bytes or None,
+            "total_cte_bytes": total_cte_bytes or None,
         })
     except sqlite3.OperationalError as e:
         sampler.stop()
@@ -1058,6 +1233,7 @@ def main():
             envelope["num_qubits"] = num_q
             envelope["num_gates"] = num_g
             envelope["query_bytes"] = len(query)
+            envelope.update(_parse_iqs_ctes(query))
 
         runner = ENGINE_DISPATCH[args.engine]
 

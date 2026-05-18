@@ -20,6 +20,7 @@ import argparse
 import csv
 from dataclasses import dataclass
 import json
+import math
 import os
 import re
 import shutil
@@ -344,12 +345,19 @@ def execute_optional(execute: Callable[[str], Any], sql: str) -> None:
         pass
 
 
-def run_with_tracemalloc(fn: Callable[[], int]) -> dict[str, Any]:
+def run_with_tracemalloc(fn: Callable[[], Any]) -> dict[str, Any]:
     tracemalloc.start()
     tracemalloc.clear_traces()
     start = time.perf_counter()
+    measured_wall_time_s: float | None = None
     try:
-        rows = fn()
+        result = fn()
+        if isinstance(result, dict) and "rows" in result:
+            rows = int(result.get("rows", 0))
+            if result.get("wall_time_s") is not None:
+                measured_wall_time_s = float(result["wall_time_s"])
+        else:
+            rows = int(result)
         status = "success"
         error = ""
     except TimeoutError as e:
@@ -364,16 +372,17 @@ def run_with_tracemalloc(fn: Callable[[], int]) -> dict[str, Any]:
     tracemalloc.stop()
     return {
         "status": status,
-        "wall_time_s": time.perf_counter() - start,
+        "wall_time_s": measured_wall_time_s if measured_wall_time_s is not None else time.perf_counter() - start,
         "rows_consumed": rows,
         "tracemalloc_peak_bytes": peak,
         "error_msg": flatten_error(error),
     }
 
 
-def run_duckdb(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size: int) -> int:
+def run_duckdb(query: str, tuning: dict[str, Any], timeout_s: float, chunk_size: int) -> Any:
     import duckdb
 
+    timing_scope = tuning.get("_timing_scope", "full")
     temp_dir = Path(tuning["temp_directory"])
     shutil.rmtree(temp_dir, ignore_errors=True)
     temp_dir.mkdir(parents=True, exist_ok=True)
@@ -391,8 +400,12 @@ def run_duckdb(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size: i
 
     def execute():
         try:
+            start = time.perf_counter()
             cur = con.execute(query)
-            result["rows"] = drain_cursor(cur, chunk_size)
+            rows = drain_cursor(cur, chunk_size)
+            result["rows"] = rows
+            if timing_scope == "contraction":
+                result["wall_time_s"] = time.perf_counter() - start
         except Exception as e:
             result["error"] = e
 
@@ -412,12 +425,18 @@ def run_duckdb(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size: i
     con.close()
     if "error" in result:
         raise result["error"]
+    if timing_scope == "contraction":
+        return {
+            "rows": int(result.get("rows", 0)),
+            "wall_time_s": result.get("wall_time_s"),
+        }
     return int(result.get("rows", 0))
 
 
-def run_sqlite(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size: int) -> int:
+def run_sqlite(query: str, tuning: dict[str, Any], timeout_s: float, chunk_size: int) -> Any:
     import sqlite3
 
+    timing_scope = tuning.get("_timing_scope", "full")
     db_path = Path(tuning["db_path"])
     db_path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -427,47 +446,48 @@ def run_sqlite(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size: i
 
     con = sqlite3.connect(str(db_path), check_same_thread=False)
     cur = con.cursor()
-    cur.execute("PRAGMA journal_mode=OFF")
-    cur.execute("PRAGMA synchronous=OFF")
-    cur.execute("PRAGMA locking_mode=EXCLUSIVE")
-    cur.execute("PRAGMA automatic_index=ON")
+    cur.execute(f"PRAGMA journal_mode={tuning.get('journal_mode', 'OFF')}")
+    cur.execute(f"PRAGMA synchronous={tuning.get('synchronous', 'OFF')}")
+    cur.execute(f"PRAGMA locking_mode={tuning.get('locking_mode', 'EXCLUSIVE')}")
+    cur.execute(f"PRAGMA automatic_index={'ON' if tuning.get('automatic_index', True) else 'OFF'}")
     cur.execute(f"PRAGMA temp_store={tuning['temp_store']}")
     cur.execute(f"PRAGMA cache_size=-{int(tuning['cache_mb']) * 1024}")
-    cur.execute("PRAGMA cache_spill=ON")
+    cur.execute(f"PRAGMA cache_spill={'ON' if tuning.get('cache_spill', True) else 'OFF'}")
     cur.execute(f"PRAGMA mmap_size={int(tuning['mmap_mb']) * 1024 * 1024}")
     execute_optional(cur.execute, f"PRAGMA threads={int(tuning['threads'])}")
 
-    result: dict[str, Any] = {}
+    deadline = time.perf_counter() + timeout_s
 
-    def execute():
-        try:
-            cur.execute(query)
-            rows = drain_cursor(cur, chunk_size)
-            con.commit()
-            execute_optional(cur.execute, "PRAGMA optimize")
-            result["rows"] = rows
-        except Exception as e:
-            result["error"] = e
+    def progress_handler() -> int:
+        return 1 if time.perf_counter() >= deadline else 0
 
-    thread = threading.Thread(target=execute, daemon=True)
-    thread.start()
-    thread.join(timeout=timeout_s)
-    if thread.is_alive():
-        try:
-            con.interrupt()
-        finally:
-            con.close()
-        raise TimeoutError(f"sqlite timed out after {timeout_s}s")
-    cur.close()
-    con.close()
-    if "error" in result:
-        raise result["error"]
-    return int(result.get("rows", 0))
+    con.set_progress_handler(progress_handler, 100)
+    try:
+        start = time.perf_counter()
+        cur.execute(query)
+        rows = drain_cursor(cur, chunk_size)
+        con.commit()
+        execute_optional(cur.execute, "PRAGMA optimize")
+        if timing_scope == "contraction":
+            return {
+                "rows": rows,
+                "wall_time_s": time.perf_counter() - start,
+            }
+        return rows
+    except sqlite3.OperationalError as e:
+        if time.perf_counter() >= deadline:
+            raise TimeoutError(f"sqlite timed out after {timeout_s}s") from e
+        raise
+    finally:
+        con.set_progress_handler(None, 0)
+        cur.close()
+        con.close()
 
 
-def run_postgres(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size: int) -> int:
+def run_postgres(query: str, tuning: dict[str, Any], timeout_s: float, chunk_size: int) -> Any:
     import psycopg2
 
+    timing_scope = tuning.get("_timing_scope", "full")
     con = psycopg2.connect(
         user=os.getenv("POSTGRES_USER", "postgres"),
         password=os.getenv("POSTGRES_PASSWORD", "password"),
@@ -477,7 +497,8 @@ def run_postgres(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size:
     )
     con.set_session(autocommit=True)
     cur = con.cursor()
-    cur.execute("SET statement_timeout = %s", (timeout_s * 1000,))
+    statement_timeout_ms = max(1, math.ceil(timeout_s * 1000))
+    cur.execute("SET statement_timeout = %s", (statement_timeout_ms,))
     cur.execute(f"SET work_mem = '{tuning['work_mem']}'")
     cur.execute(f"SET temp_buffers = '{tuning['temp_buffers']}'")
     cur.execute(f"SET max_parallel_workers_per_gather = {int(tuning['max_parallel_workers_per_gather'])}")
@@ -494,8 +515,12 @@ def run_postgres(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size:
 
     def execute():
         try:
+            start = time.perf_counter()
             cur.execute(query)
-            result["rows"] = drain_cursor(cur, chunk_size)
+            rows = drain_cursor(cur, chunk_size)
+            result["rows"] = rows
+            if timing_scope == "contraction":
+                result["wall_time_s"] = time.perf_counter() - start
         except Exception as e:
             result["error"] = e
 
@@ -513,10 +538,15 @@ def run_postgres(query: str, tuning: dict[str, Any], timeout_s: int, chunk_size:
     con.close()
     if "error" in result:
         raise result["error"]
+    if timing_scope == "contraction":
+        return {
+            "rows": int(result.get("rows", 0)),
+            "wall_time_s": result.get("wall_time_s"),
+        }
     return int(result.get("rows", 0))
 
 
-RUNNERS: dict[str, Callable[[str, dict[str, Any], int, int], int]] = {
+RUNNERS: dict[str, Callable[[str, dict[str, Any], float, int], Any]] = {
     "duckdb": run_duckdb,
     "sqlite": run_sqlite,
     "postgres": run_postgres,
