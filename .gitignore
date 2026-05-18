@@ -47,3 +47,9 @@ data/*
 !benchmark_algorithms_deduplicated.csv
 !benchmark_algorithms_full.csv
 pgdata/
+
+
+*ooc_figures_*
+
+!small_sample_scidb.csv
+!final_sparse_sample.csv
