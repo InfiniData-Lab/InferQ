@@ -119,7 +119,11 @@ def compute_engine_timeout(row: Any) -> float:
     return min(sqlite_time, qiskit_time)
 
 
-def load_dataset(parquet_path: Path, require_all_engine_baselines: bool):
+def load_dataset(
+    parquet_path: Path,
+    require_all_engine_baselines: bool,
+    require_dynamic_timeouts: bool,
+):
     import pandas as pd
 
     try:
@@ -133,9 +137,11 @@ def load_dataset(parquet_path: Path, require_all_engine_baselines: bool):
         raise SystemExit(f"{parquet_path} is missing RowKey")
     if "circuit_size" not in df.columns:
         raise SystemExit(f"{parquet_path} is missing circuit_size")
-    timeout_cols = ["rdbms_sqlite_time_s", *QISKIT_TIME_COLS]
-    missing_timeout_cols = [c for c in timeout_cols if c not in df.columns]
-    if missing_timeout_cols:
+    missing_timeout_cols = [
+        c for c in ["rdbms_sqlite_time_s", *QISKIT_TIME_COLS]
+        if c not in df.columns
+    ]
+    if require_dynamic_timeouts and missing_timeout_cols:
         raise SystemExit(
             f"{parquet_path} is missing columns required for dynamic timeouts: "
             f"{missing_timeout_cols}"
@@ -149,12 +155,15 @@ def load_dataset(parquet_path: Path, require_all_engine_baselines: bool):
     df["RowKey"] = df["RowKey"].map(normalize_hash)
     df = df.drop_duplicates("RowKey", keep="first").sort_values("RowKey")
     df["circuit_size"] = df["circuit_size"].astype(float)
-    df["baseline_sqlite_time_s"] = df["rdbms_sqlite_time_s"].map(finite_positive_float)
-    df["best_qiskit_time_s"] = df.apply(best_qiskit_time, axis=1)
-    try:
-        df["engine_timeout_s"] = df.apply(compute_engine_timeout, axis=1)
-    except ValueError as e:
-        raise SystemExit(f"could not compute dynamic timeouts: {e}") from e
+    if "rdbms_sqlite_time_s" in df.columns:
+        df["baseline_sqlite_time_s"] = df["rdbms_sqlite_time_s"].map(finite_positive_float)
+    if not missing_timeout_cols:
+        df["best_qiskit_time_s"] = df.apply(best_qiskit_time, axis=1)
+        try:
+            df["engine_timeout_s"] = df.apply(compute_engine_timeout, axis=1)
+        except ValueError as e:
+            if require_dynamic_timeouts:
+                raise SystemExit(f"could not compute dynamic timeouts: {e}") from e
     return df
 
 
@@ -177,10 +186,15 @@ def write_lines(path: Path, lines) -> None:
 
 def sqlite_small_tuning(_tmp_root: Path) -> dict[str, Any]:
     return {
+        "automatic_index": True,
         "cache_mb": 64,
+        "cache_spill": False,
         "db_path": ":memory:",
+        "journal_mode": "OFF",
+        "locking_mode": "EXCLUSIVE",
         "mmap_mb": 0,
-        "temp_store": "MEMORY",
+        "synchronous": "OFF",
+        "temp_store": "FILE",
         "threads": 1,
     }
 
@@ -221,10 +235,15 @@ def default_tuning(profile: str, engine: str, tmp_root: Path) -> dict[str, Any]:
             }
         if engine == "sqlite":
             return {
-                "cache_mb": 128,
-                "db_path": str(profile_tmp / "sqlite" / "bench.db"),
-                "mmap_mb": 128,
-                "temp_store": "MEMORY",
+                "automatic_index": True,
+                "cache_mb": 64,
+                "cache_spill": False,
+                "db_path": ":memory:",
+                "journal_mode": "OFF",
+                "locking_mode": "EXCLUSIVE",
+                "mmap_mb": 0,
+                "synchronous": "OFF",
+                "temp_store": "FILE",
                 "threads": 1,
             }
         if engine == "postgres":
@@ -433,7 +452,11 @@ def main() -> int:
         INFERQ_ROOT / "data" / "extremes",
     ]
 
-    selected = load_dataset(args.parquet, args.require_all_engine_baselines)
+    selected = load_dataset(
+        args.parquet,
+        args.require_all_engine_baselines,
+        require_dynamic_timeouts=args.timeout_policy == "baseline_min",
+    )
     if args.limit is not None:
         selected = selected.head(args.limit).copy()
     sizes = [float(v) for v in selected["circuit_size"].dropna().tolist()]
@@ -469,7 +492,11 @@ def main() -> int:
     write_lines(missing_file, missing_hashes)
     profile_by_hash = dict(zip(selected["RowKey"], selected["size_profile"]))
     circuit_size_by_hash = dict(zip(selected["RowKey"], selected["circuit_size"]))
-    timeout_by_hash = dict(zip(selected["RowKey"], selected["engine_timeout_s"]))
+    timeout_by_hash = (
+        dict(zip(selected["RowKey"], selected["engine_timeout_s"]))
+        if "engine_timeout_s" in selected.columns
+        else {}
+    )
     selected_by_hash = {str(row.RowKey): row for row in selected.itertuples(index=False)}
 
     tunings = load_profile_tunings(args.profile_tunings, tmp_root)
@@ -499,10 +526,13 @@ def main() -> int:
         "timeout_multiplier": args.timeout_multiplier,
         "timeout_floor_seconds": args.timeout_floor_seconds,
         "timing_scope": args.timing_scope,
-        "dynamic_timeout_min_s": float(selected["engine_timeout_s"].min()),
-        "dynamic_timeout_median_s": float(selected["engine_timeout_s"].median()),
-        "dynamic_timeout_max_s": float(selected["engine_timeout_s"].max()),
     }
+    if "engine_timeout_s" in selected.columns:
+        summary.update({
+            "dynamic_timeout_min_s": float(selected["engine_timeout_s"].min()),
+            "dynamic_timeout_median_s": float(selected["engine_timeout_s"].median()),
+            "dynamic_timeout_max_s": float(selected["engine_timeout_s"].max()),
+        })
     summary_file.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
 
     print(
@@ -553,25 +583,23 @@ def main() -> int:
                         file=sys.stderr,
                     )
                 continue
-            dynamic_timeout_s = float(timeout_by_hash[circuit_hash])
-            baseline_min_timeout_s = max(
-                args.timeout_floor_seconds,
-                dynamic_timeout_s * args.timeout_multiplier,
-            )
-            sqlite_timeout_s = (
-                baseline_min_timeout_s
-                if args.timeout_policy == "baseline_min"
-                else args.sqlite_timeout_seconds
-            )
-            engine_timeout_s = (
-                baseline_min_timeout_s
-                if args.timeout_policy == "baseline_min"
-                else args.timeout_seconds
-            )
+            if args.timeout_policy == "baseline_min":
+                dynamic_timeout_s = float(timeout_by_hash[circuit_hash])
+                baseline_min_timeout_s = max(
+                    args.timeout_floor_seconds,
+                    dynamic_timeout_s * args.timeout_multiplier,
+                )
+                sqlite_timeout_s = baseline_min_timeout_s
+                engine_timeout_s = baseline_min_timeout_s
+                timeout_desc = f"threshold={dynamic_timeout_s:.6g}s timeout={engine_timeout_s:.6g}s"
+            else:
+                sqlite_timeout_s = args.sqlite_timeout_seconds
+                engine_timeout_s = args.timeout_seconds
+                timeout_desc = f"sqlite_timeout={sqlite_timeout_s:.6g}s timeout={engine_timeout_s:.6g}s"
             print(
                 f"[{idx}/{len(found_paths)}] {circuit_hash[:8]} "
                 f"profile={profile} parquet_circuit_size={parquet_size} "
-                f"threshold={dynamic_timeout_s:.6g}s timeout={engine_timeout_s:.6g}s",
+                f"{timeout_desc}",
                 file=sys.stderr,
             )
             try:

@@ -446,13 +446,13 @@ def run_sqlite(query: str, tuning: dict[str, Any], timeout_s: float, chunk_size:
 
     con = sqlite3.connect(str(db_path), check_same_thread=False)
     cur = con.cursor()
-    cur.execute("PRAGMA journal_mode=OFF")
-    cur.execute("PRAGMA synchronous=OFF")
-    cur.execute("PRAGMA locking_mode=EXCLUSIVE")
-    cur.execute("PRAGMA automatic_index=ON")
+    cur.execute(f"PRAGMA journal_mode={tuning.get('journal_mode', 'OFF')}")
+    cur.execute(f"PRAGMA synchronous={tuning.get('synchronous', 'OFF')}")
+    cur.execute(f"PRAGMA locking_mode={tuning.get('locking_mode', 'EXCLUSIVE')}")
+    cur.execute(f"PRAGMA automatic_index={'ON' if tuning.get('automatic_index', True) else 'OFF'}")
     cur.execute(f"PRAGMA temp_store={tuning['temp_store']}")
     cur.execute(f"PRAGMA cache_size=-{int(tuning['cache_mb']) * 1024}")
-    cur.execute("PRAGMA cache_spill=ON")
+    cur.execute(f"PRAGMA cache_spill={'ON' if tuning.get('cache_spill', True) else 'OFF'}")
     cur.execute(f"PRAGMA mmap_size={int(tuning['mmap_mb']) * 1024 * 1024}")
     execute_optional(cur.execute, f"PRAGMA threads={int(tuning['threads'])}")
 
