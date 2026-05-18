@@ -15,7 +15,6 @@ Outputs:
         03_depth_vs_width.png      -- 2-D coverage heatmap (qubits x depth)
         04_graph_features.png      -- interaction-graph statistics
         05_dynamic_features.png    -- sparsity vs Shannon entropy
-        06_family_breakdown.png    -- key metrics overlaid per workload family
         summary_stats.csv          -- per-feature count/median/p5/p95
 
 Usage:
@@ -72,7 +71,7 @@ NEEDED_COLS = (
     + STRUCTURE + GRAPH + DYNAMIC
 )
 
-OUT_DIR = os.path.join(os.path.dirname(__file__), "distributions_metadata")
+OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 ACCENT_COLOR = "#4C72B0"
 GRAPH_COLOR  = "#E88B4E"
@@ -148,7 +147,7 @@ def load_corpus(pattern: str) -> pd.DataFrame:
 # 1. Gate-mix bar chart (overall + per family)
 # ═══════════════════════════════════════════════════════════════════════════════
 def plot_gate_mix(df: pd.DataFrame) -> None:
-    log.info("[1/6] Gate-mix frequency chart …")
+    log.info("[1/5] Gate-mix frequency chart …")
     if "gate_counts" not in df.columns:
         log.warning("  'gate_counts' column not present – skipping.")
         return
@@ -221,7 +220,7 @@ def plot_gate_mix(df: pd.DataFrame) -> None:
 # 2. Circuit structure histograms
 # ═══════════════════════════════════════════════════════════════════════════════
 def plot_structure(df: pd.DataFrame) -> None:
-    log.info("[2/6] Circuit structure (depth/width/...) …")
+    log.info("[2/5] Circuit structure (depth/width/...) …")
     cols = present_cols(df, STRUCTURE)
     if not cols:
         log.warning("  No structural columns – skipping.")
@@ -278,7 +277,7 @@ def plot_structure(df: pd.DataFrame) -> None:
 # 3. Depth × width 2-D coverage heatmap
 # ═══════════════════════════════════════════════════════════════════════════════
 def plot_depth_vs_width(df: pd.DataFrame) -> None:
-    log.info("[3/6] Depth × width coverage heatmap …")
+    log.info("[3/5] Depth × width coverage heatmap …")
     if "num_qubits" not in df.columns or "depth" not in df.columns:
         log.warning("  num_qubits / depth missing – skipping.")
         return
@@ -331,7 +330,7 @@ def plot_depth_vs_width(df: pd.DataFrame) -> None:
 # 4. Interaction-graph feature histograms
 # ═══════════════════════════════════════════════════════════════════════════════
 def plot_graph_features(df: pd.DataFrame) -> None:
-    log.info("[4/6] Interaction-graph features …")
+    log.info("[4/5] Interaction-graph features …")
     cols = present_cols(df, GRAPH)
     if not cols:
         log.warning("  No graph columns – skipping.")
@@ -387,7 +386,7 @@ def plot_graph_features(df: pd.DataFrame) -> None:
 # 5. Dynamic features: sparsity vs Shannon entropy
 # ═══════════════════════════════════════════════════════════════════════════════
 def plot_dynamic(df: pd.DataFrame) -> None:
-    log.info("[5/6] Dynamic feature joint plot …")
+    log.info("[5/5] Dynamic feature joint plot …")
     sp_col, ent_col = DYNAMIC
     if sp_col not in df.columns or ent_col not in df.columns:
         log.warning("  Dynamic columns missing – skipping.")
@@ -407,73 +406,6 @@ def plot_dynamic(df: pd.DataFrame) -> None:
         f"Statevector dynamic features (n={len(sub):,} of {len(df):,})",
         y=1.01)
     save(g.figure, "05_dynamic_features.png")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 6. Family breakdown overlay (depth, width, edges, 2-q %)
-# ═══════════════════════════════════════════════════════════════════════════════
-def plot_family_breakdown(df: pd.DataFrame) -> None:
-    log.info("[6/6] Per-family overlay on key metrics …")
-    metrics = [
-        ("num_qubits",              False, "(a) num_qubits"),
-        ("depth",                   True,  "(b) depth (log)"),
-        ("edge_count",              True,  "(c) edge_count (log)"),
-        ("two_qubit_gate_percentage", False, "(d) 2-qubit gate %"),
-    ]
-    metrics = [m for m in metrics if m[0] in df.columns]
-    if not metrics:
-        log.warning("  No family-overlay metrics available.")
-        return
-
-    families = [f for f in ["HierarchicalCircuit", "Random", "Other"]
-                if (df["family"] == f).any()]
-
-    ncols = 2
-    nrows = int(np.ceil(len(metrics) / ncols))
-    fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 4 * nrows))
-    axes = axes.flatten()
-
-    for i, (col, use_log, title) in enumerate(metrics):
-        ax = axes[i]
-        full = df[col].dropna()
-        if full.empty:
-            ax.set_visible(False)
-            continue
-
-        if use_log:
-            full_pos = full[full > 0]
-            if full_pos.empty:
-                ax.set_visible(False)
-                continue
-            bins = np.logspace(np.log10(full_pos.min()),
-                               np.log10(full_pos.max() + 1), HIST_BINS)
-            ax.set_xscale("log")
-        else:
-            bins = np.linspace(full.min(), full.max(), HIST_BINS)
-
-        for fam in families:
-            s = df.loc[df["family"] == fam, col].dropna()
-            if use_log:
-                s = s[s > 0]
-            if s.empty:
-                continue
-            ax.hist(s, bins=bins,
-                    color=FAMILY_PALETTE.get(fam, "#666"),
-                    alpha=0.55, label=f"{fam} (n={len(s):,})",
-                    edgecolor="white")
-
-        ax.set_title(title, fontsize=11)
-        ax.set_xlabel(col)
-        ax.set_ylabel("# circuits")
-        ax.legend(fontsize=8, loc="best")
-
-    for j in range(len(metrics), len(axes)):
-        axes[j].set_visible(False)
-
-    fig.suptitle("Workload family comparison on key circuit metrics",
-                 fontsize=13, y=1.01)
-    fig.tight_layout()
-    save(fig, "06_family_breakdown.png")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -527,7 +459,6 @@ def main() -> None:
     plot_depth_vs_width(df)
     plot_graph_features(df)
     plot_dynamic(df)
-    plot_family_breakdown(df)
     write_summary(df)
 
     log.info("Done! Figures + stats in %s/", OUT_DIR)
