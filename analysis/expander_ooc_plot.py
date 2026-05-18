@@ -1,29 +1,21 @@
 """
-Expander Out-of-Core — Spill & CTE Figures
-===========================================
-Three SIGMOD-ready figures from an expander spilling results CSV.
+Expander Out-of-Core — Spill & CTE Figures (16 GB cap only)
+============================================================
+Produces the same four figures as the original script, but filtered
+to cap_gb == 16 only.  Fig 3 becomes a single row (1×3) instead of
+3×3.  All other layout logic is preserved.
 
-  fig1_cte_sizes.pdf       CTE sizes (largest & total) per engine x cap_gb.
-                           Single-column width, 3 engine panels.
-  fig2_spill_vs_qubits.pdf Spill vs num_qubits, one panel per engine,
-                           marker shape = cap_gb. Single-column width.
-  fig3_spill_vs_cte.pdf    Spill vs CTE — 3 rows (cap_gb) x 3 cols (engine).
-                           Log-log, filled = largest CTE, open = total CTE.
-                           Spearman rho per panel. This is the main figure.
+  fig1_cte_sizes.pdf           CTE sizes (largest & total) per engine, 16 GB cap.
+  fig2_spill_vs_qubits.pdf     Spill vs num_qubits, 16 GB cap only.
+  fig3_spill_vs_cte.pdf        Spill vs CTE — 1 row x 3 cols (engine). Log-log.
+  fig4a_walltime_vs_qubits.pdf Wall time vs qubits, 16 GB cap.
+  fig4b_walltime_vs_spill.pdf  Wall time vs spill, 16 GB cap.
 
 Usage
 -----
-  python expander_ooc_plot.py \
+  python expander_ooc_plot_16gb.py \
       --results expander_spilling.csv \
-      [--outdir expander_ooc]
-
-Notes
------
-- Warmup rows are excluded automatically.
-- spill_proxy_bytes is the spill metric (median across run_idx).
-- SIGMOD two-column: full=6.99in, single-col=3.33in, >=8pt, pdf.fonttype=42
-- Spill data range: ~672 KB – 3.8 GB (log10: 5.8 – 9.6)
-- CTE  data range: ~100 KB – 3.6 MB (log10: 5.0 – 6.6)
+      [--outdir expander_ooc_16gb]
 """
 
 import argparse
@@ -40,6 +32,8 @@ import numpy as np
 import pandas as pd
 
 warnings.filterwarnings("ignore", category=FutureWarning)
+
+CAP_FILTER = 16   # only this cap_gb value is used
 
 # ── Font ──────────────────────────────────────────────────────────────────────
 def _best_serif():
@@ -88,7 +82,7 @@ plt.rcParams.update({
     "legend.labelspacing":   0.18,
     "legend.handlelength":   1.0,
     "legend.handleheight":   0.8,
-    "axes.grid":             False,   # we set grid selectively per axis
+    "axes.grid":             False,
     "figure.dpi":            300,
     "savefig.dpi":           600,
     "pdf.fonttype":          42,
@@ -106,28 +100,21 @@ CAP_LABEL = {4: "4 GB", 8: "8 GB", 16: "16 GB"}
 QUBIT_CMAP = plt.cm.Blues
 ZERO_SENT  = 4e3   # 4 KB sentinel for zero-spill
 
-# ── Fine-grained axis ticks ───────────────────────────────────────────────────
-# Spill: 672 KB – 3.8 GB  → show every decade + 2x/5x intermediates
-# We'll use explicit tick values for both spill and CTE axes so labels are
-# human-readable at the right granularity.
-
-# Bytes values for explicit major ticks (log spaced, human-readable)
 _SPILL_TICKS = [
-    1e5,   2e5,   5e5,           # 100 KB, 200 KB, 500 KB
-    1e6,   2e6,   5e6,           # 1 MB, 2 MB, 5 MB
-    1e7,   2e7,   5e7,           # 10 MB, 20 MB, 50 MB
-    1e8,   2e8,   5e8,           # 100 MB, 200 MB, 500 MB
-    1e9,   2e9,   5e9,           # 1 GB, 2 GB, 5 GB
+    1e5,   2e5,   5e5,
+    1e6,   2e6,   5e6,
+    1e7,   2e7,   5e7,
+    1e8,   2e8,   5e8,
+    1e9,   2e9,   5e9,
 ]
 
 _CTE_TICKS = [
-    1e5,   2e5,   5e5,           # 100 KB, 200 KB, 500 KB
-    1e6,   2e6,   4e6,           # 1 MB, 2 MB, 4 MB
+    1e5,   2e5,   5e5,
+    1e6,   2e6,   4e6,
 ]
 
 
 def log_fmt(x, _):
-    """Human-readable bytes label, compact for tight axes."""
     if x <= 0:    return "0"
     if x < 1e3:   return f"{x:.0f} B"
     if x < 1e6:   return f"{x/1e3:.0f} KB"
@@ -136,7 +123,6 @@ def log_fmt(x, _):
 
 
 def _apply_spill_yaxis(ax, ticks=None):
-    """Set log y-axis with fine-grained explicit ticks for spill."""
     ax.set_yscale("log")
     t = ticks if ticks is not None else _SPILL_TICKS
     ax.set_yticks(t)
@@ -147,7 +133,6 @@ def _apply_spill_yaxis(ax, ticks=None):
 
 
 def _apply_cte_xaxis(ax, ticks=None):
-    """Set log x-axis with fine-grained explicit ticks for CTE size."""
     ax.set_xscale("log")
     t = ticks if ticks is not None else _CTE_TICKS
     ax.set_xticks(t)
@@ -158,7 +143,6 @@ def _apply_cte_xaxis(ax, ticks=None):
 
 
 def _apply_cte_yaxis(ax, ticks=None):
-    """Set log y-axis with fine-grained explicit ticks for CTE size."""
     ax.set_yscale("log")
     t = ticks if ticks is not None else _CTE_TICKS
     ax.set_yticks(t)
@@ -198,6 +182,9 @@ def load_data(results_path: str):
 
     df = df[df["engine"].isin(ENGINES) & (df["status"] == "success")]
 
+    # ── Filter to 16 GB cap only ──────────────────────────────────────────
+    df = df[df["cap_gb"] == CAP_FILTER]
+
     pc = (df.groupby(["engine", "circuit_hash", "num_qubits", "cap_gb"])
             .agg(
                 spill      =("spill_proxy_bytes", "median"),
@@ -217,6 +204,7 @@ def load_data(results_path: str):
 def _print_summary(pc):
     print(f"\n{'='*60}")
     g = pc.copy(); g["spill_gb"] = g["spill"] / 1e9
+    print(f"Filtered to cap_gb == {CAP_FILTER} GB only.")
     print("Spill by engine x cap_gb (GB):")
     print(g.groupby(["engine", "cap_gb"])["spill_gb"]
            .agg(["min", "median", "max"]).round(3).to_string())
@@ -230,13 +218,13 @@ def _qubit_colors(qubits):
             for i, q in enumerate(qubits)}
 
 
-# ── Fig 1 — CTE sizes per engine x cap ───────────────────────────────────────
+# ── Fig 1 — CTE sizes per engine (16 GB cap) ─────────────────────────────────
 
 def plot_cte_sizes(pc, caps, qubits, outdir):
     """
     Single-column (3.33in). 1 row x 3 engine panels.
-    X = cap_gb. Filled circle = largest_cte, open square = total_cte.
-    Colour = num_qubits (sequential blues). Fine-grained log y.
+    X = cap_gb (only 16 GB). Filled circle = largest_cte, open square = total_cte.
+    Colour = num_qubits (sequential blues).
     """
     q_colors = _qubit_colors(qubits)
     np.random.seed(0)
@@ -278,7 +266,6 @@ def plot_cte_sizes(pc, caps, qubits, outdir):
 
     fig.text(0.57, 0.02, "Memory cap", ha="center", fontsize=_FSS)
 
-    # ── Legend: two rows, left-anchored under the panels ─────────────────
     q_handles = [
         Line2D([0], [0], marker="o", color=q_colors[q], lw=0,
                ms=4, mew=0.3, mec="white", label=f"{q}q")
@@ -305,20 +292,17 @@ def plot_cte_sizes(pc, caps, qubits, outdir):
     save(fig, outdir, "fig1_cte_sizes.pdf")
 
 
-# ── Fig 2 — Spill vs num_qubits ───────────────────────────────────────────────
+# ── Fig 2 — Spill vs num_qubits (16 GB cap) ──────────────────────────────────
 
 def plot_spill_vs_qubits(pc, caps, qubits, outdir):
     """
     Single-column (3.33in). 1 row x 3 engine panels.
-    X = num_qubits. Marker shape = cap_gb. Colour = engine.
-    Fine-grained log y with 2x/5x intermediate ticks.
-    Median tick per cap per qubit group.
+    X = num_qubits. Marker shape = cap_gb (only 16 GB). Colour = engine.
     """
     np.random.seed(42)
     n_caps  = len(caps)
     offsets = np.linspace(-0.22, 0.22, n_caps) if n_caps > 1 else [0.0]
 
-    # only ticks in the actual spill data range (~672 KB – 3.8 GB)
     spill_ticks = [5e5, 1e6, 2e6, 5e6, 1e7, 2e7, 5e7,
                    1e8, 2e8, 5e8, 1e9, 2e9, 5e9]
 
@@ -388,166 +372,156 @@ def plot_spill_vs_qubits(pc, caps, qubits, outdir):
     save(fig, outdir, "fig2_spill_vs_qubits.pdf")
 
 
-# ── Fig 3 — Spill vs CTE: 3 (cap) x 3 (engine) ──────────────────────────────
+# ── Fig 3 — Spill vs CTE: 1 row x 3 cols (16 GB cap only) ───────────────────
 
 def plot_spill_vs_cte(pc, caps, qubits, outdir):
     """
-    Main figure. Full text width (6.99in), squeezed row height.
-    Rows = cap_gb (separate experiments), Cols = engine.
-    Filled circle = largest_cte, open square = total_cte.
-    Colour = num_qubits (sequential blues).
-    Both axes use same byte-scale ticks (500 KB → 5 GB), no rotation.
-    Spearman r per panel (bolder = stronger). Slope-1 guide. Shared x/y.
+    Single row (1×3) at single-column width (3.33in).
+    Only cap_gb == 16 GB. Cols = engine.
+    Highly compressed, explicit layout to prevent tick/legend clashing.
     """
     q_colors = _qubit_colors(qubits)
     n_q      = len(qubits)
-    n_rows   = len(caps)
 
-    # Compact 3×3 grid at single-column width (3.33in), readable fonts (~6.5pt).
-    cte_ticks   = [2e5, 5e5, 1e6, 3e6]    # 200 KB, 500 KB, 1 MB, 3 MB
-    spill_ticks = [1e6, 1e8, 1e9, 4e9]    # 1 MB, 100 MB, 1 GB, 4 GB
+    cte_ticks   = [2e5, 5e5, 1e6, 3e6]
+    spill_ticks = [1e6, 1e8, 1e9, 4e9]
 
-    # Slightly taller to accommodate larger fonts without crowding.
-    _FW3 = _W_COL   # 3.33in
-    _FH3 = 4.20     # panels ~0.85in wide × 0.85in tall with new margins
+    _FW3 = _W_COL   # 3.33 in  (SIGMOD single col)
+    _FH3 = 1.45     # Rebalanced to give ticks breathing room natively
 
     fig, axes = plt.subplots(
-        n_rows, 3,
+        1, 3,
         figsize=(_FW3, _FH3),
         sharex=True, sharey=True,
-        gridspec_kw={"hspace": 0.10, "wspace": 0.10},
+        gridspec_kw={"wspace": 0.10},
     )
-    if n_rows == 1:
-        axes = axes[np.newaxis, :]
 
-    for row, cap in enumerate(caps):
-        for col, eng in enumerate(ENGINES):
-            ax = axes[row, col]
-            d  = pc[(pc["engine"] == eng) & (pc["cap_gb"] == cap)].dropna(
-                     subset=["largest_cte", "total_cte", "spill"])
+    cap = CAP_FILTER
+    for col, (ax, eng) in enumerate(zip(axes, ENGINES)):
+        d = pc[(pc["engine"] == eng) & (pc["cap_gb"] == cap)].dropna(
+                subset=["largest_cte", "total_cte", "spill"])
 
-            for _, r in d.iterrows():
-                qb = int(r["num_qubits"])
-                cc = q_colors[qb]
-                sp = r["spill"]
-                y  = sp if sp > 0 else ZERO_SENT
+        for _, r in d.iterrows():
+            qb = int(r["num_qubits"])
+            cc = q_colors[qb]
+            sp = r["spill"]
+            y  = sp if sp > 0 else ZERO_SENT
 
-                if np.isfinite(r["largest_cte"]) and r["largest_cte"] > 0:
-                    ax.scatter(r["largest_cte"], y,
-                               color=cc, marker="o", s=11,
-                               alpha=0.88 if sp > 0 else 0.45,
-                               edgecolors="white", linewidths=0.22, zorder=5)
+            if np.isfinite(r["largest_cte"]) and r["largest_cte"] > 0:
+                ax.scatter(r["largest_cte"], y,
+                           color=cc, marker="o", s=10,
+                           alpha=0.88 if sp > 0 else 0.45,
+                           edgecolors="white", linewidths=0.22, zorder=5)
 
-                if np.isfinite(r["total_cte"]) and r["total_cte"] > 0:
-                    ax.scatter(r["total_cte"], y,
-                               color="none", marker="s", s=8,
-                               alpha=0.92 if sp > 0 else 0.40,
-                               edgecolors=cc, linewidths=0.55, zorder=4)
+            if np.isfinite(r["total_cte"]) and r["total_cte"] > 0:
+                ax.scatter(r["total_cte"], y,
+                           color="none", marker="s", s=7,
+                           alpha=0.92 if sp > 0 else 0.40,
+                           edgecolors=cc, linewidths=0.55, zorder=4)
 
-            # slope-1 guide
-            nz = d[d["spill"] > 0]
-            if len(nz) >= 2:
-                ratio = np.median(nz["spill"].values / nz["largest_cte"].values)
-                xl = np.array([d["largest_cte"].min(), d["largest_cte"].max()])
-                ax.plot(xl, ratio * xl,
-                        color="0.65", lw=0.55, ls="--", zorder=1)
+        # slope-1 guide
+        nz = d[d["spill"] > 0]
+        if len(nz) >= 2:
+            ratio = np.median(nz["spill"].values / nz["largest_cte"].values)
+            xl = np.array([d["largest_cte"].min(), d["largest_cte"].max()])
+            ax.plot(xl, ratio * xl,
+                    color="0.65", lw=0.55, ls="--", zorder=1)
 
-            # Spearman rhos
-            r_lrg = spearman(d["largest_cte"].values, d["spill"].values)
-            r_tot  = spearman(d["total_cte"].values,   d["spill"].values)
-            win_lrg = (np.isfinite(r_lrg) and
-                       (not np.isfinite(r_tot) or abs(r_lrg) >= abs(r_tot)))
-            for i, (lbl, rv, bold) in enumerate([
-                ("r(lrg)", r_lrg, win_lrg),
-                ("r(tot)", r_tot, not win_lrg),
-            ]):
-                if np.isfinite(rv):
-                    ax.annotate(
-                        f"{lbl}={rv:+.2f}",
-                        xy=(0.04, 0.98 - i * 0.14),
-                        xycoords="axes fraction", ha="left", va="top",
-                        fontsize=_FST, color="0.22",
-                        fontweight="bold" if bold else "normal",
-                    )
+        # Spearman rhos
+        r_lrg = spearman(d["largest_cte"].values, d["spill"].values)
+        r_tot  = spearman(d["total_cte"].values,   d["spill"].values)
+        win_lrg = (np.isfinite(r_lrg) and
+                   (not np.isfinite(r_tot) or abs(r_lrg) >= abs(r_tot)))
+        
+        for i, (lbl, rv, bold) in enumerate([
+            ("r(lrg)", r_lrg, win_lrg),
+            ("r(tot)", r_tot, not win_lrg),
+        ]):
+            if np.isfinite(rv):
+                ax.annotate(
+                    f"{lbl}={rv:+.2f}",
+                    xy=(0.05, 0.52 - i * 0.13),   
+                    xycoords="axes fraction", ha="left", va="top",
+                    fontsize=_FST - 0.5, color="0.20",
+                    fontweight="bold" if bold else "normal",
+                )
 
-            # ── Axes ─────────────────────────────────────────────────────
-            ax.set_yscale("log")
-            ax.set_yticks(spill_ticks)
-            ax.set_yticklabels([log_fmt(v, None) for v in spill_ticks],
-                               fontsize=_FST)
-            ax.yaxis.set_minor_locator(ticker.NullLocator())
-            ax.grid(True,  axis="y", lw=0.25, ls=":", color="0.86", zorder=0)
+        # Axes scaling and ticks
+        ax.set_yscale("log")
+        ax.set_yticks(spill_ticks)
+        ax.set_yticklabels([log_fmt(v, None) for v in spill_ticks], fontsize=_FST - 0.5)
+        ax.yaxis.set_minor_locator(ticker.NullLocator())
+        ax.grid(True, axis="y", lw=0.25, ls=":", color="0.86", zorder=0)
 
-            ax.set_xscale("log")
-            ax.set_xticks(cte_ticks)
-            ax.set_xticklabels([log_fmt(v, None) for v in cte_ticks],
-                               fontsize=_FST, rotation=30,
-                               ha="right", rotation_mode="anchor")
-            ax.xaxis.set_minor_locator(ticker.NullLocator())
-            ax.grid(True, axis="x", lw=0.25, ls=":", color="0.86", zorder=0)
-            ax.tick_params(axis="both", length=2.0, width=0.45)
+        ax.set_xscale("log")
+        ax.set_xticks(cte_ticks)
+        
+        # Enforce short custom format tags if log_fmt returns wide strings
+        ax.set_xticklabels(["200K", "500K", "1M", "3M"],
+                           fontsize=_FST - 0.5, rotation=30,
+                           ha="right", rotation_mode="anchor")
+        ax.xaxis.set_minor_locator(ticker.NullLocator())
+        ax.grid(True, axis="x", lw=0.25, ls=":", color="0.86", zorder=0)
+        ax.tick_params(axis="both", length=1.5, width=0.40, pad=1)
 
-            if col != 0:
-                ax.tick_params(labelleft=False)
-            if row != n_rows - 1:
-                ax.tick_params(labelbottom=False)
+        if col != 0:
+            ax.tick_params(labelleft=False)
 
-            if row == 0:
-                ax.set_title(ENG_LABEL[eng], color=ENG_COLOR[eng],
-                             fontsize=_FSS, fontweight="bold", pad=3)
+        ax.set_title(ENG_LABEL[eng], color=ENG_COLOR[eng],
+                     fontsize=_FSS, fontweight="bold", pad=2)
 
-            if col == 0:
-                ax.set_ylabel(f"{int(cap)} GB\nSpill",
-                              fontsize=_FST, labelpad=2)
+        if col == 0:
+            ax.set_ylabel(f"Median Spill", fontsize=_FST, labelpad=1, fontweight="bold")
 
-            if row == n_rows - 1:
-                ax.set_xlabel("CTE size", fontsize=_FST, labelpad=1)
+        ax.set_xlabel("CTE size", fontsize=_FST, labelpad=0)
 
-            print(f"  {eng} cap={int(cap)} GB: "
-                  f"r(lrg)={r_lrg:+.3f}  r(tot)={r_tot:+.3f}")
+    # ── Strict Layout Boundaries ──
+    # bottom=0.36 safely contains the 30° rotated tick labels and "CTE size" axis label
+    fig.subplots_adjust(left=0.15, right=0.99, top=0.86, bottom=0.36)
 
-    # ── Legend ────────────────────────────────────────────────────────────
     q_handles = [
         Line2D([0], [0], marker="o", color=q_colors[q], lw=0,
-               ms=3.5, mew=0.22, mec="white", label=f"{q}q")
+                ms=3.5, mew=0.22, mec="white", label=f"{q}q")
         for q in qubits
     ]
     type_handles = [
         Line2D([0], [0], marker="o", color="0.35", lw=0,
-               ms=3.5, mew=0.22, mec="white", label="Largest"),
+               ms=3.5, mew=0.22, mec="white", label="Lrg"),
         Line2D([0], [0], marker="s", color="none", lw=0,
-               ms=3.0, mew=0.55, mec="0.35", label="Total"),
-        Line2D([0], [0], color="0.60", lw=0.65, ls="--", label="Slope-1"),
+               ms=3.0, mew=0.55, mec="0.35", label="Tot"),
+        Line2D([0], [0], color="0.60", lw=0.65, ls="--", label="S-1"),
     ]
-    fig.legend(handles=q_handles,
-               loc="lower left", bbox_to_anchor=(0.19, 0.01),
-               ncol=n_q, handlelength=0.40,
-               borderpad=0.15, labelspacing=0.10, columnspacing=0.35,
-               fontsize=_FST - 0.5, frameon=False)
-    fig.legend(handles=type_handles,
-               loc="lower right", bbox_to_anchor=(0.99, 0.01),
-               ncol=3, handlelength=0.45,
-               borderpad=0.15, labelspacing=0.10, columnspacing=0.40,
-               fontsize=_FST - 0.5, frameon=False)
 
-    fig.subplots_adjust(left=0.19, right=0.99, top=0.93, bottom=0.15)
+    # By shifting y down to 0.04 using coordinates completely inside the canvas base,
+    # we get a snug layout without triggering the artificial trailing whitespace.
+    fig.legend(handles=q_handles,
+               loc="lower center", bbox_to_anchor=(0.32, 0.04),
+               ncol=n_q, handlelength=0.30,
+               borderpad=0.02, labelspacing=0.02, columnspacing=0.20,
+               fontsize=_FST - 0.7, frameon=False)
+               
+    fig.legend(handles=type_handles,
+               loc="lower center", bbox_to_anchor=(0.76, 0.04),
+               ncol=3, handlelength=0.40,
+               borderpad=0.02, labelspacing=0.02, columnspacing=0.20,
+               fontsize=_FST - 0.7, frameon=False)
+
     save(fig, outdir, "fig3_spill_vs_cte.pdf")
 
 
-# ── Fig 4 — Wall-time: vs qubits and vs spill ────────────────────────────────
+# ── Fig 4 — Wall-time (16 GB cap) ────────────────────────────────────────────
 
 def plot_runtime(pc, caps, qubits, outdir):
     """
-    Single-column width (3.33in).  1 row x 3 engine panels, two sub-figures:
-      fig4a_walltime_vs_qubits.pdf  — wall time vs num_qubits, shape=cap_gb
-      fig4b_walltime_vs_spill.pdf   — wall time vs spill (log-log), colour=engine
-    Wall time range: 1.3s – 98s.  Spearman rho annotated on fig4b.
+    Single-column width (3.33in). 1 row x 3 engine panels.
+    fig4a: wall time vs num_qubits.
+    fig4b: wall time vs spill (log-log).
     """
-    # ── 4a: wall time vs qubits ───────────────────────────────────────────
+    # ── 4a ───────────────────────────────────────────────────────────────
     np.random.seed(7)
     n_caps  = len(caps)
     offsets = np.linspace(-0.22, 0.22, n_caps) if n_caps > 1 else [0.0]
-    wt_ticks = [2, 5, 10, 20, 50, 100]   # seconds, log scale
+    wt_ticks = [2, 5, 10, 20, 50, 100]
 
     fig, axes = plt.subplots(1, 3, figsize=(_W_COL, 1.90), sharey=True,
                              gridspec_kw={"wspace": 0.04})
@@ -607,9 +581,9 @@ def plot_runtime(pc, caps, qubits, outdir):
     fig.subplots_adjust(left=0.20, right=0.99, top=0.88, bottom=0.28)
     save(fig, outdir, "fig4a_walltime_vs_qubits.pdf")
 
-    # ── 4b: wall time vs spill (log-log, all caps together) ───────────────
+    # ── 4b ───────────────────────────────────────────────────────────────
     np.random.seed(11)
-    sp_ticks = [1e6, 1e8, 1e9, 4e9]    # bytes: 1 MB, 100 MB, 1 GB, 4 GB
+    sp_ticks = [1e6, 1e8, 1e9, 4e9]
 
     fig, axes = plt.subplots(1, 3, figsize=(_W_COL, 1.90), sharey=True,
                              gridspec_kw={"wspace": 0.06})
@@ -641,7 +615,6 @@ def plot_runtime(pc, caps, qubits, outdir):
                            ha="right", rotation_mode="anchor")
         ax.xaxis.set_minor_locator(ticker.NullLocator())
         ax.grid(True, axis="x", lw=0.28, ls=":", color="0.86", zorder=0)
-        # set tight x limits to prevent excess whitespace
         d_all = pc[pc["engine"] == eng].dropna(subset=["spill"])
         ax.set_xlim(d_all["spill"].min() * 0.5, d_all["spill"].max() * 2.5)
 
@@ -676,10 +649,10 @@ def plot_runtime(pc, caps, qubits, outdir):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    ap = argparse.ArgumentParser(description="Expander OOC spill figures")
+    ap = argparse.ArgumentParser(description="Expander OOC spill figures (16 GB cap only)")
     ap.add_argument("--results", default="expander_spilling.csv",
                     help="Expander spilling results CSV")
-    ap.add_argument("--outdir",  default="expander_ooc",
+    ap.add_argument("--outdir",  default="expander_ooc_16gb",
                     help="Output directory (created if absent)")
     args = ap.parse_args()
 
@@ -687,10 +660,10 @@ def main():
     pc, caps, qubits = load_data(args.results)
 
     steps = [
-        ("Fig 1  CTE sizes vs cap_gb",       lambda p, o: plot_cte_sizes(p, caps, qubits, o)),
-        ("Fig 2  spill vs num_qubits",        lambda p, o: plot_spill_vs_qubits(p, caps, qubits, o)),
-        ("Fig 3  spill vs CTE (3x3 grid)",   lambda p, o: plot_spill_vs_cte(p, caps, qubits, o)),
-        ("Fig 4  wall-time (qubits + spill)", lambda p, o: plot_runtime(p, caps, qubits, o)),
+        ("Fig 1  CTE sizes (16 GB cap)",         lambda p, o: plot_cte_sizes(p, caps, qubits, o)),
+        ("Fig 2  spill vs num_qubits (16 GB)",    lambda p, o: plot_spill_vs_qubits(p, caps, qubits, o)),
+        ("Fig 3  spill vs CTE (1×3, 16 GB)",      lambda p, o: plot_spill_vs_cte(p, caps, qubits, o)),
+        ("Fig 4  wall-time (qubits + spill)",      lambda p, o: plot_runtime(p, caps, qubits, o)),
     ]
     for label, fn in steps:
         print(label)
