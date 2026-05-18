@@ -126,6 +126,22 @@ For a single generate/extract/simulate/store iteration, use:
 python main.py single
 ```
 
+For an interactive composition run, use:
+
+```bash
+python main.py interactive
+```
+
+This mode enumerates the templates in `generators/`, accepts indexes, names, or
+ranges such as `1,13` or `GHZ,QFTGenerator`, previews each template's generated
+default parameters, and lets you override parameters before running the normal
+feature extraction, simulation, and storage pipeline. To only build the composed
+circuit without processing it:
+
+```bash
+python main.py interactive --generate-only
+```
+
 `main_parallel.py` has been removed; `main.py` is now the canonical entry point
 for both parallel and single-run modes.
 

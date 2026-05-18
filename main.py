@@ -77,6 +77,7 @@ def run_extraction_pipeline(
     circuitMerger: CircuitMerger,
     quantumSimulator: QuantumSimulator,
     azure_conn: AzureConnection | None = None,
+    circuit=None,
 ) -> None:
     """Run one generate/extract/simulate/store pipeline iteration."""
     from feature_extractors.extractors import extract_features
@@ -91,20 +92,28 @@ def run_extraction_pipeline(
 
     logger.info("STEP 1: Circuit Generation")
     logger.info("-" * 30)
-    try:
-        circuit = circuitMerger.generate_hierarchical_circuit(
-            stopping_probability=circuit_config["stopping_probability"],
-            max_generators=circuit_config["max_generators"],
-        )
+    if circuit is None:
+        try:
+            circuit = circuitMerger.generate_hierarchical_circuit(
+                stopping_probability=circuit_config["stopping_probability"],
+                max_generators=circuit_config["max_generators"],
+            )
+            logger.info(
+                "Generated circuit: %s qubits, depth %s, size %s",
+                circuit.num_qubits,
+                circuit.depth(),
+                circuit.size(),
+            )
+        except Exception as exc:
+            logger.error("Circuit generation failed: %s", exc)
+            raise
+    else:
         logger.info(
-            "Generated circuit: %s qubits, depth %s, size %s",
+            "Using provided circuit: %s qubits, depth %s, size %s",
             circuit.num_qubits,
             circuit.depth(),
             circuit.size(),
         )
-    except Exception as exc:
-        logger.error("Circuit generation failed: %s", exc)
-        raise
 
     logger.info("STEP 2: Feature Extraction")
     logger.info("-" * 30)
@@ -242,6 +251,73 @@ def run_single_pipeline() -> None:
     run_extraction_pipeline(circuit_merger, quantum_simulator, azure_conn)
 
 
+def run_interactive_pipeline(generate_only: bool = False) -> None:
+    """Run an interactive circuit-composition session."""
+    from generators.circuit_merger import CircuitMerger
+    from generators.interactive_composer import (
+        generate_interactive_circuit,
+        prompt_yes_no,
+    )
+    from generators.lib.generator import BaseParams
+    from simulators.simulate import QuantumSimulator
+    from utils.azure_connection import AzureConnection
+
+    circuit_config = get_circuit_config()
+    simulation_config = get_simulation_config()
+    azure_config = get_azure_config()
+
+    base_params = BaseParams(
+        max_qubits=circuit_config["max_qubits"],
+        min_qubits=circuit_config["min_qubits"],
+        max_depth=circuit_config["max_depth"],
+        min_depth=circuit_config["min_depth"],
+        seed=circuit_config["seed"],
+        measure=circuit_config["measure"],
+    )
+    circuit_merger = CircuitMerger(base_params=base_params)
+    circuit = generate_interactive_circuit(
+        circuit_merger,
+        stopping_probability=circuit_config["stopping_probability"],
+        max_generators=circuit_config["max_generators"],
+    )
+
+    logger.info(
+        "Interactive circuit ready: %s qubits, depth %s, size %s",
+        circuit.num_qubits,
+        circuit.depth(),
+        circuit.size(),
+    )
+    print(
+        f"\nGenerated circuit: {circuit.num_qubits} qubits, "
+        f"depth {circuit.depth()}, size {circuit.size()}"
+    )
+
+    if generate_only:
+        return
+
+    if not prompt_yes_no("Run feature extraction, simulation, and storage now?", default=True):
+        return
+
+    azure_conn = None
+    if azure_config["enabled"]:
+        try:
+            azure_conn = AzureConnection()
+            logger.warning("Azure connection established for remote storage")
+        except Exception as exc:
+            logger.warning("Azure connection failed: %s", exc)
+            logger.warning("Remote storage disabled; local-only mode")
+    else:
+        logger.warning("Azure disabled in configuration; local-only mode")
+
+    quantum_simulator = QuantumSimulator(
+        seed=simulation_config["seed"],
+        shots=simulation_config["shots"],
+        timeout_seconds=simulation_config["timeout_seconds"],
+        infiniquantum_config=simulation_config.get("infiniquantum"),
+    )
+    run_extraction_pipeline(circuit_merger, quantum_simulator, azure_conn, circuit=circuit)
+
+
 def run_parallel_from_args(args: argparse.Namespace) -> dict:
     """Run the production parallel pipeline from parsed CLI args."""
     from pipeline.manager import run_parallel_pipeline
@@ -277,7 +353,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "mode",
         nargs="?",
-        choices=["parallel", "single"],
+        choices=["parallel", "single", "interactive"],
         default="parallel",
         help="Pipeline mode. Defaults to parallel.",
     )
@@ -297,6 +373,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Timeout for each parallel batch in seconds",
     )
     parser.add_argument("--profile", action="store_true", help="Enable cProfile output")
+    parser.add_argument(
+        "--generate-only",
+        action="store_true",
+        help="In interactive mode, stop after building the circuit",
+    )
     parser.add_argument("--log-file", default="pipeline.log", help="Log file path")
     return parser.parse_args(argv)
 
@@ -307,6 +388,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.mode == "single":
         run_single_pipeline()
+    elif args.mode == "interactive":
+        run_interactive_pipeline(generate_only=args.generate_only)
     else:
         run_parallel_from_args(args)
     return 0
