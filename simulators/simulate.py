@@ -375,6 +375,10 @@ class QuantumSimulator(DynamicFeatureExtractor):
                 kwargs["oom"] = self.infiniquantum_config["omit_methods"]
             if "n_runs" not in kwargs:
                 kwargs["n_runs"] = self.infiniquantum_config.get("n_runs", 1)
+            if "run_benchmark" not in kwargs:
+                kwargs["run_benchmark"] = self.infiniquantum_config.get("run_benchmark", True)
+            if "query_mode" not in kwargs:
+                kwargs["query_mode"] = self.infiniquantum_config.get("query_mode", "monolithic")
 
         if self.timeout_seconds:
             kwargs["timeout"] = self.timeout_seconds

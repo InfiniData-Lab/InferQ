@@ -45,6 +45,9 @@ WORKER_MODULE = "scripts.ooc.worker"
 
 CSV_FIELDS = [
     "circuit_hash", "num_qubits", "num_gates", "prior_peak_mem_gb", "bin",
+    "estimated_nonzero_amplitudes", "estimated_density_log2", "estimated_density",
+    "sparsity_rank", "final_active_qubits", "max_nonzero_amplitudes_by_prefix",
+    "sparse_affine_h_seeds", "sparse_affine_mix_layers", "sparse_affine_mixing_schedule",
     "engine", "method", "cap_gb", "mode", "run_idx",
     "container_cpus", "duckdb_memory_limit_mb", "duckdb_threads", "sqlite_cache_mb",
     "wall_time_s", "tracemalloc_peak_bytes", "proc_vm_peak_bytes",
@@ -54,6 +57,7 @@ CSV_FIELDS = [
     "dbms_temp_bytes_written", "dbms_temp_bytes_read",
     "spill_proxy_bytes", "temp_dir_peak_bytes", "temp_dir_final_bytes",
     "spill_metric_kind",
+    "num_k_ctes", "num_h_ctes", "largest_cte_bytes", "total_cte_bytes",
     "status", "error_msg",
     "scope_unit", "container_id", "host_timestamp",
 ]
@@ -68,9 +72,21 @@ class CircuitEntry:
     prior_peak_mem_gb: Optional[float]
     bin: str
     skip_engines: frozenset[str]
+    sparsity_metadata: dict
 
     @classmethod
     def from_json(cls, d: dict) -> "CircuitEntry":
+        sparsity_keys = (
+            "estimated_nonzero_amplitudes",
+            "estimated_density_log2",
+            "estimated_density",
+            "sparsity_rank",
+            "final_active_qubits",
+            "max_nonzero_amplitudes_by_prefix",
+            "sparse_affine_h_seeds",
+            "sparse_affine_mix_layers",
+            "sparse_affine_mixing_schedule",
+        )
         return cls(
             hash=d["hash"],
             qpy_path=Path(d["qpy_path"]),
@@ -79,6 +95,7 @@ class CircuitEntry:
             prior_peak_mem_gb=d.get("prior_peak_mem_gb"),
             bin=d.get("bin", ""),
             skip_engines=frozenset(d.get("skip_engines") or []),
+            sparsity_metadata={key: d.get(key) for key in sparsity_keys},
         )
 
 
@@ -182,6 +199,8 @@ def build_worker_args(
     ]
     if engine == "duckdb":
         args += ["--threads", str(cfg["duckdb_threads"])]
+    if engine == "aer":
+        args += ["--threads", str(cfg["aer_threads"])]
     if engine == "aer" and aer_method:
         args += ["--aer-method", aer_method, "--aer-pad-mb", str(cfg["aer_max_memory_pad_mb"])]
     return args
@@ -312,6 +331,15 @@ def emit_rows(writer: csv.DictWriter, circuit: CircuitEntry, envelope: dict,
         "num_gates": envelope.get("num_gates", circuit.num_gates),
         "prior_peak_mem_gb": circuit.prior_peak_mem_gb,
         "bin": circuit.bin,
+        "estimated_nonzero_amplitudes": circuit.sparsity_metadata.get("estimated_nonzero_amplitudes"),
+        "estimated_density_log2": circuit.sparsity_metadata.get("estimated_density_log2"),
+        "estimated_density": circuit.sparsity_metadata.get("estimated_density"),
+        "sparsity_rank": circuit.sparsity_metadata.get("sparsity_rank"),
+        "final_active_qubits": circuit.sparsity_metadata.get("final_active_qubits"),
+        "max_nonzero_amplitudes_by_prefix": circuit.sparsity_metadata.get("max_nonzero_amplitudes_by_prefix"),
+        "sparse_affine_h_seeds": circuit.sparsity_metadata.get("sparse_affine_h_seeds"),
+        "sparse_affine_mix_layers": circuit.sparsity_metadata.get("sparse_affine_mix_layers"),
+        "sparse_affine_mixing_schedule": circuit.sparsity_metadata.get("sparse_affine_mixing_schedule"),
         "engine": engine,
         "method": method or "",
         "cap_gb": cap_gb,
@@ -321,6 +349,8 @@ def emit_rows(writer: csv.DictWriter, circuit: CircuitEntry, envelope: dict,
         "cgroup_swap_peak_bytes": cg.memory_swap_peak_bytes if cg else None,
         "cgroup_io_read_bytes": cg.io_read_bytes if cg else None,
         "cgroup_io_write_bytes": cg.io_write_bytes if cg else None,
+        "num_k_ctes": envelope.get("num_k_ctes"),
+        "num_h_ctes": envelope.get("num_h_ctes"),
         "scope_unit": scope_unit,
         "container_id": container_id or "",
         "host_timestamp": envelope.get("started_at"),
@@ -356,6 +386,8 @@ def emit_rows(writer: csv.DictWriter, circuit: CircuitEntry, envelope: dict,
             "temp_dir_peak_bytes": r.get("temp_dir_peak_bytes"),
             "temp_dir_final_bytes": r.get("temp_dir_final_bytes"),
             "spill_metric_kind": r.get("spill_metric_kind", ""),
+            "largest_cte_bytes": r.get("largest_cte_bytes"),
+            "total_cte_bytes": r.get("total_cte_bytes"),
             "status": r.get("status", "unknown"),
             "error_msg": _flatten_error(r.get("error", "")),
         })

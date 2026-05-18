@@ -20,7 +20,7 @@ from .algorithms.qwalk import QuantumWalk
 from .algorithms.qpe import QPE
 from .algorithms.vqe import VQEGenerator
 
-from .circuit_merger import CircuitMerger
+from .circuit_merger import CircuitMerger, CompositionStep
 
 __all__ = [
     "GHZ",
@@ -41,4 +41,5 @@ __all__ = [
     "QPE",
     "VQEGenerator",
     "CircuitMerger",
+    "CompositionStep",
 ]

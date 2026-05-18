@@ -1,4 +1,6 @@
-from typing import List, Union
+from dataclasses import dataclass
+import inspect
+from typing import Any, List, Sequence, Union
 from qiskit import QuantumCircuit
 import random
 import numpy as np
@@ -62,6 +64,14 @@ ALL_GENERATOR_CLASSES = [
 GENERATOR_CLASS_MAP = {cls.__name__: cls for cls in ALL_GENERATOR_CLASSES}
 
 
+@dataclass(frozen=True)
+class CompositionStep:
+    """One explicit generator invocation in a composed circuit."""
+
+    generator_name: str
+    parameters: Any = None
+
+
 class CircuitMerger:
     """
     Class to merge multiple quantum circuits into a single hierarchical circuit.
@@ -97,6 +107,106 @@ class CircuitMerger:
         
         logger.debug(f"Successfully initialized {len(generators)}/{len(ALL_GENERATOR_CLASSES)} generators")
         return generators
+
+    def list_generator_names(self) -> list[str]:
+        """Return generator template names in the composition order used by InferQ."""
+        return [generator.__class__.__name__ for generator in self.generators]
+
+    def get_generator(self, name_or_index: str | int) -> Generator:
+        """
+        Resolve a generator by class name or one-based index.
+
+        Args:
+            name_or_index: Generator class name, zero-based int, or one-based
+                numeric string as shown by the interactive selector.
+        """
+        if isinstance(name_or_index, int):
+            try:
+                return self.generators[name_or_index]
+            except IndexError as exc:
+                raise ValueError(f"Generator index out of range: {name_or_index}") from exc
+
+        requested = str(name_or_index).strip()
+        if requested.isdigit():
+            index = int(requested) - 1
+            return self.get_generator(index)
+
+        for generator in self.generators:
+            if generator.__class__.__name__ == requested:
+                return generator
+
+        available = ", ".join(self.list_generator_names())
+        raise ValueError(f"Unknown generator '{requested}'. Available generators: {available}")
+
+    def get_default_parameters(self, generator: Generator) -> dict[str, Any]:
+        """
+        Generate and normalize default parameters for a template.
+
+        The generators predate a single parameter schema: some return dicts,
+        some tuples, and some scalar values. This method converts those outputs
+        into a dict keyed by the generator.generate signature so interactive and
+        scripted explicit composition can use one representation.
+        """
+        generated = generator.generate_parameters()
+        return self._parameters_to_keyword_dict(generator, generated)
+
+    def generate_composed_circuit(
+        self,
+        composition: Sequence[CompositionStep | dict[str, Any] | tuple[Any, ...] | str],
+        *,
+        name: str | None = None,
+    ) -> QuantumCircuit:
+        """
+        Generate a circuit from an explicit list of generator template choices.
+
+        Each composition item may be:
+        - CompositionStep("QFTGenerator", {"num_qubits": 4})
+        - {"generator": "QFTGenerator", "parameters": {...}}
+        - ("QFTGenerator", {...})
+        - "QFTGenerator" (uses generated default parameters)
+        """
+        successful_circuits = []
+
+        for i, step in enumerate(composition):
+            step = self._normalize_composition_step(step)
+            generator = self.get_generator(step.generator_name)
+            generator_name = generator.__class__.__name__
+            logger.debug(
+                "Explicit composition step %s/%s: %s",
+                i + 1,
+                len(composition),
+                generator_name,
+            )
+
+            try:
+                circuit = self._generate_circuit_from_generator(
+                    generator,
+                    parameters=step.parameters,
+                )
+                if circuit is not None and hasattr(circuit, "data"):
+                    circuit.name = generator_name
+                    successful_circuits.append(circuit)
+                    logger.debug(
+                        "✓ Generated %s: %sq, depth=%s",
+                        circuit.name,
+                        circuit.num_qubits,
+                        circuit.depth(),
+                    )
+                else:
+                    logger.warning("✗ %s returned None or invalid circuit", generator_name)
+            except Exception as exc:
+                logger.warning(
+                    "✗ Error with explicit %s step: %s: %s",
+                    generator_name,
+                    type(exc).__name__,
+                    exc,
+                )
+                continue
+
+        return self._compose_successful_circuits(
+            successful_circuits,
+            name=name or f"InteractiveComposition_{len(successful_circuits)}gens",
+        )
 
     def select_generators_by_probability(
         self,
@@ -226,16 +336,8 @@ class CircuitMerger:
             logger.debug(f"Processing generator {i+1}/{len(selected_generators)}: {generator_name}")
             
             try:
-                logger.debug(f"Generating parameters for {generator_name}...")
-                params = generator.generate_parameters()
-
                 logger.debug(f"Generating circuit for {generator_name}...")
-                if isinstance(params, tuple):
-                    circuit = generator.generate(*params)
-                elif isinstance(params, dict):
-                    circuit = generator.generate(**params)
-                else:
-                    circuit = generator.generate(params)
+                circuit = self._generate_circuit_from_generator(generator)
 
                 if circuit is not None and hasattr(circuit, "data"):
                     circuit.name = generator_name
@@ -254,6 +356,22 @@ class CircuitMerger:
             logger.warning("No successful circuits generated! Returning empty circuit")
             return QuantumCircuit()
 
+        return self._compose_successful_circuits(
+            successful_circuits,
+            name=f"HierarchicalCircuit_{len(successful_circuits)}gens",
+        )
+    
+    def _compose_successful_circuits(
+        self,
+        successful_circuits: Sequence[QuantumCircuit],
+        *,
+        name: str,
+    ) -> QuantumCircuit:
+        """Compose already generated template circuits into one circuit."""
+        if not successful_circuits:
+            logger.warning("No successful circuits generated! Returning empty circuit")
+            return QuantumCircuit()
+
         logger.info(f"Merging {len(successful_circuits)} successful circuits...")
         
         max_qubits = max(c.num_qubits for c in successful_circuits)
@@ -261,7 +379,7 @@ class CircuitMerger:
         logger.debug(f"Merged circuit dimensions: {max_qubits} qubits, {max_clbits} clbits")
 
         merged_circuit = QuantumCircuit(max_qubits, max_clbits)
-        merged_circuit.name = f"HierarchicalCircuit_{len(successful_circuits)}gens"
+        merged_circuit.name = name
 
         for i, circuit in enumerate(successful_circuits):
             try:
@@ -303,6 +421,103 @@ class CircuitMerger:
         
         logger.info(f"✓ Circuit generation completed: {merged_circuit.num_qubits} qubits, depth {merged_circuit.depth()}, size {merged_circuit.size()}")
         return merged_circuit
+
+    def _normalize_composition_step(
+        self,
+        step: CompositionStep | dict[str, Any] | tuple[Any, ...] | str,
+    ) -> CompositionStep:
+        """Normalize supported composition step inputs into CompositionStep."""
+        if isinstance(step, CompositionStep):
+            return step
+
+        if isinstance(step, str):
+            return CompositionStep(generator_name=step)
+
+        if isinstance(step, dict):
+            generator_name = (
+                step.get("generator")
+                or step.get("generator_name")
+                or step.get("name")
+            )
+            if not generator_name:
+                raise ValueError("Composition dict must include 'generator'")
+            return CompositionStep(
+                generator_name=str(generator_name),
+                parameters=step.get("parameters"),
+            )
+
+        if isinstance(step, tuple):
+            if len(step) == 1:
+                return CompositionStep(generator_name=str(step[0]))
+            if len(step) == 2:
+                return CompositionStep(generator_name=str(step[0]), parameters=step[1])
+
+        raise TypeError(f"Unsupported composition step: {step!r}")
+
+    def _generate_circuit_from_generator(
+        self,
+        generator: Generator,
+        parameters: Any = None,
+    ) -> QuantumCircuit | None:
+        """Generate a circuit from one generator and optional explicit parameters."""
+        if not hasattr(generator, "measure"):
+            generator.measure = self.base_params.measure
+
+        if parameters is None:
+            logger.debug("Generating parameters for %s...", generator.__class__.__name__)
+            parameters = generator.generate_parameters()
+
+        if isinstance(parameters, dict):
+            return generator.generate(**parameters)
+        if isinstance(parameters, tuple):
+            return generator.generate(*parameters)
+        if isinstance(parameters, list):
+            param_names = self._generate_parameter_names(generator)
+            if len(parameters) == 1 and len(param_names) == 1:
+                return generator.generate(parameters[0])
+            return generator.generate(*parameters)
+
+        return generator.generate(parameters)
+
+    def _parameters_to_keyword_dict(
+        self,
+        generator: Generator,
+        parameters: Any,
+    ) -> dict[str, Any]:
+        """Convert a generator parameter payload into keyword arguments."""
+        if isinstance(parameters, dict):
+            return dict(parameters)
+
+        param_names = self._generate_parameter_names(generator)
+        if isinstance(parameters, tuple):
+            values = list(parameters)
+        elif isinstance(parameters, list) and len(param_names) != 1:
+            values = list(parameters)
+        else:
+            values = [parameters]
+
+        if len(values) > len(param_names):
+            raise ValueError(
+                f"{generator.__class__.__name__}.generate returned {len(values)} "
+                f"parameters but only {len(param_names)} positional names are available"
+            )
+
+        return dict(zip(param_names, values, strict=False))
+
+    def _generate_parameter_names(self, generator: Generator) -> list[str]:
+        """Return positional/keyword parameter names accepted by generator.generate."""
+        signature = inspect.signature(generator.generate)
+        names = []
+        for param in signature.parameters.values():
+            if param.name == "self":
+                continue
+            if param.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            ):
+                names.append(param.name)
+        return names
 
     def _make_parameters_unique(self, circuit: QuantumCircuit, circuit_index: int) -> QuantumCircuit:
         """

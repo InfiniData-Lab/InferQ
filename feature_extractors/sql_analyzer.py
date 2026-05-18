@@ -25,7 +25,7 @@ class SQLFeatureExtractor:
             tuple: (features (Counter), join_edges (set))
         """
         try:
-            ast = sqlglot.parse_one(sql, read=dialect)
+            asts = [ast for ast in sqlglot.parse(sql, read=dialect) if ast is not None]
         except Exception as e:
             logger.error(f"Failed to parse SQL: {e}")
             return Counter(), set()
@@ -34,33 +34,38 @@ class SQLFeatureExtractor:
 
         # ---------- 1. COUNT TOP-LEVEL COMMANDS / CLAUSES / AGGREGATES ----------
         cmd_map = {
-            exp.Select: "SELECT", exp.Insert: "INSERT", exp.Update: "UPDATE", exp.Delete: "DELETE"
+            exp.Select: "SELECT",
+            exp.Insert: "INSERT",
+            exp.Update: "UPDATE",
+            exp.Delete: "DELETE",
+            exp.Create: "CREATE",
         }
         
-        for node in ast.walk():
-            # Top-level SQL commands
-            if type(node) in cmd_map:
-                features[cmd_map[type(node)]] += 1
-            # Clauses
-            if isinstance(node, exp.Where): features["WHERE"] += 1
-            elif isinstance(node, exp.Group): features["GROUP_BY"] += 1
-            elif isinstance(node, exp.Having): features["HAVING"] += 1
-            elif isinstance(node, exp.Order): features["ORDER_BY"] += 1
-            elif isinstance(node, exp.Limit): features["LIMIT"] += 1
-            elif isinstance(node, exp.With): features["CTE"] += 1
-            # Set operations
-            elif isinstance(node, exp.Union): features["UNION"] += 1
-            elif isinstance(node, exp.Intersect): features["INTERSECT"] += 1
-            elif isinstance(node, exp.Except): features["EXCEPT"] += 1
-            # Aggregates & predicates
-            elif isinstance(node, exp.AggFunc): features["AGG_FUNC"] += 1
-            elif isinstance(node, exp.And): features["AND"] += 1
-            elif isinstance(node, exp.Or): features["OR"] += 1
-            elif isinstance(node, exp.Not): features["NOT"] += 1
-            elif isinstance(node, exp.EQ): features["EQ_PRED"] += 1
-            elif isinstance(node, (exp.GT, exp.GTE, exp.LT, exp.LTE)): features["RANGE_PRED"] += 1
-            elif isinstance(node, exp.In): features["IN_PRED"] += 1
-            elif isinstance(node, exp.Like): features["LIKE_PRED"] += 1
+        for ast in asts:
+            for node in ast.walk():
+                # Top-level SQL commands
+                if type(node) in cmd_map:
+                    features[cmd_map[type(node)]] += 1
+                # Clauses
+                if isinstance(node, exp.Where): features["WHERE"] += 1
+                elif isinstance(node, exp.Group): features["GROUP_BY"] += 1
+                elif isinstance(node, exp.Having): features["HAVING"] += 1
+                elif isinstance(node, exp.Order): features["ORDER_BY"] += 1
+                elif isinstance(node, exp.Limit): features["LIMIT"] += 1
+                elif isinstance(node, exp.With): features["CTE"] += 1
+                # Set operations
+                elif isinstance(node, exp.Union): features["UNION"] += 1
+                elif isinstance(node, exp.Intersect): features["INTERSECT"] += 1
+                elif isinstance(node, exp.Except): features["EXCEPT"] += 1
+                # Aggregates & predicates
+                elif isinstance(node, exp.AggFunc): features["AGG_FUNC"] += 1
+                elif isinstance(node, exp.And): features["AND"] += 1
+                elif isinstance(node, exp.Or): features["OR"] += 1
+                elif isinstance(node, exp.Not): features["NOT"] += 1
+                elif isinstance(node, exp.EQ): features["EQ_PRED"] += 1
+                elif isinstance(node, (exp.GT, exp.GTE, exp.LT, exp.LTE)): features["RANGE_PRED"] += 1
+                elif isinstance(node, exp.In): features["IN_PRED"] += 1
+                elif isinstance(node, exp.Like): features["LIKE_PRED"] += 1
 
         # ---------- 2. SEMANTIC JOIN COUNT (IMPLICIT + EXPLICIT) ----------
         join_edges = set()
@@ -108,8 +113,9 @@ class SQLFeatureExtractor:
                     for inner in subq.find_all(exp.Select):
                         visit_select(inner)
 
-        for select in ast.find_all(exp.Select):
-            visit_select(select)
+        for ast in asts:
+            for select in ast.find_all(exp.Select):
+                visit_select(select)
 
         features["NUM_UNIQUE_JOIN_EDGES"] = len(join_edges)
         features["NUM_JOIN_OCCURRENCES"] = join_occurrences

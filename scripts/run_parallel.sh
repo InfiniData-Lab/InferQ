@@ -14,7 +14,7 @@ source "$SCRIPT_DIR/azure_check.sh"
 source "$SCRIPT_DIR/pipeline_monitor.sh"
 
 # Configuration
-SCRIPT_NAME="main_parallel.py"
+SCRIPT_NAME="main.py"
 LOG_DIR="logs"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_FILE="${LOG_DIR}/parallel_pipeline_${TIMESTAMP}.log"
