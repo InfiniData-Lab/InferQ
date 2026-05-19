@@ -1,0 +1,12 @@
+
+================================================================================
+01501b8722df50c519c543ff8e4dfbfb2524ef4f8c2a56018d6e08762f64dd45  (2 qubits, depth 5)
+================================================================================
+Simulation failed and returned the following error message:
+ERROR:  [Experiment 0] Circuit HierarchicalCircuit_1gens contains invalid instructions {"gates": {ry, rx}} for "stabilizer" method.Circuit HierarchicalCircuit_1gens contains invalid parameters  for "stabilizer" method.
+Simulation failed and returned the following error message:
+ERROR:  [Experiment 0] Circuit HierarchicalCircuit_1gens contains invalid instructions {"gates": {ry, rx}} for "stabilizer" method.Circuit HierarchicalCircuit_1gens contains invalid parameters  for "stabilizer" method.
+Simulation failed and returned the following error message:
+ERROR: CH::State: Invalid gate operation 'rx'. [Experiment 0] CH::State: Invalid gate operation 'rx'.
+Simulation failed and returned the following error message:
+ERROR: CH::State: Invalid gate operation 'rx'. [Experiment 0] CH::State: Invalid gate operation 'rx'.

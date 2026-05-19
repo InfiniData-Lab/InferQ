@@ -1,0 +1,62 @@
+
+  [SQLite] 021221222ad36e2c16b671646cf1100b1b5d56f9b8fdae21afd4ca018836ef0b
+    total CTEs  : 47  (tensor CTEs: 6, contraction CTEs: 41)
+    SQL length  : 13,212 chars
+    Counting rows per K_i CTE (41 contraction CTEs)...
+      K1      rows=2  idx_cols=0  ~32 bytes
+      K2      rows=8  idx_cols=0  ~128 bytes
+      K3      rows=8  idx_cols=0  ~128 bytes
+      K4      rows=8  idx_cols=0  ~128 bytes
+      K5      rows=8  idx_cols=0  ~128 bytes
+      K6      rows=2  idx_cols=0  ~32 bytes
+      K7      rows=4  idx_cols=0  ~64 bytes
+      K8      rows=2  idx_cols=0  ~32 bytes
+      K9      rows=8  idx_cols=0  ~128 bytes
+      K10     rows=8  idx_cols=0  ~128 bytes
+      K11     rows=2  idx_cols=0  ~32 bytes
+      K12     rows=8  idx_cols=0  ~128 bytes
+      K13     rows=8  idx_cols=0  ~128 bytes
+      K14     rows=4  idx_cols=0  ~64 bytes
+      K15     rows=8  idx_cols=0  ~128 bytes
+      K16     rows=16  idx_cols=0  ~256 bytes
+      K17     rows=8  idx_cols=0  ~128 bytes
+      K18     rows=16  idx_cols=0  ~256 bytes
+      K19     rows=16  idx_cols=0  ~256 bytes
+      K20     rows=4  idx_cols=0  ~64 bytes
+      K21     rows=8  idx_cols=0  ~128 bytes
+      K22     rows=8  idx_cols=0  ~128 bytes
+      K23     rows=4  idx_cols=0  ~64 bytes
+      K24     rows=8  idx_cols=0  ~128 bytes
+      K25     rows=16  idx_cols=0  ~256 bytes
+      K26     rows=4  idx_cols=0  ~64 bytes
+      K27     rows=8  idx_cols=0  ~128 bytes
+      K28     rows=4  idx_cols=0  ~64 bytes
+      K29     rows=4  idx_cols=0  ~64 bytes
+      K30     rows=16  idx_cols=0  ~256 bytes
+      K31     rows=4  idx_cols=0  ~64 bytes
+      K32     rows=16  idx_cols=0  ~256 bytes
+      K33     rows=16  idx_cols=0  ~256 bytes
+      K34     rows=8  idx_cols=0  ~128 bytes
+      K35     rows=16  idx_cols=0  ~256 bytes
+      K36     rows=16  idx_cols=0  ~256 bytes
+      K37     rows=4  idx_cols=0  ~64 bytes
+      K38     rows=16  idx_cols=0  ~256 bytes
+      K39     rows=16  idx_cols=0  ~256 bytes
+      K40     rows=16  idx_cols=0  ~256 bytes
+      K41     rows=16  idx_cols=0  ~256 bytes
+
+  [Aer] 021221222ad36e2c16b671646cf1100b1b5d56f9b8fdae21afd4ca018836ef0b  (4 qubits, depth 132)
+    [+] statevector                [multi ]  wall=0.0096s  rss=204,544KB  vsz=5,013MB  Δmaj=0
+    [+] statevector                [single]  wall=0.0096s  rss=204,864KB  vsz=5,013MB  Δmaj=0
+    [-] stabilizer                 [multi ]  wall=0.0063s  rss=204,864KB  vsz=5,013MB  Δmaj=0
+    [-] stabilizer                 [single]  wall=0.0063s  rss=204,864KB  vsz=5,013MB  Δmaj=0
+    [+] density_matrix             [multi ]  wall=0.0334s  rss=202,212KB  vsz=6,507MB  Δmaj=0
+    [+] density_matrix             [single]  wall=0.0101s  rss=202,792KB  vsz=6,507MB  Δmaj=0
+    [+] matrix_product_state       [multi ]  wall=0.0248s  rss=202,792KB  vsz=7,147MB  Δmaj=0
+    [+] matrix_product_state       [single]  wall=0.0190s  rss=202,792KB  vsz=7,147MB  Δmaj=0
+    [-] extended_stabilizer        [multi ]  wall=0.0063s  rss=202,792KB  vsz=7,147MB  Δmaj=0
+    [-] extended_stabilizer        [single]  wall=0.0062s  rss=202,792KB  vsz=7,147MB  Δmaj=0
+    [+] unitary                    [multi ]  wall=0.0090s  rss=202,792KB  vsz=7,147MB  Δmaj=0
+    [+] unitary                    [single]  wall=0.0085s  rss=202,792KB  vsz=7,147MB  Δmaj=0
+    [+] automatic                  [multi ]  wall=0.0073s  rss=203,056KB  vsz=7,147MB  Δmaj=0
+    [+] automatic                  [single]  wall=0.0095s  rss=203,056KB  vsz=7,147MB  Δmaj=0

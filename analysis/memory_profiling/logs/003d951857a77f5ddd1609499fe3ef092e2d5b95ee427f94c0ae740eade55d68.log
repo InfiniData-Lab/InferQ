@@ -1,0 +1,34 @@
+
+  [SQLite] 003d951857a77f5ddd1609499fe3ef092e2d5b95ee427f94c0ae740eade55d68
+    total CTEs  : 18  (tensor CTEs: 5, contraction CTEs: 13)
+    SQL length  : 5,027 chars
+    Counting rows per K_i CTE (13 contraction CTEs)...
+      K1      rows=2  idx_cols=0  ~32 bytes
+      K2      rows=4  idx_cols=0  ~64 bytes
+      K3      rows=8  idx_cols=0  ~128 bytes
+      K4      rows=2  idx_cols=0  ~32 bytes
+      K5      rows=2  idx_cols=0  ~32 bytes
+      K6      rows=4  idx_cols=0  ~64 bytes
+      K7      rows=8  idx_cols=0  ~128 bytes
+      K8      rows=4  idx_cols=0  ~64 bytes
+      K9      rows=8  idx_cols=0  ~128 bytes
+      K10     rows=16  idx_cols=0  ~256 bytes
+      K11     rows=8  idx_cols=0  ~128 bytes
+      K12     rows=8  idx_cols=0  ~128 bytes
+      K13     rows=8  idx_cols=0  ~128 bytes
+
+  [Aer] 003d951857a77f5ddd1609499fe3ef092e2d5b95ee427f94c0ae740eade55d68  (3 qubits, depth 5)
+    [+] statevector                [multi ]  wall=0.0027s  rss=198,372KB  vsz=5,008MB  Δmaj=0
+    [+] statevector                [single]  wall=0.0035s  rss=198,372KB  vsz=5,008MB  Δmaj=0
+    [-] stabilizer                 [multi ]  wall=0.0008s  rss=198,372KB  vsz=5,008MB  Δmaj=0
+    [-] stabilizer                 [single]  wall=0.0007s  rss=198,372KB  vsz=5,008MB  Δmaj=0
+    [+] density_matrix             [multi ]  wall=0.0248s  rss=198,372KB  vsz=5,008MB  Δmaj=0
+    [+] density_matrix             [single]  wall=0.0018s  rss=198,372KB  vsz=5,008MB  Δmaj=0
+    [+] matrix_product_state       [multi ]  wall=0.0117s  rss=198,372KB  vsz=5,712MB  Δmaj=0
+    [+] matrix_product_state       [single]  wall=0.0088s  rss=198,372KB  vsz=5,712MB  Δmaj=0
+    [-] extended_stabilizer        [multi ]  wall=0.0007s  rss=198,372KB  vsz=5,712MB  Δmaj=0
+    [-] extended_stabilizer        [single]  wall=0.0008s  rss=199,456KB  vsz=5,712MB  Δmaj=0
+    [+] unitary                    [multi ]  wall=0.0008s  rss=199,716KB  vsz=5,712MB  Δmaj=0
+    [+] unitary                    [single]  wall=0.0008s  rss=199,716KB  vsz=5,712MB  Δmaj=0
+    [+] automatic                  [multi ]  wall=0.0089s  rss=199,716KB  vsz=5,712MB  Δmaj=0
+    [+] automatic                  [single]  wall=0.0035s  rss=199,716KB  vsz=5,712MB  Δmaj=0

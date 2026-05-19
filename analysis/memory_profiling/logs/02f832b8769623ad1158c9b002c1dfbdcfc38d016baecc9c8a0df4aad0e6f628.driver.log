@@ -1,0 +1,12 @@
+
+================================================================================
+02f832b8769623ad1158c9b002c1dfbdcfc38d016baecc9c8a0df4aad0e6f628  (9 qubits, depth 22)
+================================================================================
+Simulation failed and returned the following error message:
+ERROR:  [Experiment 0] Circuit circuit-207397275-459221 contains invalid instructions {"gates": {u1, u3, u2}} for "stabilizer" method.Circuit circuit-207397275-459221 contains invalid parameters  for "stabilizer" method.
+Simulation failed and returned the following error message:
+ERROR:  [Experiment 0] Circuit circuit-207397275-459221 contains invalid instructions {"gates": {u1, u3, u2}} for "stabilizer" method.Circuit circuit-207397275-459221 contains invalid parameters  for "stabilizer" method.
+Simulation failed and returned the following error message:
+ERROR: CH::State: Invalid gate operation 'u2'. [Experiment 0] CH::State: Invalid gate operation 'u2'.
+Simulation failed and returned the following error message:
+ERROR: CH::State: Invalid gate operation 'u2'. [Experiment 0] CH::State: Invalid gate operation 'u2'.

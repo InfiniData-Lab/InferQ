@@ -1,0 +1,41 @@
+
+  [SQLite] 000cff934cb3e2da10f6e6aed87cf30c4aab597619b0ff20097ade0330ce0d89
+    total CTEs  : 24  (tensor CTEs: 4, contraction CTEs: 20)
+    SQL length  : 5,989 chars
+    Counting rows per K_i CTE (20 contraction CTEs)...
+      K1      rows=1  idx_cols=0  ~16 bytes
+      K2      rows=1  idx_cols=0  ~16 bytes
+      K3      rows=1  idx_cols=0  ~16 bytes
+      K4      rows=1  idx_cols=0  ~16 bytes
+      K5      rows=1  idx_cols=0  ~16 bytes
+      K6      rows=1  idx_cols=0  ~16 bytes
+      K7      rows=1  idx_cols=0  ~16 bytes
+      K8      rows=1  idx_cols=0  ~16 bytes
+      K9      rows=1  idx_cols=0  ~16 bytes
+      K10     rows=1  idx_cols=0  ~16 bytes
+      K11     rows=1  idx_cols=0  ~16 bytes
+      K12     rows=1  idx_cols=0  ~16 bytes
+      K13     rows=1  idx_cols=0  ~16 bytes
+      K14     rows=1  idx_cols=0  ~16 bytes
+      K15     rows=1  idx_cols=0  ~16 bytes
+      K16     rows=1  idx_cols=0  ~16 bytes
+      K17     rows=1  idx_cols=0  ~16 bytes
+      K18     rows=1  idx_cols=0  ~16 bytes
+      K19     rows=1  idx_cols=0  ~16 bytes
+      K20     rows=1  idx_cols=0  ~16 bytes
+
+  [Aer] 000cff934cb3e2da10f6e6aed87cf30c4aab597619b0ff20097ade0330ce0d89  (11 qubits, depth 56)
+    [+] statevector                [multi ]  wall=0.0219s  rss=199,676KB  vsz=5,008MB  Δmaj=0
+    [+] statevector                [single]  wall=0.0167s  rss=199,676KB  vsz=5,008MB  Δmaj=0
+    [-] stabilizer                 [multi ]  wall=0.0078s  rss=199,676KB  vsz=5,008MB  Δmaj=0
+    [-] stabilizer                 [single]  wall=0.0077s  rss=199,676KB  vsz=5,008MB  Δmaj=0
+    [+] density_matrix             [multi ]  wall=2.7723s  rss=198,040KB  vsz=6,502MB  Δmaj=15
+    [+] density_matrix             [single]  wall=17.4151s  rss=198,308KB  vsz=6,502MB  Δmaj=0
+    [+] matrix_product_state       [multi ]  wall=0.0130s  rss=198,308KB  vsz=6,534MB  Δmaj=0
+    [+] matrix_product_state       [single]  wall=0.0204s  rss=198,308KB  vsz=6,534MB  Δmaj=0
+    [-] extended_stabilizer        [multi ]  wall=0.0086s  rss=198,308KB  vsz=6,534MB  Δmaj=0
+    [-] extended_stabilizer        [single]  wall=0.0078s  rss=198,308KB  vsz=6,534MB  Δmaj=0
+    [+] unitary                    [multi ]  wall=0.4366s  rss=262,048KB  vsz=6,598MB  Δmaj=0
+    [+] unitary                    [single]  wall=4.4748s  rss=262,276KB  vsz=6,598MB  Δmaj=0
+    [+] automatic                  [multi ]  wall=0.0170s  rss=196,744KB  vsz=6,534MB  Δmaj=0
+    [+] automatic                  [single]  wall=0.0163s  rss=196,744KB  vsz=6,534MB  Δmaj=0

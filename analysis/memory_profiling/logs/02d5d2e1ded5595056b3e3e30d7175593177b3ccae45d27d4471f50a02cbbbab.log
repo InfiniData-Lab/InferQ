@@ -1,0 +1,21 @@
+
+  [SQLite] 02d5d2e1ded5595056b3e3e30d7175593177b3ccae45d27d4471f50a02cbbbab
+    total CTEs  : 2  (tensor CTEs: 2, contraction CTEs: 0)
+    SQL length  : 716 chars
+    Counting rows per K_i CTE (0 contraction CTEs)...
+
+  [Aer] 02d5d2e1ded5595056b3e3e30d7175593177b3ccae45d27d4471f50a02cbbbab  (1 qubits, depth 20)
+    [+] statevector                [multi ]  wall=0.0023s  rss=197,544KB  vsz=5,008MB  Δmaj=0
+    [+] statevector                [single]  wall=0.0017s  rss=197,544KB  vsz=5,008MB  Δmaj=0
+    [-] stabilizer                 [multi ]  wall=0.0008s  rss=197,544KB  vsz=5,008MB  Δmaj=0
+    [-] stabilizer                 [single]  wall=0.0007s  rss=197,544KB  vsz=5,008MB  Δmaj=0
+    [+] density_matrix             [multi ]  wall=0.0090s  rss=197,544KB  vsz=5,008MB  Δmaj=0
+    [+] density_matrix             [single]  wall=0.0016s  rss=197,544KB  vsz=5,008MB  Δmaj=0
+    [+] matrix_product_state       [multi ]  wall=0.0010s  rss=197,544KB  vsz=5,008MB  Δmaj=0
+    [+] matrix_product_state       [single]  wall=0.0025s  rss=197,544KB  vsz=5,008MB  Δmaj=0
+    [-] extended_stabilizer        [multi ]  wall=0.0007s  rss=197,544KB  vsz=5,008MB  Δmaj=0
+    [-] extended_stabilizer        [single]  wall=0.0008s  rss=197,544KB  vsz=5,008MB  Δmaj=0
+    [+] unitary                    [multi ]  wall=0.0012s  rss=197,544KB  vsz=5,008MB  Δmaj=0
+    [+] unitary                    [single]  wall=0.0011s  rss=197,544KB  vsz=5,008MB  Δmaj=0
+    [+] automatic                  [multi ]  wall=0.0060s  rss=197,544KB  vsz=5,008MB  Δmaj=0
+    [+] automatic                  [single]  wall=0.0017s  rss=197,544KB  vsz=5,008MB  Δmaj=0

@@ -1,0 +1,12 @@
+
+================================================================================
+00551435ffa5cf6c1cd146fced08c4e6d1ba76accde83bba0f24f2ade5d8aa3c  (11 qubits, depth 45)
+================================================================================
+Simulation failed and returned the following error message:
+ERROR:  [Experiment 0] Circuit circuit-378118703-376942 contains invalid instructions {"gates": {ry, rx}} for "stabilizer" method.Circuit circuit-378118703-376942 contains invalid parameters  for "stabilizer" method.
+Simulation failed and returned the following error message:
+ERROR:  [Experiment 0] Circuit circuit-378118703-376942 contains invalid instructions {"gates": {ry, rx}} for "stabilizer" method.Circuit circuit-378118703-376942 contains invalid parameters  for "stabilizer" method.
+Simulation failed and returned the following error message:
+ERROR: CH::State: Invalid gate operation 'rx'. [Experiment 0] CH::State: Invalid gate operation 'rx'.
+Simulation failed and returned the following error message:
+ERROR: CH::State: Invalid gate operation 'rx'. [Experiment 0] CH::State: Invalid gate operation 'rx'.
