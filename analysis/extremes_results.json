@@ -1,5 +1,5 @@
 {
-  "dataset": "/Users/andreiilinescu/Projects/InferQ/analysis/training_data/rdbms_training_data.parquet",
+  "dataset": "analysis/training_data/rdbms_training_data.parquet",
   "top": 5,
   "qiskit_wins": [
     {

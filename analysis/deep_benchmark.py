@@ -15,7 +15,6 @@ Aer path:
   • Peak RSS, VSZ, Δmajor-faults, Δminor-faults per method × mode
 
 Usage:
-    cd /Users/andreiilinescu/Projects/sigmod-paper/InferQ
     uv run python analysis/deep_benchmark.py
     # → analysis/deep_benchmark_results.json
 """
