@@ -119,7 +119,7 @@ BINS = ["sparse", "Medium", "dense"]
 
 QUBIT_COLORS = {20:"#92C5DE", 21:"#4393C3", 22:"#2166AC", 23:"#053061"}
 
-ZERO_SENT = 4e3   # 4 KB sentinel for zero-spill on log y
+ZERO_SENT = 0   # 4 KB sentinel for zero-spill on log y
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -719,38 +719,70 @@ def plot_cte_vs_density(pc, outdir):
     save(fig, outdir, "fig7_cte_vs_density.pdf")
 
 # ── F8 — Wall time vs spill ───────────────────────────────────────────────────
-
 def plot_walltime_vs_spill(pc, outdir):
-    fig, axes = plt.subplots(1, 3, figsize=(_W, 2.7), sharey=True,
-                              gridspec_kw={"wspace": 0.10})
+    _WC = 3.33
+    BREAK_X = 1e7   # fake x position for zero-spill points (10 MB, left of real data)
+
+    fig, axes = plt.subplots(1, 3, figsize=(_WC, 1.65), sharey=True,
+                              gridspec_kw={"wspace": 0.04})
 
     for col, (ax, eng) in enumerate(zip(axes, ENGINES)):
-        d = pc[pc["engine"]==eng].dropna(subset=["wall_time","spill"])
-        scatter_by_bin(ax, d, "wall_time", "spill", ms=22)
-        r = spearman(d["wall_time"].values, d["spill"].values)
-        annotate_rho(ax, r)
+        d = pc[pc["engine"] == eng].dropna(subset=["wall_time", "spill"])
+
+        # Split zero and non-zero spill
+        nz = d[d["spill"] > 0]
+        zr = d[d["spill"] == 0]
+
+        # Plot non-zero spill normally
+        scatter_by_bin(ax, nz, "spill", "wall_time", ms=14, zero_sentinel=ZERO_SENT)
+        r = spearman(d["spill"].values, d["wall_time"].values)
+        annotate_rho(ax, r, pos=(0.97, 0.05))
+
+        set_log_x_bytes(ax)
+
+        # Plot zero-spill points at BREAK_X with open markers
+        if not zr.empty:
+            for bname in BINS:
+                bd = zr[zr["sp_bin"] == bname]
+                if bd.empty:
+                    continue
+                ax.scatter([BREAK_X] * len(bd), bd["wall_time"],
+                        color="none", marker=BIN_MARK[bname],
+                        s=14, edgecolors=BIN_COLOR[bname],
+                        linewidths=0.7, zorder=5)
+            ax.axvline(BREAK_X * 3, color="0.70", lw=0.6, ls=":", zorder=1)
+            # label the zero-spill column
+            ax.text(BREAK_X, 0.06, "0", ha="center", va="bottom",
+                    fontsize=_FST, color="0.40", transform=ax.transData)
 
         set_log_y(ax)
-        ax.set_xscale("log")
-        ax.xaxis.set_major_formatter(
-            ticker.FuncFormatter(lambda x, _: f"{x:.0f}s" if x>=1 else f"{x:.1f}s"))
-        ax.xaxis.set_minor_locator(ticker.NullLocator())
-        ax.grid(axis="x", lw=0.35, ls="--", color="0.88", zorder=0)
-        ax.set_xlabel("Wall time (s)")
-        ax.set_title(ENG_LABEL[eng], color=ENG_COLOR[eng], pad=4)
+        ax.set_ylim(bottom=0.05)
+        ax.yaxis.set_major_formatter(
+            ticker.FuncFormatter(lambda x, _: f"{x:.0f}" if x >= 1 else f"{x:.1f}"))
+        ax.yaxis.set_minor_locator(ticker.NullLocator())
+        ax.tick_params(axis="both", labelsize=_FST)
+        ax.set_title(ENG_LABEL[eng], color=ENG_COLOR[eng], pad=2,
+                     fontsize=_FSS, fontweight="bold")
         if col == 0:
-            ax.set_ylabel("Spill (log scale)")
-            bin_legend(ax, outside=True)
+            ax.set_ylabel("Time (s)", fontsize=_FSS)
         else:
             ax.tick_params(labelleft=False)
 
-    fig.suptitle(
-        "Execution time vs spill  (log-log) — wall time tracks spill cost directly",
-        fontsize=_FS, y=1.01)
-    fig.subplots_adjust(left=0.09, right=0.995, top=0.88, bottom=0.28)
+    fig.text(0.5, 0.13, "Spill", ha="center", va="bottom", fontsize=_FSS)
+
+    bin_handles = [
+        Line2D([0], [0], marker=BIN_MARK[b], color=BIN_COLOR[b],
+               lw=0, ms=4, mew=0.3, mec="white", label=BIN_LABEL[b])
+        for b in BINS
+    ]
+    fig.legend(handles=bin_handles,
+               loc="lower center", bbox_to_anchor=(0.5, 0.0),
+               ncol=3, handlelength=0.5, borderpad=0.3,
+               labelspacing=0.15, columnspacing=0.5,
+               fontsize=_FST, frameon=False)
+
+    fig.subplots_adjust(left=0.17, right=0.99, top=0.97, bottom=0.32)
     save(fig, outdir, "fig8_walltime_vs_spill.pdf")
-
-
 # ── Export ────────────────────────────────────────────────────────────────────
 
 def export_summary(pc, outdir):

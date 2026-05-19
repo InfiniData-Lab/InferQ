@@ -378,7 +378,9 @@ def plot_spill_vs_cte(pc, caps, qubits, outdir):
     """
     Single row (1×3) at single-column width (3.33in).
     Only cap_gb == 16 GB. Cols = engine.
-    Highly compressed, explicit layout to prevent tick/legend clashing.
+    Filled circle = largest_cte, open square = total_cte.
+    Colour = num_qubits (sequential blues).
+    Spearman r per panel. Slope-1 guide.
     """
     q_colors = _qubit_colors(qubits)
     n_q      = len(qubits)
@@ -386,14 +388,16 @@ def plot_spill_vs_cte(pc, caps, qubits, outdir):
     cte_ticks   = [2e5, 5e5, 1e6, 3e6]
     spill_ticks = [1e6, 1e8, 1e9, 4e9]
 
+    # Taller figure: gives panels enough height so rotated x-tick labels,
+    # the legend strip, and the r-value annotations never overlap.
     _FW3 = _W_COL   # 3.33 in  (SIGMOD single col)
-    _FH3 = 1.45     # Rebalanced to give ticks breathing room natively
+    _FH3 = 1.50     # compact: panel height similar to original cropped image
 
     fig, axes = plt.subplots(
         1, 3,
         figsize=(_FW3, _FH3),
         sharex=True, sharey=True,
-        gridspec_kw={"wspace": 0.10},
+        gridspec_kw={"hspace": 0.10, "wspace": 0.12},
     )
 
     cap = CAP_FILTER
@@ -409,13 +413,13 @@ def plot_spill_vs_cte(pc, caps, qubits, outdir):
 
             if np.isfinite(r["largest_cte"]) and r["largest_cte"] > 0:
                 ax.scatter(r["largest_cte"], y,
-                           color=cc, marker="o", s=10,
+                           color=cc, marker="o", s=11,
                            alpha=0.88 if sp > 0 else 0.45,
                            edgecolors="white", linewidths=0.22, zorder=5)
 
             if np.isfinite(r["total_cte"]) and r["total_cte"] > 0:
                 ax.scatter(r["total_cte"], y,
-                           color="none", marker="s", s=7,
+                           color="none", marker="s", s=8,
                            alpha=0.92 if sp > 0 else 0.40,
                            edgecolors=cc, linewidths=0.55, zorder=4)
 
@@ -427,12 +431,13 @@ def plot_spill_vs_cte(pc, caps, qubits, outdir):
             ax.plot(xl, ratio * xl,
                     color="0.65", lw=0.55, ls="--", zorder=1)
 
-        # Spearman rhos
+        # Spearman rhos — placed at vertical mid-point of the axes (0.54 / 0.44)
+        # so they sit in the empty middle band and never clash with the data
+        # cluster (which lives near 1 MB at the bottom) or the title at the top.
         r_lrg = spearman(d["largest_cte"].values, d["spill"].values)
         r_tot  = spearman(d["total_cte"].values,   d["spill"].values)
         win_lrg = (np.isfinite(r_lrg) and
                    (not np.isfinite(r_tot) or abs(r_lrg) >= abs(r_tot)))
-        
         for i, (lbl, rv, bold) in enumerate([
             ("r(lrg)", r_lrg, win_lrg),
             ("r(tot)", r_tot, not win_lrg),
@@ -440,209 +445,208 @@ def plot_spill_vs_cte(pc, caps, qubits, outdir):
             if np.isfinite(rv):
                 ax.annotate(
                     f"{lbl}={rv:+.2f}",
-                    xy=(0.05, 0.52 - i * 0.13),   
+                    xy=(0.05, 1.0 - i * 0.14),   # vertical mid, not top-left corner
                     xycoords="axes fraction", ha="left", va="top",
-                    fontsize=_FST - 0.5, color="0.20",
+                    fontsize=_FST*0.8, color="0.22",
                     fontweight="bold" if bold else "normal",
                 )
 
-        # Axes scaling and ticks
+        # Axes
         ax.set_yscale("log")
         ax.set_yticks(spill_ticks)
-        ax.set_yticklabels([log_fmt(v, None) for v in spill_ticks], fontsize=_FST - 0.5)
+        ax.set_yticklabels([log_fmt(v, None) for v in spill_ticks], fontsize=_FST)
         ax.yaxis.set_minor_locator(ticker.NullLocator())
-        ax.grid(True, axis="y", lw=0.25, ls=":", color="0.86", zorder=0)
+        ax.grid(True,  axis="y", lw=0.25, ls=":", color="0.86", zorder=0)
 
         ax.set_xscale("log")
         ax.set_xticks(cte_ticks)
-        
-        # Enforce short custom format tags if log_fmt returns wide strings
-        ax.set_xticklabels(["200K", "500K", "1M", "3M"],
-                           fontsize=_FST - 0.5, rotation=30,
+        ax.set_xticklabels([log_fmt(v, None) for v in cte_ticks],
+                           fontsize=_FST, rotation=40,
                            ha="right", rotation_mode="anchor")
         ax.xaxis.set_minor_locator(ticker.NullLocator())
         ax.grid(True, axis="x", lw=0.25, ls=":", color="0.86", zorder=0)
-        ax.tick_params(axis="both", length=1.5, width=0.40, pad=1)
+        ax.tick_params(axis="both", length=2.0, width=0.45)
 
         if col != 0:
             ax.tick_params(labelleft=False)
 
         ax.set_title(ENG_LABEL[eng], color=ENG_COLOR[eng],
-                     fontsize=_FSS, fontweight="bold", pad=2)
+                     fontsize=_FSS, fontweight="bold", pad=3)
 
         if col == 0:
-            ax.set_ylabel(f"Median Spill", fontsize=_FST, labelpad=1, fontweight="bold")
+            ax.set_ylabel(f"{int(cap)} GB\nSpill", fontsize=_FST, labelpad=2)
 
-        ax.set_xlabel("CTE size", fontsize=_FST, labelpad=0)
+        ax.set_xlabel("CTE size", fontsize=_FST, labelpad=2)
 
-    # ── Strict Layout Boundaries ──
-    # bottom=0.36 safely contains the 30° rotated tick labels and "CTE size" axis label
-    fig.subplots_adjust(left=0.15, right=0.99, top=0.86, bottom=0.36)
+        print(f"  {eng} cap={int(cap)} GB: "
+              f"r(lrg)={r_lrg:+.3f}  r(tot)={r_tot:+.3f}")
 
+    # ── Legend — single centred row below the panels in reserved white space ──
+    # Split into two fig.legend calls so qubit colours sit left and
+    # marker-type / slope sit right, both well clear of the x-axis labels.
     q_handles = [
         Line2D([0], [0], marker="o", color=q_colors[q], lw=0,
-                ms=3.5, mew=0.22, mec="white", label=f"{q}q")
+               ms=3.5, mew=0.22, mec="white", label=f"{q}q")
         for q in qubits
     ]
     type_handles = [
         Line2D([0], [0], marker="o", color="0.35", lw=0,
-               ms=3.5, mew=0.22, mec="white", label="Lrg"),
+               ms=3.5, mew=0.22, mec="white", label="Largest"),
         Line2D([0], [0], marker="s", color="none", lw=0,
-               ms=3.0, mew=0.55, mec="0.35", label="Tot"),
-        Line2D([0], [0], color="0.60", lw=0.65, ls="--", label="S-1"),
+               ms=3.0, mew=0.55, mec="0.35", label="Total"),
+        Line2D([0], [0], color="0.60", lw=0.65, ls="--", label="Slope-1"),
     ]
+    # bottom=0.30 reserves enough canvas for rotated x-tick labels,
+    # the "CTE size" axis label, and one legend row — all cleanly separated.
+    fig.subplots_adjust(left=0.19, right=0.99, top=0.91, bottom=0.44)
 
-    # By shifting y down to 0.04 using coordinates completely inside the canvas base,
-    # we get a snug layout without triggering the artificial trailing whitespace.
+    # bbox_to_anchor y=-0.06 puts both legend groups just below the figure bottom,
+    # so they never overlap the axis labels.
     fig.legend(handles=q_handles,
-               loc="lower center", bbox_to_anchor=(0.32, 0.04),
-               ncol=n_q, handlelength=0.30,
-               borderpad=0.02, labelspacing=0.02, columnspacing=0.20,
-               fontsize=_FST - 0.7, frameon=False)
-               
+               loc="lower center", bbox_to_anchor=(0.35, -0.06),
+               ncol=n_q, handlelength=0.40,
+               borderpad=0.15, labelspacing=0.10, columnspacing=0.30,
+               fontsize=_FST - 0.5, frameon=False)
     fig.legend(handles=type_handles,
-               loc="lower center", bbox_to_anchor=(0.76, 0.04),
-               ncol=3, handlelength=0.40,
-               borderpad=0.02, labelspacing=0.02, columnspacing=0.20,
-               fontsize=_FST - 0.7, frameon=False)
+               loc="lower center", bbox_to_anchor=(0.78, -0.06),
+               ncol=3, handlelength=0.45,
+               borderpad=0.15, labelspacing=0.10, columnspacing=0.35,
+               fontsize=_FST - 0.5, frameon=False)
 
     save(fig, outdir, "fig3_spill_vs_cte.pdf")
 
 
-# ── Fig 4 — Wall-time (16 GB cap) ────────────────────────────────────────────
+# ── Fig 4 — Wall-time (16 GB cap only) ───────────────────────────────────────
 
-def plot_runtime(pc, caps, qubits, outdir):
+def plot_runtime(pc, qubits, outdir):
     """
-    Single-column width (3.33in). 1 row x 3 engine panels.
-    fig4a: wall time vs num_qubits.
-    fig4b: wall time vs spill (log-log).
+    Single-column width (3.33in). Squeezed to match CTE/spill figure height.
+    16 GB cap only.
+
+    fig4a_walltime_vs_qubits.pdf  — grouped bar chart: median time per
+                                    (engine, num_qubits). Error bars = IQR.
+    fig4b_walltime_vs_spill.pdf   — time vs spill (log-log), one panel,
+                                    engines by colour. Spearman rho per engine.
     """
-    # ── 4a ───────────────────────────────────────────────────────────────
-    np.random.seed(7)
-    n_caps  = len(caps)
-    offsets = np.linspace(-0.22, 0.22, n_caps) if n_caps > 1 else [0.0]
-    wt_ticks = [2, 5, 10, 20, 50, 100]
+    TARGET_CAP = 16
+    pc_16 = pc[pc["cap_gb"] == TARGET_CAP]
 
-    fig, axes = plt.subplots(1, 3, figsize=(_W_COL, 1.90), sharey=True,
-                             gridspec_kw={"wspace": 0.04})
+    wt_ticks = [2, 5, 10, 20, 50, 100]   # seconds, log scale
 
-    for col, (ax, eng) in enumerate(zip(axes, ENGINES)):
-        d  = pc[pc["engine"] == eng].dropna(subset=["wall_time"])
-        cc = ENG_COLOR[eng]
-
-        for ci, cap in enumerate(caps):
-            dc  = d[d["cap_gb"] == cap]
-            mk  = CAP_MARKS[cap]
-            off = offsets[ci]
-
-            for qb in qubits:
-                qd = dc[dc["num_qubits"] == qb]
-                n  = len(qd)
-                if n == 0:
-                    continue
-                jit  = np.random.uniform(-0.035, 0.035, n)
-                xpos = qb + off + jit
-                yv   = qd["wall_time"].values
-
-                ax.scatter(xpos, yv, color=cc, marker=mk, s=11, alpha=0.87,
-                           edgecolors="white", linewidths=0.25, zorder=4)
-                med = np.median(yv)
-                ax.plot([qb + off - 0.07, qb + off + 0.07],
-                        [med, med], color=cc, lw=1.3, zorder=5,
-                        solid_capstyle="butt")
-
-        ax.set_yscale("log")
-        ax.set_yticks(wt_ticks)
-        ax.set_yticklabels([f"{v}s" for v in wt_ticks], fontsize=_FST)
-        ax.yaxis.set_minor_locator(ticker.NullLocator())
-        ax.grid(True, axis="y", lw=0.28, ls=":", color="0.86", zorder=0)
-        ax.grid(False, axis="x")
-        ax.set_xticks(qubits)
-        ax.set_xticklabels([str(q) for q in qubits], fontsize=_FST)
-        ax.set_title(ENG_LABEL[eng], color=ENG_COLOR[eng], pad=5,
-                     fontsize=_FSS, fontweight="bold")
-        if col == 0:
-            ax.set_ylabel("Wall time", fontsize=_FSS)
-        else:
-            ax.tick_params(labelleft=False)
-
-    fig.text(0.57, 0.02, "Number of qubits", ha="center", fontsize=_FSS)
-
-    cap_handles = [
-        Line2D([0], [0], marker=CAP_MARKS[c], color="0.30", lw=0,
-               ms=4.5, mew=0.3, mec="white", label=CAP_LABEL[c])
-        for c in caps
+    eng_handles = [
+        Line2D([0], [0], marker="s", color=ENG_COLOR[e], lw=0,
+               ms=5, mec="white", mew=0.3, label=ENG_LABEL[e])
+        for e in ENGINES
     ]
-    fig.legend(handles=cap_handles,
-               loc="lower center", bbox_to_anchor=(0.57, -0.06),
-               ncol=len(caps), handlelength=0.5,
-               borderpad=0.2, labelspacing=0.12, columnspacing=0.55,
-               fontsize=_FST, frameon=False)
+
+    # ── 4a: grouped bar chart ─────────────────────────────────────────────
+    n_eng         = len(ENGINES)
+    n_qubits      = len(qubits)
+    bar_w         = 0.22
+    group_centres = np.arange(n_qubits)
+    bar_offsets   = np.linspace(-(n_eng - 1) / 2, (n_eng - 1) / 2, n_eng) * bar_w
+
+    fig, ax = plt.subplots(figsize=(_W_COL, 1.90))   # squeezed
+
+    for ei, eng in enumerate(ENGINES):
+        d   = pc_16[pc_16["engine"] == eng].dropna(subset=["wall_time"])
+        cc  = ENG_COLOR[eng]
+        off = bar_offsets[ei]
+
+        medians, q25s, q75s = [], [], []
+        for qb in qubits:
+            vals = d[d["num_qubits"] == qb]["wall_time"].values
+            if len(vals):
+                medians.append(np.median(vals))
+                q25s.append(np.percentile(vals, 25))
+                q75s.append(np.percentile(vals, 75))
+            else:
+                medians.append(np.nan)
+                q25s.append(np.nan)
+                q75s.append(np.nan)
+
+        medians = np.array(medians)
+        q25s    = np.array(q25s)
+        q75s    = np.array(q75s)
+        xpos    = group_centres + off
+
+        ax.bar(xpos, medians, width=bar_w * 0.88,
+               color=cc, alpha=0.85, zorder=3, label=ENG_LABEL[eng])
+
+        yerr_lo = np.where(np.isfinite(medians), medians - q25s, 0)
+        yerr_hi = np.where(np.isfinite(medians), q75s - medians, 0)
+        ax.errorbar(xpos, medians, yerr=[yerr_lo, yerr_hi],
+                    fmt="none", ecolor="0.25", elinewidth=0.7,
+                    capsize=2.0, capthick=0.7, zorder=4)
+
+    ax.set_yscale("log")
+    ax.set_yticks(wt_ticks)
+    ax.set_yticklabels([str(v) for v in wt_ticks], fontsize=_FST)
+    ax.yaxis.set_minor_locator(ticker.NullLocator())
+    ax.grid(True,  axis="y", lw=0.28, ls=":", color="0.86", zorder=0)
+    ax.grid(False, axis="x")
+    ax.set_xticks(group_centres)
+    ax.set_xticklabels([str(q) for q in qubits], fontsize=_FST)
+    ax.set_xlabel("Number of qubits", fontsize=_FSS)
+    ax.set_ylabel("Time (s)", fontsize=_FSS)
+    ax.set_title(f"Runtime Performance ({CAP_LABEL[TARGET_CAP]})",
+                 fontsize=_FSS, fontweight="bold", pad=4)
+    ax.legend(handles=eng_handles, loc="upper left", fontsize=_FST,
+              frameon=False, borderpad=0.2, labelspacing=0.2, handletextpad=0.3)
+
     fig.subplots_adjust(left=0.20, right=0.99, top=0.88, bottom=0.28)
     save(fig, outdir, "fig4a_walltime_vs_qubits.pdf")
 
-    # ── 4b ───────────────────────────────────────────────────────────────
+    # ── 4b: time vs spill ─────────────────────────────────────────────────
     np.random.seed(11)
     sp_ticks = [1e6, 1e8, 1e9, 4e9]
 
-    fig, axes = plt.subplots(1, 3, figsize=(_W_COL, 1.90), sharey=True,
-                             gridspec_kw={"wspace": 0.06})
+    fig, ax = plt.subplots(figsize=(_W_COL, 1.90))   # squeezed
 
-    for col, (ax, eng) in enumerate(zip(axes, ENGINES)):
-        d  = pc[pc["engine"] == eng].dropna(subset=["wall_time", "spill"])
+    rho_y_positions = [0.97, 0.87, 0.77]
+
+    for ei, eng in enumerate(ENGINES):
+        d  = pc_16[pc_16["engine"] == eng].dropna(subset=["wall_time", "spill"])
+        if d.empty:
+            continue
         cc = ENG_COLOR[eng]
 
-        for ci, cap in enumerate(caps):
-            dc = d[d["cap_gb"] == cap]
-            if dc.empty:
-                continue
-            mk = CAP_MARKS[cap]
-            ax.scatter(dc["spill"], dc["wall_time"],
-                       color=cc, marker=mk, s=11, alpha=0.85,
-                       edgecolors="white", linewidths=0.25, zorder=4,
-                       label=CAP_LABEL[cap] if col == 0 else None)
+        ax.scatter(d["spill"], d["wall_time"],
+                   color=cc, marker="o", s=11, alpha=0.85,
+                   edgecolors="white", linewidths=0.25, zorder=4)
 
         r = spearman(d["spill"].values, d["wall_time"].values)
         if np.isfinite(r):
-            ax.annotate(f"r={r:+.2f}", xy=(0.04, 0.97),
+            ax.annotate(f"{ENG_LABEL[eng]}: r={r:+.2f}",
+                        xy=(0.04, rho_y_positions[ei]),
                         xycoords="axes fraction", ha="left", va="top",
-                        fontsize=_FST, color="0.25", fontweight="bold")
+                        fontsize=_FST, color=cc, fontweight="bold")
 
-        ax.set_xscale("log")
-        ax.set_xticks(sp_ticks)
-        ax.set_xticklabels([log_fmt(v, None) for v in sp_ticks],
-                           fontsize=_FST, rotation=30,
-                           ha="right", rotation_mode="anchor")
-        ax.xaxis.set_minor_locator(ticker.NullLocator())
-        ax.grid(True, axis="x", lw=0.28, ls=":", color="0.86", zorder=0)
-        d_all = pc[pc["engine"] == eng].dropna(subset=["spill"])
-        ax.set_xlim(d_all["spill"].min() * 0.5, d_all["spill"].max() * 2.5)
+    ax.set_xscale("log")
+    ax.set_xticks(sp_ticks)
+    ax.set_xticklabels([log_fmt(v, None) for v in sp_ticks],
+                       fontsize=_FST, rotation=30,
+                       ha="right", rotation_mode="anchor")
+    ax.xaxis.set_minor_locator(ticker.NullLocator())
+    ax.grid(True, axis="x", lw=0.28, ls=":", color="0.86", zorder=0)
 
-        ax.set_yscale("log")
-        ax.set_yticks(wt_ticks)
-        ax.set_yticklabels([f"{v}s" for v in wt_ticks], fontsize=_FST)
-        ax.yaxis.set_minor_locator(ticker.NullLocator())
-        ax.grid(True, axis="y", lw=0.28, ls=":", color="0.86", zorder=0)
+    spill_vals = pc_16["spill"].dropna()
+    if not spill_vals.empty:
+        ax.set_xlim(spill_vals.min() * 0.5, spill_vals.max() * 2.5)
 
-        ax.set_title(ENG_LABEL[eng], color=ENG_COLOR[eng], pad=5,
-                     fontsize=_FSS, fontweight="bold")
-        if col == 0:
-            ax.set_ylabel("Wall time", fontsize=_FSS)
-        else:
-            ax.tick_params(labelleft=False)
-        ax.set_xlabel("Spill", fontsize=_FSS, labelpad=6)
+    ax.set_yscale("log")
+    ax.set_yticks(wt_ticks)
+    ax.set_yticklabels([str(v) for v in wt_ticks], fontsize=_FST)
+    ax.yaxis.set_minor_locator(ticker.NullLocator())
+    ax.grid(True, axis="y", lw=0.28, ls=":", color="0.86", zorder=0)
+    ax.set_ylabel("Time (s)", fontsize=_FSS)
+    ax.set_xlabel("Spill", fontsize=_FSS, labelpad=4)
+    ax.set_title(f"Spill ({CAP_LABEL[TARGET_CAP]})",
+                 fontsize=_FSS, fontweight="bold", pad=4)
+    ax.legend(handles=eng_handles, loc="lower right", fontsize=_FST,
+              frameon=False, borderpad=0.2, labelspacing=0.2, handletextpad=0.3)
 
-    cap_handles = [
-        Line2D([0], [0], marker=CAP_MARKS[c], color="0.30", lw=0,
-               ms=4.5, mew=0.3, mec="white", label=CAP_LABEL[c])
-        for c in caps
-    ]
-    fig.legend(handles=cap_handles,
-               loc="lower center", bbox_to_anchor=(0.57, -0.06),
-               ncol=len(caps), handlelength=0.5,
-               borderpad=0.2, labelspacing=0.12, columnspacing=0.55,
-               fontsize=_FST, frameon=False)
-    fig.subplots_adjust(left=0.20, right=0.99, top=0.88, bottom=0.35)
+    fig.subplots_adjust(left=0.20, right=0.99, top=0.88, bottom=0.32)
     save(fig, outdir, "fig4b_walltime_vs_spill.pdf")
 
 
@@ -663,7 +667,7 @@ def main():
         ("Fig 1  CTE sizes (16 GB cap)",         lambda p, o: plot_cte_sizes(p, caps, qubits, o)),
         ("Fig 2  spill vs num_qubits (16 GB)",    lambda p, o: plot_spill_vs_qubits(p, caps, qubits, o)),
         ("Fig 3  spill vs CTE (1×3, 16 GB)",      lambda p, o: plot_spill_vs_cte(p, caps, qubits, o)),
-        ("Fig 4  wall-time (qubits + spill)",      lambda p, o: plot_runtime(p, caps, qubits, o)),
+        ("Fig 4  wall-time (qubits + spill)",      lambda p, o: plot_runtime(p, qubits, o)),
     ]
     for label, fn in steps:
         print(label)
