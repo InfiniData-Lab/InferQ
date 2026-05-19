@@ -26,7 +26,6 @@ extractors, duplicate detection, local storage, and optional Azure upload.
 InferQ targets Python `>=3.12,<3.14`.
 
 ```bash
-git clone git@github.com:andreiilinescu/InferQ.git
 cd InferQ
 uv sync
 ```
