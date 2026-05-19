@@ -16,11 +16,11 @@
   "profile_tunings": "analysis/finetuned_rdbms_162_baseline_min_floor_100ms_contraction_all_engines/profile_tunings.json",
   "qpy_list": "analysis/finetuned_rdbms_162_baseline_min_floor_100ms_contraction_all_engines/found_qpy_paths.txt",
   "qpy_roots": [
-    "/home/timlittau/Documents/InferQ/analysis/finetuned_rdbms_7705/qpy",
-    "/home/timlittau/Documents/InferQ/analysis/finetuned_rdbms_162/qpy",
-    "/home/timlittau/Documents/InferQ/analysis/finetuned_rdbms_116/qpy",
-    "/home/timlittau/Documents/InferQ/circuits",
-    "/home/timlittau/Documents/InferQ/data/extremes"
+    "analysis/finetuned_rdbms_7705/qpy",
+    "analysis/finetuned_rdbms_162/qpy",
+    "analysis/finetuned_rdbms_116/qpy",
+    "circuits",
+    "data/extremes"
   ],
   "results_csv": "analysis/finetuned_rdbms_162_baseline_min_floor_100ms_contraction_all_engines/results_two_profile.csv",
   "selected_circuits": 162,
