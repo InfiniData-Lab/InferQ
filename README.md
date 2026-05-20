@@ -146,7 +146,9 @@ in `generators/`, accepts indexes, names, or ranges such as `1,13` or
 `GHZ,QFTGenerator`, previews each template's generated default parameters, and
 lets you override parameters. After the circuit is built, it can run the same
 feature extraction, simulation, local storage, and optional Azure upload path as
-the generated pipeline.
+the generated pipeline. See `interactive.md` for the detailed workflow,
+including how explicit selections are used to deterministically create parts of
+compositions.
 
 To only build the composed circuit without processing it:
 
