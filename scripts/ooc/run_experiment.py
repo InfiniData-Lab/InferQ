@@ -177,6 +177,10 @@ def build_worker_args(
     out_path: Path, cfg: dict, mode: str,
 ) -> list[str]:
     """Argv for `python -m scripts.ooc.worker ...` — runner-independent."""
+    sqlite_cache_mb = int(cfg["sqlite_cache_mb"])
+    frac = float(cfg.get("sqlite_cache_frac") or 0.0)
+    if frac > 0.0:
+        sqlite_cache_mb = max(1, int(cap_gb * 1024 * frac))
     args = [
         "-m", WORKER_MODULE,
         "--engine", engine,
@@ -193,7 +197,7 @@ def build_worker_args(
         "--container-cpus", str(cfg.get("container_cpus") or 0),
         "--duckdb-memory-mb", str(cfg["duckdb_memory_mb"]),
         "--duckdb-pad-mb", str(cfg["duckdb_pad_mb"]),
-        "--sqlite-cache-mb", str(cfg["sqlite_cache_mb"]),
+        "--sqlite-cache-mb", str(sqlite_cache_mb),
         "--pg-host", "127.0.0.1",
         "--pg-port", str(cfg["postgres_host_port"]),
     ]

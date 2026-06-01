@@ -137,6 +137,11 @@ class PipelineConfig:
         "duckdb_pad_mb": 1024,
         "duckdb_threads": 1,
         "sqlite_cache_mb": 64,
+        # If > 0, overrides sqlite_cache_mb on a per-trial basis to
+        # `cap_gb * 1024 * sqlite_cache_frac`. Lets the SQLite page cache
+        # scale with the cgroup cap so cap_gb actually affects runtime
+        # (rather than being filled only by the OS page cache).
+        "sqlite_cache_frac": 0.0,
         # Optional PostgreSQL overrides for the tuned Docker image. Values <= 0
         # keep the cap-derived defaults in scripts/ooc/docker/pg_entrypoint.sh.
         "postgres_shared_buffers_mb": 0,
@@ -367,6 +372,7 @@ class PipelineConfig:
         cfg["duckdb_pad_mb"] = self.get_env_or_default("OOC_DUCKDB_PAD_MB", cfg["duckdb_pad_mb"], int)
         cfg["duckdb_threads"] = self.get_env_or_default("OOC_DUCKDB_THREADS", cfg["duckdb_threads"], int)
         cfg["sqlite_cache_mb"] = self.get_env_or_default("OOC_SQLITE_CACHE_MB", cfg["sqlite_cache_mb"], int)
+        cfg["sqlite_cache_frac"] = self.get_env_or_default("OOC_SQLITE_CACHE_FRAC", cfg["sqlite_cache_frac"], float)
         cfg["postgres_shared_buffers_mb"] = self.get_env_or_default("OOC_PG_SHARED_BUFFERS_MB", cfg["postgres_shared_buffers_mb"], int)
         cfg["postgres_work_mem_mb"] = self.get_env_or_default("OOC_PG_WORK_MEM_MB", cfg["postgres_work_mem_mb"], int)
         cfg["postgres_maint_work_mem_mb"] = self.get_env_or_default("OOC_PG_MAINT_WORK_MEM_MB", cfg["postgres_maint_work_mem_mb"], int)
