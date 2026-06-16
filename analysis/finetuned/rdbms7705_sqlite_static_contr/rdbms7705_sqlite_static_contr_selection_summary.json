@@ -1,0 +1,37 @@
+{
+  "dynamic_timeout_max_s": 0.0059635639190673,
+  "dynamic_timeout_median_s": 0.0018200874328613,
+  "dynamic_timeout_min_s": 0.0001638649962842,
+  "found_qpy": 7705,
+  "hashes_file": "analysis/finetuned_rdbms_7705_sqlite_static_contraction/full_7705_hashes.txt",
+  "manifest_csv": "analysis/finetuned_rdbms_7705_sqlite_static_contraction/full_7705_two_profile_manifest.csv",
+  "missing_file": "analysis/finetuned_rdbms_7705_sqlite_static_contraction/missing_hashes.txt",
+  "missing_qpy": 0,
+  "num_shards": 1,
+  "parquet": "analysis/training_data/rdbms_training_data.parquet",
+  "profile_counts": {
+    "large_size": 3816,
+    "small_size": 3889
+  },
+  "profile_tunings": "analysis/finetuned_rdbms_7705_sqlite_static_contraction/profile_tunings.json",
+  "qpy_list": "analysis/finetuned_rdbms_7705_sqlite_static_contraction/found_qpy_paths.txt",
+  "qpy_roots": [
+    "analysis/finetuned_rdbms_7705/qpy",
+    "analysis/finetuned_rdbms_162/qpy",
+    "analysis/finetuned_rdbms_116/qpy",
+    "circuits",
+    "data/extremes"
+  ],
+  "results_csv": "analysis/finetuned_rdbms_7705_sqlite_static_contraction/results_two_profile.csv",
+  "selected_circuits": 7705,
+  "shard_index": 0,
+  "size_threshold": 54.0,
+  "split_quantile": 0.5,
+  "sqlite_timeout_seconds": 1,
+  "timeout_floor_seconds": 0.0,
+  "timeout_multiplier": 1.0,
+  "timeout_policy": "static",
+  "timeout_seconds": 1,
+  "timing_scope": "contraction",
+  "total_found_qpy": 7705
+}

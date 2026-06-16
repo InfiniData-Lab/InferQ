@@ -1,0 +1,56 @@
+{
+  "large_size": {
+    "duckdb": {
+      "max_temp_directory_size": "128GB",
+      "memory_limit": "7409MB",
+      "preserve_insertion_order": true,
+      "temp_directory": "analysis/finetuned_rdbms_162_baseline_min_floor_100ms_contraction_all_engines/tmp/large_size/duckdb",
+      "threads": 1
+    },
+    "postgres": {
+      "effective_cache_size": "2GB",
+      "from_collapse_limit": 1,
+      "hash_mem_multiplier": "1.94",
+      "jit": "off",
+      "join_collapse_limit": 4,
+      "max_parallel_workers_per_gather": 0,
+      "temp_buffers": "65MB",
+      "temp_file_limit": "-1",
+      "work_mem": "55MB"
+    },
+    "sqlite": {
+      "cache_mb": 128,
+      "db_path": "analysis/finetuned_rdbms_162_baseline_min_floor_100ms_contraction_all_engines/tmp/large_size/sqlite/bench.db",
+      "mmap_mb": 128,
+      "temp_store": "MEMORY",
+      "threads": 1
+    }
+  },
+  "small_size": {
+    "duckdb": {
+      "max_temp_directory_size": "256GB",
+      "memory_limit": "10780MB",
+      "preserve_insertion_order": false,
+      "temp_directory": "analysis/finetuned_rdbms_162_baseline_min_floor_100ms_contraction_all_engines/tmp/small_size/duckdb",
+      "threads": 2
+    },
+    "postgres": {
+      "effective_cache_size": "8GB",
+      "from_collapse_limit": 1,
+      "hash_mem_multiplier": "2.0",
+      "jit": "off",
+      "join_collapse_limit": 1,
+      "max_parallel_workers_per_gather": 4,
+      "temp_buffers": "128MB",
+      "temp_file_limit": "-1",
+      "work_mem": "256MB"
+    },
+    "sqlite": {
+      "cache_mb": 64,
+      "db_path": ":memory:",
+      "mmap_mb": 0,
+      "temp_store": "MEMORY",
+      "threads": 1
+    }
+  }
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "tier": "sparse",
+    "hash": "28cc090ee778683c278907f9d481b6c2d42368eb601b8a82de06241509b058b2",
+    "qubits": 10,
+    "gates": 1,
+    "two_qubit_gates": 0,
+    "ctes": 11,
+    "sql_bytes": 2396,
+    "nonzero_amplitudes": 2,
+    "duckdb_runtime_s": 0.004,
+    "file": "sparse_28cc090e.sql"
+  },
+  {
+    "tier": "middle",
+    "hash": "bbef2eb030ecffdd8f7e4864e232dc80135b8f0f48add8b7d52b1d15c4cb3483",
+    "qubits": 10,
+    "gates": 31,
+    "two_qubit_gates": 10,
+    "ctes": 45,
+    "sql_bytes": 11519,
+    "nonzero_amplitudes": 1024,
+    "duckdb_runtime_s": 0.016,
+    "file": "middle_bbef2eb0.sql"
+  },
+  {
+    "tier": "dense",
+    "hash": "744d3b5c1982008dc9f7cb547f8823f1e3ae1938bce989245ae61a0052b2b18e",
+    "qubits": 11,
+    "gates": 61,
+    "two_qubit_gates": 23,
+    "ctes": 76,
+    "sql_bytes": 19513,
+    "nonzero_amplitudes": 2048,
+    "duckdb_runtime_s": 0.166,
+    "file": "dense_744d3b5c.sql"
+  }
+]

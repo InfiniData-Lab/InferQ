@@ -1,0 +1,324 @@
+{
+  "timestamp": "20260509_201039",
+  "target": "best_time_method",
+  "test_size": 0.2,
+  "n_samples": 7705,
+  "total_time_s": 15.44,
+  "results": [
+    {
+      "model": "RandomForest",
+      "features": "Static + Graph + SQL + Dynamic",
+      "n_features": 28,
+      "train_time_s": 0.72,
+      "accuracy": 0.9539,
+      "f1": 0.8467,
+      "roc_auc": 0.9853
+    },
+    {
+      "model": "XGBoost",
+      "features": "Static + Graph + SQL + Dynamic",
+      "n_features": 28,
+      "train_time_s": 0.4,
+      "accuracy": 0.9533,
+      "f1": 0.8442,
+      "roc_auc": 0.9846
+    },
+    {
+      "model": "RandomForest",
+      "features": "Static + Dynamic",
+      "n_features": 12,
+      "train_time_s": 0.71,
+      "accuracy": 0.9461,
+      "f1": 0.8207,
+      "roc_auc": 0.978
+    },
+    {
+      "model": "RandomForest",
+      "features": "Static + Graph + SQL",
+      "n_features": 26,
+      "train_time_s": 0.75,
+      "accuracy": 0.9442,
+      "f1": 0.8072,
+      "roc_auc": 0.9763
+    },
+    {
+      "model": "RandomForest",
+      "features": "Static + SQL",
+      "n_features": 16,
+      "train_time_s": 0.83,
+      "accuracy": 0.9429,
+      "f1": 0.8027,
+      "roc_auc": 0.9725
+    },
+    {
+      "model": "XGBoost",
+      "features": "Static + SQL",
+      "n_features": 16,
+      "train_time_s": 0.3,
+      "accuracy": 0.9403,
+      "f1": 0.7982,
+      "roc_auc": 0.9692
+    },
+    {
+      "model": "XGBoost",
+      "features": "Static + Dynamic",
+      "n_features": 12,
+      "train_time_s": 0.26,
+      "accuracy": 0.9345,
+      "f1": 0.7846,
+      "roc_auc": 0.9739
+    },
+    {
+      "model": "DecisionTree",
+      "features": "Static + Graph + SQL + Dynamic",
+      "n_features": 28,
+      "train_time_s": 0.12,
+      "accuracy": 0.9286,
+      "f1": 0.7782,
+      "roc_auc": 0.928
+    },
+    {
+      "model": "XGBoost",
+      "features": "Static + Graph + SQL",
+      "n_features": 26,
+      "train_time_s": 0.37,
+      "accuracy": 0.9332,
+      "f1": 0.7775,
+      "roc_auc": 0.9777
+    },
+    {
+      "model": "RandomForest",
+      "features": "Static + Graph",
+      "n_features": 20,
+      "train_time_s": 0.79,
+      "accuracy": 0.9293,
+      "f1": 0.7583,
+      "roc_auc": 0.9618
+    },
+    {
+      "model": "XGBoost",
+      "features": "SQL",
+      "n_features": 6,
+      "train_time_s": 1.4,
+      "accuracy": 0.9234,
+      "f1": 0.7521,
+      "roc_auc": 0.9361
+    },
+    {
+      "model": "RandomForest",
+      "features": "SQL",
+      "n_features": 6,
+      "train_time_s": 0.82,
+      "accuracy": 0.9247,
+      "f1": 0.7489,
+      "roc_auc": 0.9375
+    },
+    {
+      "model": "RandomForest",
+      "features": "Static",
+      "n_features": 10,
+      "train_time_s": 0.82,
+      "accuracy": 0.9254,
+      "f1": 0.7473,
+      "roc_auc": 0.9563
+    },
+    {
+      "model": "XGBoost",
+      "features": "Static + Graph",
+      "n_features": 20,
+      "train_time_s": 0.34,
+      "accuracy": 0.9215,
+      "f1": 0.742,
+      "roc_auc": 0.9622
+    },
+    {
+      "model": "XGBoost",
+      "features": "Static",
+      "n_features": 10,
+      "train_time_s": 0.29,
+      "accuracy": 0.9195,
+      "f1": 0.7384,
+      "roc_auc": 0.9546
+    },
+    {
+      "model": "DecisionTree",
+      "features": "Static + Dynamic",
+      "n_features": 12,
+      "train_time_s": 0.05,
+      "accuracy": 0.9079,
+      "f1": 0.729,
+      "roc_auc": 0.9292
+    },
+    {
+      "model": "DecisionTree",
+      "features": "Static + Graph + SQL",
+      "n_features": 26,
+      "train_time_s": 0.12,
+      "accuracy": 0.902,
+      "f1": 0.7269,
+      "roc_auc": 0.9418
+    },
+    {
+      "model": "DecisionTree",
+      "features": "Static + SQL",
+      "n_features": 16,
+      "train_time_s": 0.07,
+      "accuracy": 0.8994,
+      "f1": 0.7197,
+      "roc_auc": 0.9327
+    },
+    {
+      "model": "LogisticRegression",
+      "features": "Static + Graph + SQL + Dynamic",
+      "n_features": 28,
+      "train_time_s": 0.61,
+      "accuracy": 0.8942,
+      "f1": 0.7185,
+      "roc_auc": 0.9647
+    },
+    {
+      "model": "LinearSVM",
+      "features": "Static + Graph + SQL + Dynamic",
+      "n_features": 28,
+      "train_time_s": 0.35,
+      "accuracy": 0.8916,
+      "f1": 0.7116,
+      "roc_auc": 0.9643
+    },
+    {
+      "model": "DecisionTree",
+      "features": "Static",
+      "n_features": 10,
+      "train_time_s": 0.05,
+      "accuracy": 0.8936,
+      "f1": 0.687,
+      "roc_auc": 0.8849
+    },
+    {
+      "model": "DecisionTree",
+      "features": "Static + Graph",
+      "n_features": 20,
+      "train_time_s": 0.07,
+      "accuracy": 0.8851,
+      "f1": 0.6788,
+      "roc_auc": 0.9027
+    },
+    {
+      "model": "LinearSVM",
+      "features": "Static + Graph + SQL",
+      "n_features": 26,
+      "train_time_s": 0.38,
+      "accuracy": 0.8754,
+      "f1": 0.6757,
+      "roc_auc": 0.9443
+    },
+    {
+      "model": "LogisticRegression",
+      "features": "Static + Graph + SQL",
+      "n_features": 26,
+      "train_time_s": 0.66,
+      "accuracy": 0.8741,
+      "f1": 0.6734,
+      "roc_auc": 0.9432
+    },
+    {
+      "model": "LogisticRegression",
+      "features": "Static + Dynamic",
+      "n_features": 12,
+      "train_time_s": 0.62,
+      "accuracy": 0.8644,
+      "f1": 0.6613,
+      "roc_auc": 0.9537
+    },
+    {
+      "model": "LinearSVM",
+      "features": "Static + Dynamic",
+      "n_features": 12,
+      "train_time_s": 0.1,
+      "accuracy": 0.8637,
+      "f1": 0.6602,
+      "roc_auc": 0.9534
+    },
+    {
+      "model": "LogisticRegression",
+      "features": "Static + SQL",
+      "n_features": 16,
+      "train_time_s": 0.64,
+      "accuracy": 0.8637,
+      "f1": 0.6546,
+      "roc_auc": 0.9351
+    },
+    {
+      "model": "LinearSVM",
+      "features": "Static + SQL",
+      "n_features": 16,
+      "train_time_s": 0.19,
+      "accuracy": 0.8624,
+      "f1": 0.6536,
+      "roc_auc": 0.9346
+    },
+    {
+      "model": "DecisionTree",
+      "features": "SQL",
+      "n_features": 6,
+      "train_time_s": 0.03,
+      "accuracy": 0.8735,
+      "f1": 0.6536,
+      "roc_auc": 0.9205
+    },
+    {
+      "model": "LinearSVM",
+      "features": "Static + Graph",
+      "n_features": 20,
+      "train_time_s": 0.24,
+      "accuracy": 0.8482,
+      "f1": 0.6164,
+      "roc_auc": 0.9134
+    },
+    {
+      "model": "LogisticRegression",
+      "features": "Static + Graph",
+      "n_features": 20,
+      "train_time_s": 0.56,
+      "accuracy": 0.8423,
+      "f1": 0.6062,
+      "roc_auc": 0.9136
+    },
+    {
+      "model": "LogisticRegression",
+      "features": "SQL",
+      "n_features": 6,
+      "train_time_s": 0.05,
+      "accuracy": 0.8177,
+      "f1": 0.5837,
+      "roc_auc": 0.9185
+    },
+    {
+      "model": "LinearSVM",
+      "features": "SQL",
+      "n_features": 6,
+      "train_time_s": 0.05,
+      "accuracy": 0.8157,
+      "f1": 0.5811,
+      "roc_auc": 0.9189
+    },
+    {
+      "model": "LogisticRegression",
+      "features": "Static",
+      "n_features": 10,
+      "train_time_s": 0.27,
+      "accuracy": 0.8066,
+      "f1": 0.5552,
+      "roc_auc": 0.9015
+    },
+    {
+      "model": "LinearSVM",
+      "features": "Static",
+      "n_features": 10,
+      "train_time_s": 0.09,
+      "accuracy": 0.8053,
+      "f1": 0.5536,
+      "roc_auc": 0.9007
+    }
+  ]
+}
