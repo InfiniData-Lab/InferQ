@@ -126,7 +126,7 @@ findmnt -no FSTYPE -T /data/inferq_ooc   # must NOT print 'tmpfs'
 export OOC_TMP_ROOT=/data/inferq_ooc
 
 # 6. Python dependencies on the host (only the orchestrator runs here):
-uv pip install -r requirements.txt
+uv pip install .
 ```
 
 Verify Docker enforces a memory cap:

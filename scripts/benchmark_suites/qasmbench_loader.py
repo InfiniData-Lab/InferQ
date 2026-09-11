@@ -46,8 +46,9 @@ class QASMBenchLoader(BenchmarkLoader):
     ) -> Iterator[BenchmarkCircuit]:
         if not self.vendor_dir.exists():
             logger.warning(
-                f"QASMBench vendor dir {self.vendor_dir} not found — "
-                f"run `python scripts/fetch_qasmbench.py` to populate it."
+                f"QASMBench vendor dir {self.vendor_dir} not found. The QASM "
+                f"files are vendored into the repo; see "
+                f"scripts/benchmark_suites/README.md for the folder inventory."
             )
             return
 

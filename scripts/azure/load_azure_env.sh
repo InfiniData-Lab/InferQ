@@ -37,8 +37,8 @@ if [ -f ".env" ]; then
     echo -e "${GREEN}Azure environment variables loaded!${NC}"
     echo ""
     echo "You can now run:"
-    echo "  python3 test-env-scripts/03_test_azure.py"
-    echo "  ./test-env-scripts/run_all_tests.sh"
+    echo "  python3 scripts/environment-test/03_test_azure.py"
+    echo "  ./scripts/environment-test/run_all_tests.sh"
     
 else
     echo -e "${RED}❌ .env file not found in current directory${NC}"

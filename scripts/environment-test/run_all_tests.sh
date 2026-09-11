@@ -13,7 +13,7 @@ NC='\033[0m'
 
 # Test directory
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$TEST_DIR")"
+PROJECT_DIR="$(dirname "$(dirname "$TEST_DIR")")"
 
 # Function to print colored output
 print_header() {

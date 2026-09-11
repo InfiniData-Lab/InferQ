@@ -84,7 +84,7 @@ def test_azure_connection():
         print("  4. Your network connection is working")
         print("  5. Azure storage account and container exist")
         print("\nFor more details, run:")
-        print("  python test-env-scripts/03_test_azure.py")
+        print("  python scripts/environment-test/03_test_azure.py")
         print("=" * 80)
         
         return False

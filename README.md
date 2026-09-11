@@ -36,15 +36,30 @@ If you are not using `uv`, install the project with pip:
 python -m pip install .
 ```
 
-InfiniQuantumSim is configured as a local editable dependency in
-`pyproject.toml`:
+`pyproject.toml` is the single source of dependency truth; there is no
+`requirements.txt`.
+
+### Optional extras
+
+InfiniQuantumSim is a sibling checkout rather than a published package, so it is
+an optional extra. The base install therefore succeeds without it, and the
+SQL-backed simulation paths degrade gracefully when it is absent:
 
 ```toml
 infiniquantumsim = { path = "../Infinidata-rdbms-simulator/", editable = true }
 ```
 
-Keep that sibling checkout in place when running SQL-backed simulation or query
-documentation tools.
+Install it when you need SQL-backed simulation or the query documentation tools:
+
+```bash
+uv sync --extra sql
+```
+
+Development tooling (pytest, ruff) is in the `dev` extra:
+
+```bash
+uv sync --extra dev
+```
 
 ## Configuration
 
@@ -156,9 +171,6 @@ To only build the composed circuit without processing it:
 python main.py interactive --generate-only
 ```
 
-`main_parallel.py` has been removed; `main.py` is now the canonical entry point
-for parallel, single-run, and interactive modes.
-
 ## Generator Templates And Synergies
 
 InferQ uses a template-based circuit generation system under `generators/`.
@@ -230,9 +242,8 @@ Benchmark tooling:
 - `scripts/benchmark_suites/qasmbench_qasm/`: vendored QASMBench QASM files and
   manifest metadata.
 - `scripts/ingest_benchmarks.py`: ingestion path for suite circuits.
-- `scripts/fetch_qasmbench.py`: refreshes vendored QASMBench inputs.
-- `data/extremes/` and `data/ooc/`: selected circuit sets used by analysis and
-  out-of-core experiments.
+- `data/ooc/`: selected circuit sets used by analysis and out-of-core
+  experiments.
 
 See `scripts/benchmark_suites/README.md` for the full benchmark table, per-file
 folder inventory, algorithm descriptions, and duplicate-name markings.
@@ -248,9 +259,32 @@ Experiment areas:
 
 - `scripts/ooc/`: out-of-core and limited-memory experiments. These compare RDBMS
   spill behavior against Aer under explicit memory caps.
+- `scripts/azure/download_circuits.py`: the single downloader for circuits held
+  in Azure Blob Storage, with one subcommand per way of naming the blob set:
+  `all` (the whole container), `metadata` (the `blob_url` column of the fetched
+  parquet files, resumable via a checkpoint), `hashes` (explicit hashes or a CSV
+  column) and `public` (an anonymous container, copied byte-for-byte). The
+  historical entry points — `scripts/download_circuits_by_hash.py`,
+  `scripts/download_from_csv.py`, `scripts/download_public_circuits.py`,
+  `scripts/azure/fetch_all_blobs.py` and
+  `scripts/azure/download_circuits_from_metadata.py` — remain as thin wrappers
+  that pin a mode and keep their own flags.
 - `scripts/finetuned_rdbms/`: raw-monolithic RDBMS benchmark runs and MLOS-based
   tuning over selected circuit sets.
-- `analysis/finetuned_rdbms_*`: local output folders for finetuning runs.
+- `scripts/rerun_pipeline/`: re-runs a stage over circuits that already exist.
+  `rerun_cli.py` is the one driver, selected with `--mode
+  {simulations,sql,dynamic}`; `rerun_simulations.py`, `rerun_sql_features.py`
+  and `rerun_dynamic_features.py` are wrappers that pin a mode and keep their
+  own flags.
+- `scripts/lib/`: helpers shared across the scripts — repository-root
+  resolution, the qubit-count binning used by the circuit selectors, and the
+  QPY-plus-manifest writer used by the manifest builders.
+- `analysis/finetuned/`: local output folders for finetuning runs.
+- `analysis/`: figure and dataset scripts for these experiments. Run them from
+  that directory (`python analysis/ooc_inferq_plot.py`); `analysis/plotting.py`
+  holds the shared font pick, engine palette, byte-axis formatters and figure
+  writer, while each script keeps its own `plt.rcParams` block because the
+  papers they feed use different styles.
 
 Supported database and benchmark engines:
 
@@ -278,6 +312,13 @@ The SQL engines used by the OOC runner share these query modes:
 - `split`: decomposes every `K*` contraction CTE into a materialized table, then
   runs the final SELECT. This is the default for out-of-core experiments because
   it bounds peak memory to roughly one contraction step.
+
+All three modes are implemented once in `utils/sql_query_modes.py`. The OOC
+worker, the fine-tuned RDBMS runner, the simulator's SQL backend, and the
+per-algorithm reference SQL generator all lower queries through that module, so
+they cannot drift apart. `tests/test_sql_query_modes.py` pins the lowering by
+re-deriving `generators/algorithms/*_queries/{monolithic_materialized,split}.sql`
+from the committed monolithic query and comparing.
 
 Typical database-only OOC runs use:
 
@@ -315,11 +356,17 @@ spill metrics, tuning profiles, and result schema details.
 
 ## Testing
 
-Run the focused test suite with:
+Run the test suite with:
 
 ```bash
-python -m pytest tests
+uv sync --extra dev
+python -m pytest
 ```
+
+`tests/test_import_integrity.py` asserts that every module in the repository is
+importable, skipping only those whose optional third-party dependencies are
+absent. It is the guard against bare sibling imports and stale symbols that
+static review misses.
 
 Environment and integration checks live under `scripts/environment-test/`.
 Those checks still import `run_extraction_pipeline` from `main.py`.
