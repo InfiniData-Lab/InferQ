@@ -359,6 +359,31 @@ See `scripts/ooc/README.md`, `scripts/ooc/DESIGN.md`, and
 `scripts/finetuned_rdbms/README.md` for Docker setup, memory-cap accounting,
 spill metrics, tuning profiles, and result schema details.
 
+## Smoke Test
+
+`scripts/smoke_test.py` answers one question: is this checkout set up to run the
+pipeline? It drives the production parallel pipeline over a handful of small
+circuits and then checks that every artifact landed on disk.
+
+```bash
+python scripts/smoke_test.py                 # 3 circuits, local only
+python scripts/smoke_test.py --circuits 5 --query-mode split
+python scripts/smoke_test.py --azure         # include the upload step
+```
+
+Before running anything it reports the interpreter and package versions, whether
+InfiniQuantumSim is installed, and which SQL engines are reachable. SQLite and
+DuckDB run in-process and always take part. PostgreSQL and Umbra are probed with
+the environment variables they read (`POSTGRES_*`, `UMBRA_*`); an engine that
+does not answer is named along with the reason and the variables that would
+configure it, and is then omitted from the run so the simulation does not block
+on a connection that will never open. A missing engine is reported, never fatal.
+
+Azure upload is off unless `--azure` is passed, so a smoke run never writes
+throwaway circuits into shared storage. Generation limits are pinned low for the
+run, and each attempt uses a fresh seed so repeat runs produce new circuits
+rather than colliding with duplicate detection.
+
 ## Testing
 
 Run the test suite with:
@@ -378,7 +403,13 @@ Those checks still import `run_extraction_pipeline` from `main.py`.
 
 ## Operational Notes
 
-- Generated circuits are written under the local circuits directory from `config.py`.
+- Generated circuits are written under the local circuits directory from
+  `config.py`, one directory per circuit hash holding `circuit.qpy` (or a
+  fallback serialization), `meta.json`, and -- whenever InfiniQuantumSim lowered
+  the circuit -- `circuit.sql`, the query that was actually executed. The mode
+  that shaped it is recorded as `sql_query_mode` in `meta.json`. The query is a
+  file rather than a metadata field because the `split` mode runs to tens of
+  kilobytes.
 - Duplicate detection uses local cache state and, when enabled, Azure metadata.
 - The parallel pipeline intentionally logs mostly batch-level status; worker-level
   debug output is suppressed unless logging is configured more verbosely.
