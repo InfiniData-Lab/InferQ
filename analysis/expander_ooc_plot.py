@@ -24,34 +24,38 @@ import warnings
 
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 
+# `plotting` is a sibling module: these scripts run as `python analysis/<name>.py`.
+# The relative form is the fallback for when analysis/ is imported as a package.
+try:
+    from plotting import ENG_COLOR, ENG_LABEL, ENGINES, best_serif, spearman
+    from plotting import FS as _FS
+    from plotting import FSS as _FSS
+    from plotting import FST as _FST
+    from plotting import W_COL as _W_COL
+    from plotting import W_FULL as _W_FULL
+    from plotting import log_fmt_exact as log_fmt
+    from plotting import save as _save
+except ImportError:  # analysis/ imported as a package
+    from .plotting import ENG_COLOR, ENG_LABEL, ENGINES, best_serif, spearman
+    from .plotting import FS as _FS
+    from .plotting import FSS as _FSS
+    from .plotting import FST as _FST
+    from .plotting import W_COL as _W_COL
+    from .plotting import W_FULL as _W_FULL
+    from .plotting import log_fmt_exact as log_fmt
+    from .plotting import save as _save
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 CAP_FILTER = 16   # only this cap_gb value is used
 
-# ── Font ──────────────────────────────────────────────────────────────────────
-def _best_serif():
-    fm.fontManager.__init__()
-    avail = {f.name for f in fm.fontManager.ttflist}
-    for n in ["TeX Gyre Termes", "Times New Roman", "Liberation Serif", "DejaVu Serif"]:
-        if n in avail:
-            return n
-    return "serif"
-
-_SERIF = _best_serif()
-
-# ── SIGMOD layout constants ───────────────────────────────────────────────────
-_W_FULL = 6.99
-_W_COL  = 3.33
-_FS     = 8.0
-_FSS    = 7.0
-_FST    = 6.5
+_SERIF = best_serif()
 
 plt.rcParams.update({
     "font.family":           _SERIF,
@@ -89,11 +93,7 @@ plt.rcParams.update({
     "ps.fonttype":           42,
 })
 
-# ── Palettes ──────────────────────────────────────────────────────────────────
-ENGINES   = ["postgres", "duckdb", "sqlite"]
-ENG_COLOR = {"postgres": "#2166AC", "duckdb": "#CB4335", "sqlite": "#1A7A40"}
-ENG_LABEL = {"postgres": "PostgreSQL", "duckdb": "DuckDB", "sqlite": "SQLite"}
-
+# ── Palettes not shared with the other figure scripts ─────────────────────────
 CAP_MARKS = {4: "^", 8: "s", 16: "o"}
 CAP_LABEL = {4: "4 GB", 8: "8 GB", 16: "16 GB"}
 
@@ -112,14 +112,6 @@ _CTE_TICKS = [
     1e5,   2e5,   5e5,
     1e6,   2e6,   4e6,
 ]
-
-
-def log_fmt(x, _):
-    if x <= 0:    return "0"
-    if x < 1e3:   return f"{x:.0f} B"
-    if x < 1e6:   return f"{x/1e3:.0f} KB"
-    if x < 1e9:   return f"{x/1e6:.0f} MB"  if (x/1e6) == int(x/1e6) else f"{x/1e6:.1f} MB"
-    return                f"{x/1e9:.0f} GB"  if (x/1e9) == int(x/1e9) else f"{x/1e9:.1f} GB"
 
 
 def _apply_spill_yaxis(ax, ticks=None):
@@ -153,17 +145,8 @@ def _apply_cte_yaxis(ax, ticks=None):
 
 
 def save(fig, outdir, name):
-    p = os.path.join(outdir, name)
-    fig.savefig(p, bbox_inches="tight", pad_inches=0.03)
-    plt.close(fig)
-    print(f"  saved -> {p}")
-
-
-def spearman(a, b):
-    mask = np.isfinite(a) & np.isfinite(b)
-    if mask.sum() < 3:
-        return np.nan
-    return pd.Series(a[mask]).corr(pd.Series(b[mask]), method="spearman")
+    """These figures were tuned with 0.03in padding; keep it out of call sites."""
+    return _save(fig, outdir, name, pad_inches=0.03)
 
 
 # ── Data loading ──────────────────────────────────────────────────────────────

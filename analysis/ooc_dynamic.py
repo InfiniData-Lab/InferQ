@@ -38,10 +38,18 @@ import warnings
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 import numpy as np
 import pandas as pd
 from matplotlib.colors import LogNorm
+
+# `plotting` is a sibling module: these scripts run as `python analysis/<name>.py`.
+# The relative form is the fallback for when analysis/ is imported as a package.
+try:
+    from plotting import byte_formatter
+    from plotting import save as _save
+except ImportError:  # analysis/ imported as a package
+    from .plotting import byte_formatter
+    from .plotting import save as _save
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -81,27 +89,14 @@ BYTES_TO_GB = 1 / (1024 ** 3)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def log_fmt(x, _):
-    """Compact human-readable byte labels for log axes."""
-    if x <= 0:    return "0"
-    if x < 1e3:   return f"{x:.0f} B"
-    if x < 1e6:   return f"{x/1e3:.0f} KB"
-    if x < 1e9:   return f"{x/1e6:.0f} MB"
-    return             f"{x/1e9:.1f} GB"
-
-
 def apply_log_y(ax):
     ax.set_yscale("log")
-    ax.yaxis.set_major_formatter(ticker.FuncFormatter(log_fmt))
+    ax.yaxis.set_major_formatter(byte_formatter())
     ax.grid(axis="y", which="both", linestyle="--", linewidth=0.5, alpha=0.6)
     ax.grid(axis="x", which="major", linestyle=":", linewidth=0.4, alpha=0.4)
 
 
-def save(fig, outdir, name):
-    path = os.path.join(outdir, name)
-    fig.savefig(path, bbox_inches="tight")
-    plt.close(fig)
-    print(f"  saved -> {path}")
+save = _save
 
 
 def ribbon(ax, x, med, q25, q75, color, label, marker="o"):
@@ -359,7 +354,7 @@ def plot_entropy_vs_sparsity_joint(df, outdir):
                         edgecolors="0.3", linewidths=0.3)
         cb = plt.colorbar(sc, ax=ax, pad=0.03)
         cb.set_label("Median Spill", fontsize=8)
-        cb.ax.yaxis.set_major_formatter(ticker.FuncFormatter(log_fmt))
+        cb.ax.yaxis.set_major_formatter(byte_formatter())
         cb.ax.tick_params(labelsize=7)
         ax.set_xlabel("Sparsity")
         ax.set_ylabel("Shannon Entropy (bits)")
@@ -494,7 +489,7 @@ def _heatmap(df, xcol, x_range, n_bins, xlabel, outfile, outdir):
                        interpolation="nearest")
         cb = plt.colorbar(im, ax=ax, pad=0.03, shrink=0.88)
         cb.set_label("Median Spill", fontsize=8)
-        cb.ax.yaxis.set_major_formatter(ticker.FuncFormatter(log_fmt))
+        cb.ax.yaxis.set_major_formatter(byte_formatter())
         cb.ax.tick_params(labelsize=7)
 
         ax.set_xticks(range(len(labs)))

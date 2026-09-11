@@ -42,30 +42,38 @@ Notes
 import argparse, os, warnings
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 
+# `plotting` is a sibling module: these scripts run as `python analysis/<name>.py`.
+# The relative form is the fallback for when analysis/ is imported as a package.
+try:
+    from plotting import (
+        ENG_COLOR, ENG_LABEL, ENG_MARK, ENGINES,
+        best_serif, byte_formatter, log_fmt, spearman,
+    )
+    from plotting import FS as _FS
+    from plotting import FSS as _FSS
+    from plotting import FST as _FST
+    from plotting import W_FULL as _W
+    from plotting import save as _save
+except ImportError:  # analysis/ imported as a package
+    from .plotting import (
+        ENG_COLOR, ENG_LABEL, ENG_MARK, ENGINES,
+        best_serif, byte_formatter, log_fmt, spearman,
+    )
+    from .plotting import FS as _FS
+    from .plotting import FSS as _FSS
+    from .plotting import FST as _FST
+    from .plotting import W_FULL as _W
+    from .plotting import save as _save
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-# ── Font: pick best available serif, never warn ───────────────────────────────
-def _best_serif():
-    fm.fontManager.__init__()
-    avail = {f.name for f in fm.fontManager.ttflist}
-    for n in ["TeX Gyre Termes","Times New Roman","Liberation Serif","DejaVu Serif"]:
-        if n in avail: return n
-    return "serif"
-
-_SERIF = _best_serif()
-
-# ── SIGMOD rcParams ───────────────────────────────────────────────────────────
-_W  = 6.99   # full text width (in)
-_FS = 8.0    # base font
-_FSS= 7.0    # small
-_FST= 6.5    # tiny annotations
+_SERIF = best_serif()
 
 plt.rcParams.update({
     "font.family":        _SERIF,
@@ -101,12 +109,7 @@ plt.rcParams.update({
     "ps.fonttype":        42,
 })
 
-# ── Palettes ──────────────────────────────────────────────────────────────────
-ENGINES   = ["postgres", "duckdb", "sqlite"]
-ENG_COLOR = {"postgres": "#2166AC", "duckdb": "#CB4335", "sqlite": "#1A7A40"}
-ENG_LABEL = {"postgres": "PostgreSQL", "duckdb": "DuckDB", "sqlite": "SQLite"}
-ENG_MARK  = {"postgres": "o", "duckdb": "s", "sqlite": "^"}
-
+# ── Palettes unique to this script ────────────────────────────────────────────
 # Bin colours: blue=sparse, orange=Medium, red=dense
 BIN_COLOR = {"sparse": "#4393C3", "Medium": "#F4A582", "dense": "#B2182B"}
 BIN_MARK  = {"sparse": "o",       "Medium": "s",       "dense": "^"}
@@ -124,17 +127,10 @@ ZERO_SENT = 0   # 4 KB sentinel for zero-spill on log y
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def log_fmt(x, _):
-    if x <= 0:  return "0"
-    if x < 1e3: return f"{x:.0f} B"
-    if x < 1e6: return f"{x/1e3:.0f} KB"
-    if x < 1e9: return f"{x/1e6:.0f} MB"
-    return              f"{x/1e9:.1f} GB"
-
 def set_log_y(ax):
     ax.set_yscale("log")
     ax.yaxis.set_major_locator(ticker.LogLocator(base=10, numticks=20))
-    ax.yaxis.set_major_formatter(ticker.FuncFormatter(log_fmt))
+    ax.yaxis.set_major_formatter(byte_formatter())
     ax.yaxis.set_minor_locator(ticker.NullLocator())
     # only horizontal grid lines — clean, no vertical clutter
     ax.grid(True,  axis="y", lw=0.35, ls="--", color="0.88", zorder=0)
@@ -142,15 +138,13 @@ def set_log_y(ax):
 
 def set_log_x_bytes(ax):
     ax.set_xscale("log")
-    ax.xaxis.set_major_formatter(ticker.FuncFormatter(log_fmt))
+    ax.xaxis.set_major_formatter(byte_formatter())
     ax.xaxis.set_minor_locator(ticker.NullLocator())
     ax.grid(True, axis="x", lw=0.35, ls="--", color="0.88", zorder=0)
 
 def save(fig, outdir, name):
-    p = os.path.join(outdir, name)
-    fig.savefig(p, bbox_inches="tight", pad_inches=0.02)
-    plt.close(fig)
-    print(f"  saved -> {p}")
+    """These figures were tuned with 0.02in padding; keep it out of call sites."""
+    return _save(fig, outdir, name, pad_inches=0.02)
 
 def bin_legend(ax, loc="best", outside=False):
     handles = [
@@ -166,11 +160,6 @@ def bin_legend(ax, loc="best", outside=False):
                   columnspacing=1.0)
     else:
         ax.legend(**kw, loc=loc)
-
-def spearman(a, b):
-    mask = np.isfinite(a) & np.isfinite(b)
-    if mask.sum() < 3: return np.nan
-    return pd.Series(a[mask]).corr(pd.Series(b[mask]), method="spearman")
 
 def annotate_rho(ax, rho, pos=(0.97, 0.05)):
     if np.isfinite(rho):

@@ -29,7 +29,10 @@ import numpy as np
 import pandas as pd
 import qiskit.qpy
 
-import deep_benchmark as deep
+try:
+    import deep_benchmark as deep
+except ImportError:  # analysis/ imported as a package
+    from . import deep_benchmark as deep
 
 
 ANALYSIS_DIR = Path(__file__).resolve().parent
