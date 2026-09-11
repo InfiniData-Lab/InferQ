@@ -34,6 +34,14 @@ for p in (INFERQ_ROOT, IQS_ROOT):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
+# Imported after the sys.path bootstrap above, which is what makes InferQ
+# importable when this file is run directly as `python worker.py`.
+from utils.sql_query_modes import (  # noqa: E402
+    count_iqs_ctes,
+    materialize_iqs_ctes,
+    split_iqs_query_per_step,
+)
+
 
 def _resolve_own_cgroup_paths() -> tuple[Path | None, Path | None]:
     """Parse /proc/self/cgroup → (v2_path, v1_mem_path).
@@ -477,9 +485,9 @@ def _run_postgres(query: str, args, run_idx: str, result: dict) -> None:
         cur.execute("SET log_temp_files = 0")
 
         if args.mode == "split":
-            statements = _split_iqs_query_per_step(query)
+            statements = split_iqs_query_per_step(query)
         elif args.mode == "monolithic_materialized":
-            statements = [_materialize_iqs_ctes(query)]
+            statements = [materialize_iqs_ctes(query)]
         else:
             statements = [query]
 
@@ -609,9 +617,9 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
     # mode, run the original IQS query unmodified (reproduces the OOM
     # behavior we saw before the fix — useful for the comparison study).
     if args.mode == "split":
-        statements = _split_iqs_query_per_step(query)
+        statements = split_iqs_query_per_step(query)
     elif args.mode == "monolithic_materialized":
-        statements = [_materialize_iqs_ctes(query)]
+        statements = [materialize_iqs_ctes(query)]
     else:
         statements = [query]
 
@@ -767,153 +775,9 @@ def _duckdb_sum_spill(profile: Any) -> int:
     return 0
 
 
-_CTE_HEAD = re.compile(r"\s*(\w+)(\s*\([^)]*\))?\s+AS\s*\(", re.IGNORECASE)
 _CREATE_TABLE_KX = re.compile(
     r"CREATE\s+(?:TEMP\s+)?TABLE\s+(K\w+)\s+AS\b", re.IGNORECASE
 )
-
-
-def _parse_iqs_ctes(query: str) -> dict:
-    """Count CTEs in an IQS `WITH H#..., K#..., SELECT ...` query.
-
-    K# CTEs are intermediary contraction steps; the rest (H#, helpers) are
-    tensor-literal CTEs. Returns zeros for queries without a leading WITH.
-    """
-    s = query.lstrip()
-    if not s.upper().startswith("WITH "):
-        return {"num_k_ctes": 0, "num_h_ctes": 0}
-    s = s[5:]
-    names: list[str] = []
-    pos = 0
-    while True:
-        m = _CTE_HEAD.match(s, pos)
-        if not m:
-            break
-        names.append(m.group(1))
-        body_start = m.end()
-        depth = 1
-        i = body_start
-        while i < len(s) and depth > 0:
-            c = s[i]
-            if c == "(":
-                depth += 1
-            elif c == ")":
-                depth -= 1
-            i += 1
-        pos = i
-        while pos < len(s) and s[pos] in " \t\n,":
-            pos += 1
-    n_k = sum(1 for n in names if n.startswith("K"))
-    return {"num_k_ctes": n_k, "num_h_ctes": len(names) - n_k}
-
-
-def _split_iqs_query_per_step(query: str, *, temp: bool = True) -> list[str]:
-    """Split an IQS `WITH H#... K#... SELECT` query into step-by-step DDL.
-
-    Both SQLite and DuckDB inline this CTE cascade by default and try to plan
-    it as one giant join, which blows up the heap regardless of the engine's
-    spill knobs. Materializing each contraction step (`K#`) into its own
-    table forces the engine to round-trip each intermediate through its
-    storage layer, bounding peak RSS to roughly one step's hash-build.
-
-    Tensor literal CTEs (anything not named K#) and any helper CTEs are
-    re-emitted as a shared WITH-prefix on every statement; their contents are
-    tiny VALUES clauses so duplicating them costs nothing.
-
-    Pass temp=False to emit `CREATE TABLE` instead of `CREATE TEMP TABLE` —
-    necessary for SQLite, where TEMP tables live in the temp schema whose
-    backing is controlled by `PRAGMA temp_store`. If sqlite was compiled
-    with SQLITE_TEMP_STORE=2 (always memory), the PRAGMA is a no-op and
-    temp tables stay in heap; using a regular CREATE TABLE writes to the
-    main disk-backed DB unconditionally.
-    """
-    s = query.lstrip()
-    if not s.upper().startswith("WITH "):
-        return [s]
-    s = s[5:]
-
-    cte_defs: list[tuple[str, str, str]] = []  # (name, optional cols, body)
-    pos = 0
-    while True:
-        m = _CTE_HEAD.match(s, pos)
-        if not m:
-            break
-        name = m.group(1)
-        cols = (m.group(2) or "").strip()
-        body_start = m.end()
-        depth = 1
-        i = body_start
-        while i < len(s) and depth > 0:
-            c = s[i]
-            if c == "(":
-                depth += 1
-            elif c == ")":
-                depth -= 1
-            i += 1
-        body = s[body_start:i - 1]
-        cte_defs.append((name, cols, body))
-        pos = i
-        while pos < len(s) and s[pos] in " \t\n,":
-            pos += 1
-    final_select = s[pos:].strip()
-
-    h_defs = [(n, c, b) for (n, c, b) in cte_defs if not n.startswith("K")]
-    k_defs = [(n, c, b) for (n, c, b) in cte_defs if n.startswith("K")]
-
-    if h_defs:
-        prefix = "WITH " + ", ".join(f"{n}{c} AS ({b})" for (n, c, b) in h_defs) + " "
-    else:
-        prefix = ""
-
-    table_kind = "TEMP TABLE" if temp else "TABLE"
-    statements: list[str] = []
-    for (n, _c, b) in k_defs:
-        statements.append(f"CREATE {table_kind} {n} AS {prefix}{b}")
-    statements.append(f"{prefix}{final_select}")
-    return statements
-
-
-def _materialize_iqs_ctes(query: str) -> str:
-    """Keep one WITH query but force CTE materialization.
-
-    This is the closest SQL-level knob for making the representative
-    monolithic pipeline less prone to optimizer inlining. SQLite, DuckDB, and
-    PostgreSQL 12+ understand `AS MATERIALIZED`.
-    """
-    s = query.lstrip()
-    if not s.upper().startswith("WITH "):
-        return query
-    s = s[5:]
-
-    cte_defs: list[tuple[str, str, str]] = []
-    pos = 0
-    while True:
-        m = _CTE_HEAD.match(s, pos)
-        if not m:
-            break
-        name = m.group(1)
-        cols = (m.group(2) or "").strip()
-        body_start = m.end()
-        depth = 1
-        i = body_start
-        while i < len(s) and depth > 0:
-            c = s[i]
-            if c == "(":
-                depth += 1
-            elif c == ")":
-                depth -= 1
-            i += 1
-        cte_defs.append((name, cols, s[body_start:i - 1]))
-        pos = i
-        while pos < len(s) and s[pos] in " \t\n,":
-            pos += 1
-
-    if not cte_defs:
-        return query
-    final_select = s[pos:].strip()
-    return "WITH " + ", ".join(
-        f"{n}{c} AS MATERIALIZED ({b})" for (n, c, b) in cte_defs
-    ) + " " + final_select
 
 
 def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
@@ -975,9 +839,9 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
     # temp_store, which silently no-ops when sqlite was compiled with
     # SQLITE_TEMP_STORE=2. CREATE TABLE in the main DB always hits disk.
     if args.mode == "split":
-        statements = _split_iqs_query_per_step(query, temp=False)
+        statements = split_iqs_query_per_step(query, temp=False)
     elif args.mode == "monolithic_materialized":
-        statements = [_materialize_iqs_ctes(query)]
+        statements = [materialize_iqs_ctes(query)]
     else:
         statements = [query]
     tic = time.perf_counter()
@@ -1233,7 +1097,7 @@ def main():
             envelope["num_qubits"] = num_q
             envelope["num_gates"] = num_g
             envelope["query_bytes"] = len(query)
-            envelope.update(_parse_iqs_ctes(query))
+            envelope.update(count_iqs_ctes(query))
 
         runner = ENGINE_DISPATCH[args.engine]
 

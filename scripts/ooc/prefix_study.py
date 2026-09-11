@@ -31,8 +31,8 @@ from scripts.ooc.worker import (  # noqa: E402
     _TempDirSampler,
     _build_iqs_query_with_timeout,
     _load_qiskit_circuit,
-    _split_iqs_query_per_step,
 )
+from utils.sql_query_modes import split_iqs_query_per_step  # noqa: E402
 
 
 FIELDS = [
@@ -152,7 +152,7 @@ def main() -> None:
     Path(args.tmp_root).mkdir(parents=True, exist_ok=True)
     qc = _load_qiskit_circuit(str(args.circuit_qpy))
     query, qubits, _gates = _build_iqs_query_with_timeout(qc, args.timeout_seconds)
-    statements = _split_iqs_query_per_step(query, temp=False)
+    statements = split_iqs_query_per_step(query, temp=False)
     n_ctes = max(0, len(statements) - 1)
 
     checkpoints: list[int] = []

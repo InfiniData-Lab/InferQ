@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,10 +49,12 @@ from generators.algorithms.qwalk import QuantumWalk  # noqa: E402
 from generators.algorithms.vqe import VQEGenerator  # noqa: E402
 from generators.lib.generator import BaseParams  # noqa: E402
 from qiskit import transpile  # noqa: E402
-from scripts.ooc.worker import (  # noqa: E402
-    _materialize_iqs_ctes,
-    _parse_iqs_ctes,
-    _split_iqs_query_per_step,
+from utils.sql_query_modes import (  # noqa: E402
+    count_iqs_ctes,
+    iqs_cte_names,
+    materialize_iqs_ctes,
+    split_iqs_query_per_step,
+    statement_block,
 )
 
 
@@ -163,35 +164,6 @@ def _algorithm_specs() -> list[AlgorithmSpec]:
     ]
 
 
-_CTE_HEAD = re.compile(r"\s*(\w+)(\s*\([^)]*\))?\s+AS\s*(?:MATERIALIZED\s*)?\(", re.IGNORECASE)
-
-
-def _cte_names(query: str) -> list[str]:
-    s = query.lstrip()
-    if not s.upper().startswith("WITH "):
-        return []
-    s = s[5:]
-    names: list[str] = []
-    pos = 0
-    while True:
-        match = _CTE_HEAD.match(s, pos)
-        if not match:
-            break
-        names.append(match.group(1))
-        i = match.end()
-        depth = 1
-        while i < len(s) and depth > 0:
-            if s[i] == "(":
-                depth += 1
-            elif s[i] == ")":
-                depth -= 1
-            i += 1
-        pos = i
-        while pos < len(s) and s[pos] in " \t\n,":
-            pos += 1
-    return names
-
-
 def _assign_deterministic_parameters(qc: Any) -> tuple[Any, dict[str, float]]:
     if not qc.parameters:
         return qc, {}
@@ -199,10 +171,6 @@ def _assign_deterministic_parameters(qc: Any) -> tuple[Any, dict[str, float]]:
     values = {param: (index + 1) * 0.125 for index, param in enumerate(ordered_params)}
     assigned = qc.assign_parameters(values)
     return assigned, {param.name: value for param, value in values.items()}
-
-
-def _statement_block(statements: list[str]) -> str:
-    return ";\n\n".join(statement.rstrip("; \n") for statement in statements) + ";\n"
 
 
 def _sql_header(spec: AlgorithmSpec, variant: str) -> str:
@@ -294,12 +262,12 @@ def _write_artifacts(spec: AlgorithmSpec, base_params: BaseParams) -> dict[str, 
     transpiled = transpile(qc, basis_gates=["u", "cx", "id", "rz", "sx", "x"], optimization_level=2)
 
     monolithic_query, iqs_qubits, iqs_gates = _build_iqs_query_deterministic(qc)
-    materialized_query = _materialize_iqs_ctes(monolithic_query)
-    split_statements = _split_iqs_query_per_step(monolithic_query)
-    split_query = _statement_block(split_statements)
+    materialized_query = materialize_iqs_ctes(monolithic_query)
+    split_statements = split_iqs_query_per_step(monolithic_query)
+    split_query = statement_block(split_statements)
 
-    cte_counts = _parse_iqs_ctes(monolithic_query)
-    cte_names = _cte_names(monolithic_query)
+    cte_counts = count_iqs_ctes(monolithic_query)
+    cte_names = iqs_cte_names(monolithic_query)
     helper_ctes = [name for name in cte_names if not name.startswith("K")]
     k_ctes = [name for name in cte_names if name.startswith("K")]
 
