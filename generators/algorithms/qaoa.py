@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Sequence, Callable, Optional
+from typing import Sequence, Optional
 
 import numpy as np
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister

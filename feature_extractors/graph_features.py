@@ -1,4 +1,4 @@
-from feature_extractors.graphs import IGGraphExtractor, GDGGraphExtractor
+from feature_extractors.graphs import IGGraphExtractor
 from typing import Any
 from qiskit import QuantumCircuit
 from feature_extractors.static_features import FeatureExtracter
@@ -9,7 +9,10 @@ logger = logging.getLogger(__name__)
 
 class GraphFeatureExtracter():
     """
-    Orchestrator for extracting all graph-based features (Interaction Graph & Gate Dependency Graph).
+    Orchestrator for extracting graph-based features from a circuit.
+
+    Only Interaction Graph features are currently extracted; Gate Dependency
+    Graph extraction is disabled.
     """
     def __init__(self, circuit: QuantumCircuit = None, feature_extractor: FeatureExtracter = None):
         self.feature_extractor = feature_extractor if feature_extractor else FeatureExtracter(circuit=circuit)
@@ -18,7 +21,7 @@ class GraphFeatureExtracter():
     
     def extractAllFeatures(self) -> dict[str, Any]:
         """
-        Extracts features using both IGGraphExtractor and GDGGraphExtractor.
+        Extracts the Interaction Graph features for the circuit.
         """
         logger.debug("Starting GraphFeatureExtracter...")
         
@@ -26,7 +29,8 @@ class GraphFeatureExtracter():
         iggraph = IGGraphExtractor(circuit=self.circuit, feature_extractor=self.feature_extractor)
         ig_features = iggraph.extractAllFeatures()
         
-        # # 2. Gate Dependency Graph Features
+        # 2. Gate Dependency Graph features are currently disabled; re-enabling
+        # requires importing GDGGraphExtractor from feature_extractors.graphs.
         # gdggraph = GDGGraphExtractor(circuit=self.circuit, feature_extractor=self.feature_extractor)
         # gdg_features = gdggraph.extractAllFeatures()
 

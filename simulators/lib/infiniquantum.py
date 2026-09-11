@@ -14,15 +14,8 @@ from utils.sql_query_modes import (
 # Configure logging
 logger = logging.getLogger(__name__)
 
-class IQSGateWrapper:
-    """Wrapper for InfiniQuantumSim gates"""
-    def __init__(self, tensor, qubits):
-        self.tensor = tensor
-        self.qubits = qubits
-
 try:
     from InfiniQuantumSim.TLtensor import QuantumCircuit as IQSQuantumCircuit, Gate as IQSGate, INDICES
-    import InfiniQuantumSim.mps as iqs_mps
     import InfiniQuantumSim.sqlEinSum as ses
     from InfiniQuantumSim.sql_commands import sql_einsum_query
     import opt_einsum as oe

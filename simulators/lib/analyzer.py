@@ -1,9 +1,36 @@
 import numpy as np
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from qiskit.quantum_info import state_fidelity, Statevector
-import matplotlib.pyplot as plt
-import json
 from .metrics import SimulationMetrics
+
+
+def calculate_shannon_entropy(probabilities: np.ndarray) -> float:
+    """Calculate Shannon entropy."""
+    probs = probabilities + 1e-16
+    entropy = -np.sum(probs * np.log2(probs))
+    return float(entropy)
+
+
+def calculate_sparsity(probabilities: np.ndarray, atol: float = 1e-10) -> float:
+    """Fraction of basis states carrying a non-negligible probability."""
+    return float(np.count_nonzero(probabilities > atol) / len(probabilities))
+
+
+def calculate_von_neumann_entropy(statevector: np.ndarray) -> list[float]:
+    """Vectorized per-qubit von Neumann entropy (very fast)."""
+    n = int(np.log2(len(statevector)))
+    # Convert statevector to probabilities
+    probs = np.abs(statevector)**2
+    # Create a 2^n x n binary index array
+    bits = ((np.arange(2**n)[:, None] >> np.arange(n-1, -1, -1)) & 1)
+    # Sum probabilities where bit=0 and bit=1 per qubit
+    p0 = np.sum(probs[:, None] * (bits == 0), axis=0)
+    p1 = np.sum(probs[:, None] * (bits == 1), axis=0)
+    p = np.vstack([p0, p1])
+    p = np.clip(p, 1e-12, 1)
+    S = -np.sum(p * np.log2(p), axis=0)
+    return list(S)
+
 
 class SimulationAnalyzer:
     """Analyzer for comparing and evaluating simulation results."""
@@ -45,7 +72,7 @@ class SimulationAnalyzer:
                     metric.actual_method = data["actual_method"]
 
                 if "probabilities" in data:
-                    metric.shannon_entropy = self._calculate_entropy(data["probabilities"])
+                    metric.shannon_entropy = calculate_shannon_entropy(data["probabilities"])
                 
                 if "von_neumann_entropy" in data:
                     metric.von_neumann_entropy = data["von_neumann_entropy"]
@@ -145,29 +172,5 @@ class SimulationAnalyzer:
             report.append(f"\nFidelity comparison failed/skipped: {e}")
 
         return "\n".join(report)
-
-    def _calculate_entropy(self, probabilities: np.ndarray) -> float:
-        """Calculate Shannon entropy."""
-        probs = probabilities + 1e-16
-        entropy = -np.sum(probs * np.log2(probs))
-        return float(entropy)
-    
-    def _calculate_sparsity(self, probabilities: np.ndarray, atol: float = 1e-10) -> float:
-        return float(np.count_nonzero(probabilities > atol) / len(probabilities))
-
-    def _calculate_von_neumann_entropy(self, statevector: np.ndarray) -> np.ndarray:
-        """Vectorized per-qubit von Neumann entropy (very fast)."""
-        n = int(np.log2(len(statevector)))
-        # Convert statevector to probabilities
-        probs = np.abs(statevector)**2
-        # Create a 2^n x n binary index array
-        bits = ((np.arange(2**n)[:, None] >> np.arange(n-1, -1, -1)) & 1)
-        # Sum probabilities where bit=0 and bit=1 per qubit
-        p0 = np.sum(probs[:, None] * (bits == 0), axis=0)
-        p1 = np.sum(probs[:, None] * (bits == 1), axis=0)
-        p = np.vstack([p0, p1])
-        p = np.clip(p, 1e-12, 1)
-        S = -np.sum(p * np.log2(p), axis=0)
-        return list(S)
 
 

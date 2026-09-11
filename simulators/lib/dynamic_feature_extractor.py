@@ -1,9 +1,12 @@
 from typing import Dict, Any
-import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.result import Result
 from .types import SimulationMethod
-from .analyzer import SimulationAnalyzer
+from .analyzer import (
+    calculate_shannon_entropy,
+    calculate_sparsity,
+    calculate_von_neumann_entropy,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -43,11 +46,11 @@ class DynamicFeatureExtractor:
                     sv = result.get_statevector()
                     probabilities = sv.probabilities()
                     # Calculate entropy
-                    shannon_entropy = self._calculate_shannon_entropy(probabilities)
+                    shannon_entropy = calculate_shannon_entropy(probabilities)
                     # Calculate per-qubit von Neumann entropy
-                    von_neumann_entropy = self._calculate_von_neumann_entropy(sv.data)
+                    von_neumann_entropy = calculate_von_neumann_entropy(sv.data)
                     # Sparsity
-                    sparsity = self._calculate_sparsity(probabilities)
+                    sparsity = calculate_sparsity(probabilities)
 
                     data["shannon_entropy"] = shannon_entropy
                     data["von_neumann_entropy"] = von_neumann_entropy
@@ -73,35 +76,3 @@ class DynamicFeatureExtractor:
             data["extraction_error"] = str(e)
 
         return data
-
-    def _calculate_shannon_entropy(self, probabilities: np.ndarray) -> float:
-        """
-        Calculate Shannon entropy using the existing analyzer function.
-
-        Args:
-            probabilities: Array of probabilities
-
-        Returns:
-            Entropy value
-        """
-        analyzer = SimulationAnalyzer()
-        return analyzer._calculate_entropy(probabilities)
-
-    def _calculate_von_neumann_entropy(self, statevector: np.ndarray) -> np.ndarray:
-        """Vectorized per-qubit von Neumann entropy (very fast)."""
-        analyzer = SimulationAnalyzer()
-        return analyzer._calculate_von_neumann_entropy(statevector)
-
-
-    def _calculate_sparsity(self, probabilities: np.ndarray) -> float:
-        """
-        Calculates sparsity of a probability distribution.
-
-        Args:
-            probabilities: Array of probabilities
-
-        Returns:
-            Sparsity value
-        """
-        analyzer = SimulationAnalyzer()
-        return analyzer._calculate_sparsity(probabilities)

@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any
 import logging
 from feature_extractors.sql_analyzer import SQLFeatureExtractor
 

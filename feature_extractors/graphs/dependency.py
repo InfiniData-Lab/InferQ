@@ -23,13 +23,6 @@ def convertToPyGraphGDG(circ: QuantumCircuit) -> rx.PyDiGraph:
     Returns:
         rx.PyGraph: The constructed graph.
     """
-    # qiskit_circuit = circ
-    # dag = circuit_to_dagdependency(qiskit_circuit)
-    # dependency_graph = rx.PyDiGraph()
-    # logger.debug([e for e in dag.get_all_edges()])
-    # logger.debug([n for n in dag.get_all_nodes()])
-    # return dependency_graph
-
     dag = circuit_to_dag(circ)
     gates = dag.gate_nodes()
     ge = dag.edges()

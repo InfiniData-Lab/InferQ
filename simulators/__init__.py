@@ -18,7 +18,8 @@ Classes:
     SimulationMethod: Enumeration of available simulation methods
 
 Functions:
-    simulate: Legacy simulation function for backward compatibility
+    process_simulation_data_for_features: Reduce raw simulation output to features
+    extract_essential_simulation_data: Trim simulation results to stored fields
     benchmark_simulation_methods: Comprehensive benchmarking utility
 """
 
@@ -36,9 +37,7 @@ __all__ = [
     'SimulationMethod', 
     'SimulationAnalyzer',
     'SimulationMetrics',
-    'simulate',
+    'process_simulation_data_for_features',
+    'extract_essential_simulation_data',
     'benchmark_simulation_methods'
 ]
-
-__version__ = '1.0.0'
-__author__ = 'InferQ Team'

@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from .analyzer import SimulationAnalyzer
 
 def benchmark_simulation_methods(

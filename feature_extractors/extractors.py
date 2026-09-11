@@ -1,7 +1,6 @@
 from feature_extractors.graph_features import GraphFeatureExtracter
 from feature_extractors.static_features import StaticFeatureExtractor
 from feature_extractors.static_features import FeatureExtracter
-from feature_extractors.graphs import IGGraphExtractor, GDGGraphExtractor
 from qiskit import QuantumCircuit
 import logging
 

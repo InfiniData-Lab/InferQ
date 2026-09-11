@@ -243,11 +243,6 @@ class CircuitMerger:
             current_probs = np.ones(len(self.generators)) / len(self.generators)
 
         for step in range(max_generators):
-            # Print current probability distribution for transparency
-            # if step == 0:
-            #     print("\nInitial probability distribution:")
-            #     self._print_probability_distribution(current_probs, step)
-
             # Check if we should stop (except for first generator)
             if step > 0 and random.random() < stopping_probability:
                 logger.debug(
