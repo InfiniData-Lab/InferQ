@@ -114,7 +114,12 @@ def _execute_statement_sequence(method: str, statements: list[str], timeout: int
             try:
                 final_result = None
                 for statement in statements:
-                    final_result = con.sql(statement).fetchall()
+                    # The split query mode sends DDL as well as the final select,
+                    # and DuckDB returns no relation for a statement that produces
+                    # no rows. Only a statement that does carries the result.
+                    relation = con.sql(statement)
+                    if relation is not None:
+                        final_result = relation.fetchall()
                 result[0] = final_result
             except Exception as exc:
                 exception[0] = exc

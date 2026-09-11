@@ -24,7 +24,7 @@ from config import get_circuit_config, get_simulation_config, get_storage_config
 from utils.save_utils import save_circuit_locally
 from feature_extractors.extractors import extract_features
 from simulators.simulate import QuantumSimulator
-from simulators import process_simulation_data_for_features
+from simulators import process_simulation_data_for_features, sql_artifact_from_results
 from utils.duplicate_detector import is_circuit_duplicate, initialize_duplicate_detection
 
 def setup_worker_signal_handling():
@@ -121,6 +121,7 @@ def run_single_pipeline(worker_id: int, seed_offset: int, existing_session_hashe
         # Step 5: Process simulation data
         worker_logger.debug("Step 5: Processing simulation data...")
         combined_features = process_simulation_data_for_features(simulation_results, features)
+        sql_query, sql_query_mode = sql_artifact_from_results(simulation_results)
         
         # Step 6: Save locally (we know it's new, so should save successfully)
         worker_logger.debug("Step 6: Saving circuit locally...")
@@ -128,7 +129,12 @@ def run_single_pipeline(worker_id: int, seed_offset: int, existing_session_hashe
         storage_path.mkdir(parents=True, exist_ok=True)
         
         saved_hash, saved_features, written = save_circuit_locally(
-            circuit, combined_features, storage_path, expected_hash=circuit_hash
+            circuit,
+            combined_features,
+            storage_path,
+            expected_hash=circuit_hash,
+            sql_query=sql_query,
+            sql_query_mode=sql_query_mode,
         )
         worker_logger.info(f"Circuit saved: hash={saved_hash[:8]}..., written={written}")
         

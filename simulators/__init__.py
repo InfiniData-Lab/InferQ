@@ -19,6 +19,7 @@ Classes:
 
 Functions:
     process_simulation_data_for_features: Reduce raw simulation output to features
+    sql_artifact_from_results: Recover the lowered SQL query from simulation output
     extract_essential_simulation_data: Trim simulation results to stored fields
     benchmark_simulation_methods: Comprehensive benchmarking utility
 """
@@ -28,7 +29,8 @@ from .lib.metrics import SimulationMetrics
 from .lib.analyzer import SimulationAnalyzer
 from .lib.processor import (
     process_simulation_data_for_features, 
-    extract_essential_simulation_data
+    extract_essential_simulation_data,
+    sql_artifact_from_results
 )
 from .lib.benchmark import benchmark_simulation_methods
 
@@ -39,5 +41,6 @@ __all__ = [
     'SimulationMetrics',
     'process_simulation_data_for_features',
     'extract_essential_simulation_data',
+    'sql_artifact_from_results',
     'benchmark_simulation_methods'
 ]

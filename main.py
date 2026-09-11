@@ -142,13 +142,18 @@ def run_extraction_pipeline(
 
     logger.info("STEP 4: Processing Simulation Data")
     logger.info("-" * 30)
+    sql_query, sql_query_mode = None, None
     try:
-        from simulators import process_simulation_data_for_features
+        from simulators import (
+            process_simulation_data_for_features,
+            sql_artifact_from_results,
+        )
 
         combined_features = process_simulation_data_for_features(
             simulation_results,
             extracted_features,
         )
+        sql_query, sql_query_mode = sql_artifact_from_results(simulation_results)
     except Exception as exc:
         logger.error("Simulation data processing failed: %s", exc)
         combined_features = extracted_features
@@ -162,6 +167,8 @@ def run_extraction_pipeline(
             circuit,
             combined_features,
             storage_path,
+            sql_query=sql_query,
+            sql_query_mode=sql_query_mode,
         )
         if written:
             logger.info("Circuit saved locally with hash: %s", qpy_hash)

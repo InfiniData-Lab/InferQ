@@ -74,6 +74,25 @@ def process_simulation_data_for_features(
 
     return combined_features
 
+def sql_artifact_from_results(
+    simulation_results: Dict[str, Dict[str, Any]],
+) -> tuple[str | None, str | None]:
+    """Return the SQL query a simulation produced, with the mode that shaped it.
+
+    Only the InfiniQuantumSim path lowers a circuit to SQL, and it hands the
+    query back on the result it already returns. The query is otherwise consumed
+    for feature counts and thrown away, so this pulls it out for callers that
+    want to keep it next to the circuit.
+    """
+    for result in simulation_results.values():
+        if not result.get("success", False):
+            continue
+        query = result.get("sql_query")
+        if query:
+            return query, result.get("sql_query_mode")
+    return None, None
+
+
 def _extract_metrics_to_features(features: Dict[str, Any], method: str, source_dict: Dict[str, Any]):
     """Helper to extract known metrics from a source dictionary into features."""
     for key in METRIC_KEYS:

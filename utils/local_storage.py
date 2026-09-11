@@ -16,12 +16,23 @@ from utils.circuit_hash import compute_circuit_hash
 # Configure logging
 logger = logging.getLogger(__name__)
 
-def save_circuit_locally(circuit, features: dict, out_root: Path, expected_hash: str = None):
+def save_circuit_locally(
+    circuit,
+    features: dict,
+    out_root: Path,
+    expected_hash: str = None,
+    sql_query: str = None,
+    sql_query_mode: str = None,
+):
     """
     Save a quantum circuit locally with multiple serialization fallbacks.
     
     This function attempts to save circuits using QPY format first, but falls back
     to pickle serialization for very large circuits that exceed QPY limitations.
+
+    When the caller has a lowered SQL query for the circuit -- the simulation path
+    produces one whenever InfiniQuantumSim is installed -- it is written alongside
+    as ``circuit.sql`` and the mode that shaped it is recorded in the metadata.
     """
     logger.info(f"Starting local save for circuit: {circuit.num_qubits} qubits, depth {circuit.depth()}")
     
@@ -97,6 +108,17 @@ def save_circuit_locally(circuit, features: dict, out_root: Path, expected_hash:
                 f.write(f"Serialization failed - only metadata available\n")
             logger.debug("✓ Circuit info saved as fallback")
 
+    # Save the lowered SQL query next to the circuit it came from. It is written
+    # as its own file rather than a metadata field because the split query mode
+    # runs to tens of kilobytes, which would swamp meta.json.
+    if sql_query:
+        sql_path = dir_ / "circuit.sql"
+        try:
+            sql_path.write_text(sql_query)
+            logger.debug("✓ SQL query saved")
+        except Exception as e:
+            logger.warning(f"Failed to save SQL query: {e}")
+
     # Create comprehensive metadata
     logger.debug("Creating metadata file...")
     meta = {
@@ -106,6 +128,7 @@ def save_circuit_locally(circuit, features: dict, out_root: Path, expected_hash:
         "circuit_depth": circuit.depth(),
         "circuit_size": circuit.size(),
         "qpy_serialization_success": qpy_success,
+        "sql_query_mode": sql_query_mode if sql_query else None,
         **features,
     }
     
