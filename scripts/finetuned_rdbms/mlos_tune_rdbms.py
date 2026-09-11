@@ -20,16 +20,15 @@ import traceback
 from typing import Any
 
 
-def find_repo_root(start: Path) -> Path:
-    for parent in (start, *start.parents):
-        if (parent / "InferQ").is_dir() and (parent / "Infinidata-rdbms-simulator").is_dir():
-            return parent
-    raise RuntimeError(f"could not find repo root from {start}")
-
-
-REPO_ROOT = find_repo_root(Path(__file__).resolve())
-INFERQ_ROOT = REPO_ROOT / "InferQ"
 THIS_DIR = Path(__file__).resolve().parent
+_INFERQ_CHECKOUT = THIS_DIR.parents[1]
+if str(_INFERQ_CHECKOUT) not in sys.path:
+    sys.path.insert(0, str(_INFERQ_CHECKOUT))
+
+from scripts.lib import repo_root  # noqa: E402
+
+REPO_ROOT = repo_root()
+INFERQ_ROOT = REPO_ROOT / "InferQ"
 if str(THIS_DIR) not in sys.path:
     sys.path.insert(0, str(THIS_DIR))
 

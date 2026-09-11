@@ -5,8 +5,8 @@ optionally enriches rows with metadata from a CSV, and writes a JSONL
 manifest in the run_experiment.py schema.
 
 Run with:
-  python scripts/build_sparse_spill_manifest.py
-  python scripts/build_sparse_spill_manifest.py \\
+  python -m scripts.ooc.build_sparse_spill_manifest
+  python -m scripts.ooc.build_sparse_spill_manifest \\
       --qpy-dir downloaded_circuits \\
       --csv analysis/sampled_output.csv \\
       --out data/ooc/circuits_sparse.jsonl
@@ -15,31 +15,17 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import sys
 from pathlib import Path
 
 import qiskit.qpy
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from config import get_ooc_config  # noqa: E402
-
-BIN_EDGES_DEFAULT = [25, 28, 30, 31]
-
-
-def assign_bin(num_qubits: int, edges: list[int]) -> tuple[str, int]:
-    if num_qubits < edges[0]:
-        return "B0_trivial", 0
-    if num_qubits < edges[1]:
-        return "B1_aer_ok_all_caps", 1
-    if num_qubits < edges[2]:
-        return "B2_aer_fails_at_4", 2
-    if num_qubits < edges[3]:
-        return "B3_aer_fails_at_8", 3
-    return "B4_aer_impossible", 4
+from scripts.lib import BIN_EDGES_DEFAULT, assign_bin, write_manifest  # noqa: E402
 
 
 def load_csv_metadata(csv_path: Path) -> dict[str, dict]:
@@ -122,9 +108,7 @@ def main():
         print(f"[sparse]   {h[:8]} n={num_qubits} gates={num_gates:4d} "
               f"peak={peak_mb / 1024:.3f}GB -> {bin_name}{sparsity_tag}", file=sys.stderr)
 
-    with args.out.open("w") as f:
-        for r in rows:
-            f.write(json.dumps(r) + "\n")
+    write_manifest(args.out, rows)
 
     print(f"[sparse] wrote {args.out} ({len(rows)} circuits)", file=sys.stderr)
 

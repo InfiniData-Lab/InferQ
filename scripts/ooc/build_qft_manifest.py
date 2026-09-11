@@ -15,13 +15,11 @@ Example:
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
 from qiskit import transpile
 from qiskit.circuit.library import QFT
-from qiskit.qpy import dump as qpy_dump
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 INFERQ_ROOT = REPO_ROOT / "InferQ"
@@ -29,19 +27,8 @@ if str(INFERQ_ROOT) not in sys.path:
     sys.path.insert(0, str(INFERQ_ROOT))
 
 from config import get_ooc_config  # noqa: E402
+from scripts.lib import assign_bin, persist_qpy, write_manifest  # noqa: E402
 from utils.circuit_hash import compute_circuit_hash  # noqa: E402
-
-
-def assign_bin(num_qubits: int, edges: list[int]) -> tuple[str, int]:
-    if num_qubits < edges[0]:
-        return "B0_trivial", 0
-    if num_qubits < edges[1]:
-        return "B1_aer_ok_all_caps", 1
-    if num_qubits < edges[2]:
-        return "B2_aer_fails_at_4", 2
-    if num_qubits < edges[3]:
-        return "B3_aer_fails_at_8", 3
-    return "B4_aer_impossible", 4
 
 
 def qft_circuit(num_qubits: int, approximation_degree: int, do_swaps: bool):
@@ -108,12 +95,7 @@ def main() -> None:
             n, args.index_budget, args.do_swaps
         )
         h, _bytes, _method = compute_circuit_hash(qc)
-        subdir = args.circuits_dir / h[:2]
-        subdir.mkdir(parents=True, exist_ok=True)
-        qpy_path = subdir / f"{h}.qpy"
-        if args.overwrite or not qpy_path.exists():
-            with qpy_path.open("wb") as f:
-                qpy_dump(qc, f)
+        qpy_path = persist_qpy(qc, h, args.circuits_dir, args.overwrite)
 
         bin_name, bin_order = assign_bin(n, edges)
         statevector_bytes = (2 ** n) * 16
@@ -141,9 +123,7 @@ def main() -> None:
             file=sys.stderr,
         )
 
-    with args.out.open("w") as f:
-        for row in rows:
-            f.write(json.dumps(row) + "\n")
+    write_manifest(args.out, rows)
     print(f"[qft] wrote {args.out} ({len(rows)} circuits)", file=sys.stderr)
 
 

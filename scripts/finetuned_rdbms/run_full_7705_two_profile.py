@@ -18,19 +18,18 @@ import sys
 import traceback
 from typing import Any
 
-import run_finetuned_rdbms as runner
-
-
-def find_repo_root(start: Path) -> Path:
-    for parent in (start, *start.parents):
-        if (parent / "InferQ").is_dir() and (parent / "Infinidata-rdbms-simulator").is_dir():
-            return parent
-    raise RuntimeError(f"could not find repo root from {start}")
-
-
-REPO_ROOT = find_repo_root(Path(__file__).resolve())
-INFERQ_ROOT = REPO_ROOT / "InferQ"
 THIS_DIR = Path(__file__).resolve().parent
+_INFERQ_CHECKOUT = THIS_DIR.parents[1]
+for _bootstrap_path in (_INFERQ_CHECKOUT, THIS_DIR):
+    if str(_bootstrap_path) not in sys.path:
+        sys.path.insert(0, str(_bootstrap_path))
+
+import run_finetuned_rdbms as runner  # noqa: E402
+
+from scripts.lib import repo_root  # noqa: E402
+
+REPO_ROOT = repo_root()
+INFERQ_ROOT = REPO_ROOT / "InferQ"
 
 BASELINE_TIME_COLS = [
     "rdbms_ducksql_time_s",

@@ -464,3 +464,115 @@ class SQLFeatureProcessor(CircuitProcessor):
                 "updates": {},
                 "error": str(e)
             }
+
+
+class DynamicFeatureProcessor(CircuitProcessor):
+    """Processes circuits to extract dynamic features using statevector simulation"""
+    
+    def __init__(self, simulator, max_qubits=None, max_depth=None):
+        """
+        Initialize with a QuantumSimulator instance.
+        
+        Args:
+            simulator: Initialized QuantumSimulator
+            max_qubits: Maximum qubit count to process (None = no limit)
+            max_depth: Maximum circuit depth to process (None = no limit)
+        """
+        self.simulator = simulator
+        self.max_qubits = max_qubits
+        self.max_depth = max_depth
+    
+    def process_circuit_file(self, file_path: str) -> dict:
+        """
+        Process a circuit file to extract dynamic features.
+        
+        Args:
+            file_path: Path to circuit file
+            
+        Returns:
+            Dictionary with processing results
+        """
+        try:
+            qc, circuit_hash, _ = self.load_circuit_from_file(file_path)
+            
+            updates = {}
+            success_flag = False
+            skipped_flag = False
+            error_msg = None
+            
+            logger.info(f"Processing dynamic features for circuit {circuit_hash}")
+            
+            # Check circuit size limits
+            if self.max_qubits is not None and qc.num_qubits > self.max_qubits:
+                logger.info(f"Skipping circuit {circuit_hash}: {qc.num_qubits} qubits exceeds limit of {self.max_qubits}")
+                return {
+                    "hash": circuit_hash,
+                    "success": False,
+                    "skipped": True,
+                    "updates": {},
+                    "error": f"Circuit has {qc.num_qubits} qubits, exceeds limit of {self.max_qubits}",
+                    "file_path": file_path,
+                }
+            
+            if self.max_depth is not None and qc.depth() > self.max_depth:
+                logger.info(f"Skipping circuit {circuit_hash}: depth {qc.depth()} exceeds limit of {self.max_depth}")
+                return {
+                    "hash": circuit_hash,
+                    "success": False,
+                    "skipped": True,
+                    "updates": {},
+                    "error": f"Circuit depth {qc.depth()} exceeds limit of {self.max_depth}",
+                    "file_path": file_path,
+                }
+            
+            # Run statevector simulation with save_statevector to extract dynamic features
+            from simulators.lib.types import SimulationMethod
+            
+            qc_copy = qc.copy()
+            qc_copy.save_statevector()
+            result = self.simulator._run_simulation(qc_copy, SimulationMethod.STATEVECTOR)
+            
+            if result.get("success"):
+                success_flag = True
+                data = result.get("data", {})
+                
+                # Extract dynamic features
+                updates = {}
+                if "shannon_entropy" in data:
+                    updates["statevector_saved_shannon_entropy"] = data["shannon_entropy"]
+                if "von_neumann_entropy" in data:
+                    updates["statevector_saved_von_neumann_entropy"] = data["von_neumann_entropy"]
+                if "sparsity" in data:
+                    updates["statevector_saved_sparsity"] = data["sparsity"]
+                
+                logger.info(f"Dynamic features extracted - "
+                           f"Entropy: {data.get('shannon_entropy', 0):.4f}, "
+                           f"Sparsity: {data.get('sparsity', 0):.4f}")
+                           
+            elif result.get("skipped"):
+                skipped_flag = True
+                error_msg = result.get("error")
+                logger.info(f"Dynamic feature extraction skipped: {error_msg}")
+            else:
+                error_msg = result.get("error", "Unknown error")
+                logger.error(f"Dynamic feature extraction failed: {error_msg}")
+            
+            return {
+                "hash": circuit_hash,
+                "success": success_flag,
+                "skipped": skipped_flag,
+                "updates": updates,
+                "error": error_msg,
+                "file_path": file_path,
+            }
+            
+        except Exception as e:
+            logger.error(f"Error processing {file_path}: {e}")
+            return {
+                "hash": None,
+                "success": False,
+                "skipped": False,
+                "updates": {},
+                "error": str(e),
+                "file_path": file_path,
+            }

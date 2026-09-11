@@ -27,6 +27,7 @@ if str(INFERQ_ROOT) not in sys.path:
     sys.path.insert(0, str(INFERQ_ROOT))
 
 from config import get_ooc_config  # noqa: E402
+from scripts.lib import assign_bin as assign_qubit_bin  # noqa: E402
 
 RDBMS_MEM_COLS = ["rdbms_sqlite_memory_mb", "rdbms_psql_memory_mb", "rdbms_ducksql_memory_mb"]
 RDBMS_TIME_COLS = ["rdbms_sqlite_time_s", "rdbms_psql_time_s", "rdbms_ducksql_time_s"]
@@ -88,15 +89,7 @@ def assign_bin(row: pd.Series, edges_q: list[int]) -> tuple[str, int] | None:
     if num_qubits <= 0:
         return None
 
-    if num_qubits < edges_q[0]:
-        return "B0_trivial", 0
-    if num_qubits < edges_q[1]:
-        return "B1_aer_ok_all_caps", 1
-    if num_qubits < edges_q[2]:
-        return "B2_aer_fails_at_4", 2
-    if num_qubits < edges_q[3]:
-        return "B3_aer_fails_at_8", 3
-    return "B4_aer_impossible", 4
+    return assign_qubit_bin(num_qubits, edges_q)
 
 
 def resolve_qpy_path(circuit_hash: str, base: Path) -> Path | None:

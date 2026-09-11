@@ -15,14 +15,13 @@ import sys
 from pathlib import Path
 
 
-def find_repo_root(start: Path) -> Path:
-    for parent in (start, *start.parents):
-        if (parent / "InferQ").is_dir() and (parent / "Infinidata-rdbms-simulator").is_dir():
-            return parent
-    raise RuntimeError(f"could not find repo root from {start}")
+_INFERQ_CHECKOUT = Path(__file__).resolve().parents[2]
+if str(_INFERQ_CHECKOUT) not in sys.path:
+    sys.path.insert(0, str(_INFERQ_CHECKOUT))
 
+from scripts.lib import repo_root  # noqa: E402
 
-REPO_ROOT = find_repo_root(Path(__file__).resolve())
+REPO_ROOT = repo_root()
 INFERQ_ROOT = REPO_ROOT / "InferQ"
 THIS_DIR = Path(__file__).resolve().parent
 RUNNER = THIS_DIR / "run_finetuned_rdbms.py"

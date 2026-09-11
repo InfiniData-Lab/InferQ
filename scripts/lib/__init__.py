@@ -1,0 +1,21 @@
+"""Helpers shared across the scripts/ entry points.
+
+Nothing here may be imported by the ``generators/``, ``simulators/`` or
+``feature_extractors/`` pillars: the dependency runs one way, from scripts into
+the pillars.
+"""
+
+from .binning import BIN_EDGES_DEFAULT, BIN_NAMES, assign_bin
+from .manifest import persist_qpy, write_manifest
+from .repo_paths import INFERQ_ROOT, WORKSPACE_CHECKOUTS, repo_root
+
+__all__ = [
+    "BIN_EDGES_DEFAULT",
+    "BIN_NAMES",
+    "INFERQ_ROOT",
+    "WORKSPACE_CHECKOUTS",
+    "assign_bin",
+    "persist_qpy",
+    "repo_root",
+    "write_manifest",
+]
