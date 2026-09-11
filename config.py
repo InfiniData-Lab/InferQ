@@ -29,10 +29,14 @@ class PipelineConfig:
         """Available CPU cores."""
         return mp.cpu_count()
 
+    # Upper bound on worker processes. Beyond this the Azure upload path and the
+    # per-worker Aer memory footprint, not the CPU, are the bottleneck.
+    MAX_WORKERS = 22
+
     @property
     def optimal_workers(self):
-        """Optimal number of worker processes."""
-        return max(1, self.cpu_cores - 2)
+        """Optimal number of worker processes: cores minus 2, capped."""
+        return max(1, min(self.MAX_WORKERS, self.cpu_cores - 2))
 
     # Pipeline Defaults
     PIPELINE_DEFAULTS = {
@@ -176,7 +180,9 @@ class PipelineConfig:
     # Storage Configuration
     STORAGE = {
         "local_circuits_dir": "circuits",
-        "absolute_storage_path": "/Users/user/Projects/InferQ",  # If set, use this as base path instead of project root
+        # When empty, circuits are written relative to the project root. Set
+        # ABSOLUTE_STORAGE_PATH to relocate storage to another volume.
+        "absolute_storage_path": "",
         "cache_file": "circuit_hashes_cache.json",
         "max_local_storage_gb": 50,
     }

@@ -1,8 +1,6 @@
 from typing import Dict, Any, Optional
 import time
 import logging
-import multiprocessing
-import queue
 import tracemalloc
 
 from qiskit import transpile, QuantumCircuit
@@ -10,7 +8,6 @@ from qiskit_aer import AerSimulator
 
 from .lib.types import SimulationMethod
 from .lib.infiniquantum import (
-    _wrapper_run_iqs, 
     _execute_infiniquantum_simulation, 
     INFINI_QUANTUM_AVAILABLE
 )
@@ -87,8 +84,6 @@ class QuantumSimulator(DynamicFeatureExtractor):
                 self.simulators[SimulationMethod.INFINI_QUANTUM] = "InfiniQuantumSim"
                 logger.info("Initialized InfiniQuantumSim simulator")
 
-            # logger.info(f"Initialized {len(self.simulators)} simulators.")
-
         except Exception as e:
             logger.error(f"Error initializing simulators: {e}")
             raise
@@ -130,11 +125,13 @@ class QuantumSimulator(DynamicFeatureExtractor):
         # Get simulation limits from config
         from config import get_simulation_config
 
+        # Indexed, not .get()-with-default: get_simulation_config() always supplies
+        # these keys, and the old inline defaults had drifted out of step with it.
         sim_config = get_simulation_config()
-        max_qubits_statevector = sim_config.get("max_qubits_statevector", 20)
-        max_qubits_unitary = sim_config.get("max_qubits_unitary", 12)
-        max_qubits_mps = sim_config.get("max_qubits_mps", 30)
-        max_circuit_size = sim_config.get("max_circuit_size", 1000)
+        max_qubits_statevector = sim_config["max_qubits_statevector"]
+        max_qubits_unitary = sim_config["max_qubits_unitary"]
+        max_qubits_mps = sim_config["max_qubits_mps"]
+        max_circuit_size = sim_config["max_circuit_size"]
 
         # Check overall circuit complexity
         if qc.size() > max_circuit_size:
@@ -171,9 +168,6 @@ class QuantumSimulator(DynamicFeatureExtractor):
 
                 if skip_reason:
                     failed_methods += 1
-                    # logger.warning(
-                    #     f"✗ {method.value} simulation skipped: {skip_reason}"
-                    # )
                     results[method.value] = {
                         "success": False,
                         "error": skip_reason,
@@ -264,17 +258,10 @@ class QuantumSimulator(DynamicFeatureExtractor):
 
         try:
             simulator = self.simulators[method]
-            # logger.debug(f"Using simulator: {simulator.name} for {method.value}")
 
             circuit_to_simulate = qc
 
-            # logger.debug(f"Transpiling circuit for {method.value}...")
             transpiled_qc = transpile(circuit_to_simulate, simulator)
-            # logger.debug(
-            #     f"✓ Circuit transpiled: depth {transpiled_qc.depth()}, size {transpiled_qc.size()}"
-            # )
-
-            # logger.debug(f"Executing {method.value} simulation...")
 
             tracemalloc.start()
             tracemalloc.clear_traces()
@@ -288,9 +275,6 @@ class QuantumSimulator(DynamicFeatureExtractor):
                 result = job.result(timeout=self.timeout_seconds)
                 end_time = time.time()
                 measured_execution_time = end_time - start_time
-                # logger.debug(
-                #     f"✓ {method.value} simulation job completed in {measured_execution_time:.4f}s"
-                # )
             except Exception as timeout_error:
                 end_time = time.time()
                 measured_execution_time = end_time - start_time
@@ -315,7 +299,6 @@ class QuantumSimulator(DynamicFeatureExtractor):
 
             measured_memory_mb = (mem_toc - mem_tic) / (1024 * 1024)
 
-            # logger.debug(f"Extracting simulation data for {method.value}...")
             simulation_data = self._extract_simulation_data(
                 result, method, transpiled_qc
             )
@@ -340,8 +323,6 @@ class QuantumSimulator(DynamicFeatureExtractor):
             for instruction in transpiled_qc.data:
                 gate_name = instruction.operation.name
                 gate_counts[gate_name] = gate_counts.get(gate_name, 0) + 1
-
-            # logger.debug(f"Transpiled gate counts for {method.value}: {gate_counts}")
 
             return {
                 "success": success,

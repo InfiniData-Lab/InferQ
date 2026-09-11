@@ -47,21 +47,21 @@ class PipelineManager:
         Initialize the pipeline manager.
         
         Args:
-            num_workers: Number of parallel workers (default: CPU count - 2)
+            num_workers: Number of parallel workers (default: from config)
             azure_upload_interval: Upload to Azure every N circuits
             batch_timeout_seconds: Timeout for individual worker tasks (default: from config)
         """
-        # Set optimal worker count
-        if num_workers is None:
-            num_workers = min(22, mp.cpu_count() - 2)  # Leave 2 cores for system
-        
+        # Both defaults come from the same config call so that the WORKERS
+        # environment variable is honoured here as it is in run_parallel_pipeline.
+        if num_workers is None or batch_timeout_seconds is None:
+            pipeline_config = get_pipeline_config()
+            if num_workers is None:
+                num_workers = pipeline_config['workers']
+            if batch_timeout_seconds is None:
+                batch_timeout_seconds = pipeline_config['batch_timeout_seconds']
+
         self.num_workers = num_workers
         self.azure_upload_interval = azure_upload_interval
-        
-        # Get batch timeout from config if not provided
-        if batch_timeout_seconds is None:
-            pipeline_config = get_pipeline_config()
-            batch_timeout_seconds = pipeline_config['batch_timeout_seconds']
         self.batch_timeout_seconds = batch_timeout_seconds
         
         self.azure_conn: Optional[AzureConnection] = None
@@ -309,9 +309,6 @@ class PipelineManager:
         if self.azure_conn and should_trigger_upload(self.upload_buffer, self.azure_upload_interval):
             log_upload_trigger(len(self.upload_buffer), self.azure_upload_interval)
             
-            # Extract circuit hashes before upload
-            circuit_hashes = [result.get('circuit_hash') for result in self.upload_buffer if result.get('circuit_hash')]
-            
             upload_stats = upload_batch_to_azure(self.upload_buffer, self.azure_conn)
             self.stats['uploaded_to_azure'] += upload_stats['uploaded']
             self.stats['upload_failures'] += upload_stats['failed']
@@ -373,9 +370,6 @@ class PipelineManager:
         # Upload remaining circuits in buffer
         if self.azure_conn and self.upload_buffer:
             log_final_upload(len(self.upload_buffer))
-            
-            # Extract circuit hashes before upload
-            circuit_hashes = [result.get('circuit_hash') for result in self.upload_buffer if result.get('circuit_hash')]
             
             upload_stats = upload_batch_to_azure(self.upload_buffer, self.azure_conn)
             self.stats['uploaded_to_azure'] += upload_stats['uploaded']
