@@ -1,7 +1,11 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "inferq"
 version = "0.1.0"
-description = "Add your description here"
+description = "Generation, simulation, and feature extraction for quantum-circuit benchmark datasets."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
@@ -71,6 +75,9 @@ dependencies = [
     "multidict==6.4.3",
     "networkx==3.4.2",
     "numpy~=2.2.5",
+    "duckdb==1.1.3",
+    "opt-einsum==3.3.0",
+    "psycopg2-binary==2.9.10",
     "omegaconf==2.3.0",
     "orjson==3.10.18",
     "packaging==25.0",
@@ -133,20 +140,54 @@ dependencies = [
     "zc-lockfile==3.0.post1",
     "sqlglot>=28.5.0",
     "xgboost>=3.1.3",
-    "infiniquantumsim",
     "mqt-bench>=2.2",
     "supermarq>=0.5",
     "fastparquet>=2026.5.0",
 ]
 
 [project.optional-dependencies]
+# InfiniQuantumSim is a sibling checkout, not a published package. Keeping it out
+# of the default dependency set lets `uv sync` succeed without it; the SQL-backed
+# simulation paths already guard the import and degrade gracefully.
+sql = ["infiniquantumsim"]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
 
 [tool.uv.sources]
 infiniquantumsim = { path = "../Infinidata-rdbms-simulator/", editable = true } # Local package dependency: https://anonymous.4open.science/r/Infinidata-rdbms-simulator-2320/README.md
 
-[tool.setuptools.packages.find]
-include = ["generators*", "feature_extractors*", "utils*"]
-exclude = ["tests*", "circuits*"]
-
 [tool.setuptools]
 package-dir = {"" = "."}
+# config.py and main.py are top-level modules, not packages. They must be listed
+# explicitly: `generators` and `utils` both do `from config import ...`, so a
+# wheel without them installs a package that cannot be imported.
+py-modules = ["config", "main"]
+
+[tool.setuptools.packages.find]
+include = [
+    "generators*",
+    "feature_extractors*",
+    "simulators*",
+    "pipeline*",
+    "utils*",
+    "scripts*",
+]
+exclude = ["tests*", "circuits*", "analysis*", "data*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Keep collection inside tests/: several modules under scripts/, simulators/, and
+# utils/ are named test_* but are live-service probes, not unit tests.
+norecursedirs = ["analysis", "circuits", "data", "scripts", ".venv"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = ["analysis", "circuits", "data", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]

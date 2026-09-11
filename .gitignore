@@ -1,55 +1,78 @@
-# Python
+# --- Python ---
 __pycache__/
 *.py[cod]
+.venv
+venv
+.DS_Store
+
+# --- Build artifacts ---
+build/
+dist/
+*.egg-info/
+
+# --- Secrets and local environment ---
 .env
-# Data
-*.qpy
-*.parquet
-circuits/
-# Conda
-.conda/
 acct.key
 
-!MANIFEST.parquet
-
+# --- Editors and scratch ---
 .kiro
 playground.ipynb
 
+# --- Generated circuits and caches ---
+circuits/
 circuits_hpc/
-
-logs/
-
 circuit_hashes_cache.json
+test_circuits/
+pgdata/
 
-pipeline.log
-
-venv
-.venv
-
-*.csv
+# --- Logs ---
+logs/
 *.log
-scripts/finetuned_rdbms/profiles/small_median_qpy_paths.txt
+
+# --- Bulk data formats ---
+# Circuits and dataframes are large and reproducible; the exceptions below name
+# the artifacts that are intentionally versioned.
+*.qpy
+*.parquet
+*.csv
+*.jsonl
+
+# --- Generated figures and result blobs ---
+# Regenerable from the scripts under analysis/ and scripts/ooc/.
+*.png
+*.pdf
+analysis/**/results.json
+analysis/analysis_results.json
+analysis/deep_benchmark_results.json
+analysis/extremes_results.json
+analysis/scalability/profiling_stats_*.json
+analysis/**/*_hashes.txt
+analysis/**/*_qpy_paths.txt
+analysis/**/*_selection_summary.json
+analysis/**/*_profile_tunings.json
+analysis/ablation_results/splits/*.npz
+scripts/ooc/results/
+scripts/finetuned_rdbms/profiles/*_qpy_paths.txt
+
+# --- Versioned data (exceptions to the rules above) ---
 data/*
 !data/metadata/
 !data/metadata/*.parquet
-!data/extremes
-!data/extremes/*.qpy
-.DS_Store
+!data/ooc/
+!data/ooc/*.jsonl
 
-!rdbms_all_methods_training_data.parquet
-!estimator_training_data.parquet
-!rdbms_no_psql_methods_training_data.parquet
-!rdbms_training_data.parquet
-!selector_training_data.parquet
+# Training datasets consumed by the estimator and selector notebooks.
+!analysis/training_data/*.parquet
 
+# Benchmark suite inventories.
+!scripts/benchmark_suites/benchmark_algorithms_deduplicated.csv
+!scripts/benchmark_suites/benchmark_algorithms_full.csv
 
-*ooc_old_figures/
-!benchmark_algorithms_deduplicated.csv
-!benchmark_algorithms_full.csv
-pgdata/
+# Fine-tuning baselines and profiles.
+!scripts/finetuned_rdbms/baselines/*.csv
+!scripts/finetuned_rdbms/profiles/*.json
+!scripts/finetuned_rdbms/profiles/small_median_hashes.txt
 
-
-*ooc_figures_*
-
-!small_sample_scidb.csv
-!final_sparse_sample.csv
+# Sample circuit selections referenced by analysis notebooks.
+!analysis/sample_csvs/
+!analysis/sample_csvs/*.csv
