@@ -18,7 +18,6 @@ import csv
 import sys
 from pathlib import Path
 
-import qiskit.qpy
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -26,6 +25,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from config import get_ooc_config  # noqa: E402
 from scripts.lib import BIN_EDGES_DEFAULT, assign_bin, write_manifest  # noqa: E402
+from utils.qpy_io import load_circuit  # noqa: E402
 
 
 def load_csv_metadata(csv_path: Path) -> dict[str, dict]:
@@ -70,9 +70,7 @@ def main():
     for qpy_path in qpy_files:
         h = qpy_path.stem
         try:
-            with qpy_path.open("rb") as f:
-                circuits = qiskit.qpy.load(f)
-            qc = circuits[0]
+            qc = load_circuit(qpy_path)
         except Exception as e:
             print(f"[sparse] SKIP {h[:8]}: {e}", file=sys.stderr)
             continue

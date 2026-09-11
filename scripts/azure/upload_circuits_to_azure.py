@@ -12,7 +12,6 @@ import logging
 import sys
 import shutil
 from pathlib import Path
-import qiskit.qpy
 from tqdm import tqdm
 
 # Add project root to path for imports
@@ -21,6 +20,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 # Import Azure utilities
 from utils.azure_connection import AzureConnection
 from utils.blob_storage import upload_circuit_blob
+from utils.qpy_io import load_circuit
 from utils.table_storage import save_circuit_metadata_to_table
 from config import get_storage_config
 
@@ -39,10 +39,7 @@ logger = logging.getLogger(__name__)
 def load_circuit_from_qpy(qpy_path: Path):
     """Load a quantum circuit from a QPY file."""
     try:
-        with open(qpy_path, 'rb') as f:
-            circuits = qiskit.qpy.load(f)
-            circuit = circuits[0] if isinstance(circuits, list) else circuits
-        return circuit
+        return load_circuit(qpy_path)
     except Exception as e:
         logger.error(f"Failed to load circuit from {qpy_path}: {e}")
         return None

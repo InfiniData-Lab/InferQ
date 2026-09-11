@@ -300,7 +300,7 @@ class CircuitMerger:
         Returns:
             Hierarchically generated quantum circuit
         """
-        logger.info(f"Starting hierarchical circuit generation...")
+        logger.info("Starting hierarchical circuit generation...")
         logger.debug(f"Available generators: {len(self.generators)}")
         logger.debug(f"Stopping probability: {stopping_probability}, Max generators: {max_generators}")
         
@@ -589,21 +589,6 @@ class CircuitMerger:
             "QPE",
             "VQEGenerator",
         }
-        variational_generators = {
-            "VQEGenerator",
-            "QAOA",
-            "QNN",
-            "RealAmplitudes",
-            "TwoLocal",
-        }
-        entangling_generators = {
-            "GHZ",
-            "WState",
-            "GraphState",
-            "EfficientU2",
-            "QuantumWalk",
-        }
-
         logger.debug(f"Updating probabilities based on selected: {selected_name}")
 
         # Store original probabilities for logging
@@ -622,13 +607,6 @@ class CircuitMerger:
             [name in state_prep_generators for name in gen_names]
         )
         algorithm_mask = np.array([name in algorithm_generators for name in gen_names])
-        variational_mask = np.array(
-            [name in variational_generators for name in gen_names]
-        )
-        entangling_mask = np.array(
-            [name in entangling_generators for name in gen_names]
-        )
-
         if selected_name in state_prep_generators:
             # Boost algorithm generators after state prep
             current_probs[algorithm_mask] *= 1.5
@@ -714,11 +692,11 @@ class CircuitMerger:
                 for instruction in circuit.data:
                     if not instruction.operation.params or all(not hasattr(p, 'name') for p in instruction.operation.params):
                         fallback_circuit.append(instruction.operation, instruction.qubits, instruction.clbits)
-                logger.debug(f"✓ Using fallback circuit without parameters")
+                logger.debug("✓ Using fallback circuit without parameters")
                 return fallback_circuit
             except Exception as fallback_error:
                 logger.error(f"Fallback circuit creation failed: {fallback_error}")
-                raise param_error
+                raise param_error from fallback_error
 
     def _print_probability_distribution(
         self, current_probs: np.ndarray, step: int

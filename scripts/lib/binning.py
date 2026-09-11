@@ -32,7 +32,7 @@ def assign_bin(num_qubits: int, edges: Sequence[int]) -> tuple[str, int]:
     Returns:
         The bin name and its zero-based order.
     """
-    for order, (name, edge) in enumerate(zip(BIN_NAMES, edges)):
+    for order, (name, edge) in enumerate(zip(BIN_NAMES, edges, strict=False)):
         if num_qubits < edge:
             return name, order
     return BIN_NAMES[-1], len(BIN_NAMES) - 1

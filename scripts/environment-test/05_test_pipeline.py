@@ -5,9 +5,6 @@ Tests the actual quantum circuit pipeline components
 """
 
 import sys
-import os
-import tempfile
-import json
 from pathlib import Path
 import time
 
@@ -313,7 +310,7 @@ def main():
         circuit_ok = features_ok = simulation_ok = storage_ok = integration_ok = False
     
     # Cleanup
-    cleanup_ok = cleanup_test_environment(test_circuits_dir)
+    cleanup_test_environment(test_circuits_dir)
     
     # Summary
     print("\n" + "=" * 60)

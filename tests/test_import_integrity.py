@@ -11,7 +11,6 @@ anything that fails for a reason internal to the repository is a failure.
 """
 
 import importlib
-import pkgutil
 import sys
 import warnings
 from pathlib import Path

@@ -57,7 +57,7 @@ def convertToPyGraphGDG(circ: QuantumCircuit) -> rx.PyDiGraph:
     g = rx.PyDiGraph()
     g.add_nodes_from(range(len(gn) + n))
     # at the end go through the edges and add any nodes which are not in the graph
-    for gate, index in gate_to_index.items():
+    for index in gate_to_index.values():
         if index not in g.nodes():
             g.add_node(index)
     g.add_edges_from(edges)

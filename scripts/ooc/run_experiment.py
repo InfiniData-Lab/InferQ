@@ -31,7 +31,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 INFERQ_ROOT = REPO_ROOT / "InferQ"
@@ -666,7 +666,8 @@ def main():
         print("\n[run] SIGINT received — finishing current triple then stopping", file=sys.stderr)
     signal.signal(signal.SIGINT, _sigint)
 
-    total = 0; skipped = 0
+    total = 0
+    skipped = 0
     for ci, circuit in enumerate(entries, 1):
         for cap_gb in caps:
             for engine in engines:

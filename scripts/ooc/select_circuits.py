@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import random
 import sys
 from pathlib import Path
@@ -116,7 +115,7 @@ def stratified_sample(
     df["_hardness"] = df[RDBMS_TIME_COLS].max(axis=1).fillna(0.0)
     rng = random.Random(seed)
     out_rows = []
-    for bin_name, bin_df in df.groupby("bin"):
+    for _bin_name, bin_df in df.groupby("bin"):
         if len(bin_df) <= per_bin:
             out_rows.extend(bin_df.to_dict("records"))
             continue

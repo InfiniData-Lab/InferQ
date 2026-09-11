@@ -7,6 +7,32 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Ordered on purpose: a node is counted under the first entry it matches, which
+# is what the original if/elif chain did and what keeps overlapping sqlglot
+# classes (an ``EQ`` is also a ``Binary``, say) from being counted twice.
+_NODE_FEATURES = (
+    # Clauses
+    (exp.Where, "WHERE"),
+    (exp.Group, "GROUP_BY"),
+    (exp.Having, "HAVING"),
+    (exp.Order, "ORDER_BY"),
+    (exp.Limit, "LIMIT"),
+    (exp.With, "CTE"),
+    # Set operations
+    (exp.Union, "UNION"),
+    (exp.Intersect, "INTERSECT"),
+    (exp.Except, "EXCEPT"),
+    # Aggregates & predicates
+    (exp.AggFunc, "AGG_FUNC"),
+    (exp.And, "AND"),
+    (exp.Or, "OR"),
+    (exp.Not, "NOT"),
+    (exp.EQ, "EQ_PRED"),
+    ((exp.GT, exp.GTE, exp.LT, exp.LTE), "RANGE_PRED"),
+    (exp.In, "IN_PRED"),
+    (exp.Like, "LIKE_PRED"),
+)
+
 class SQLFeatureExtractor:
     """
     Extracts features from SQL queries using sqlglot.
@@ -46,26 +72,11 @@ class SQLFeatureExtractor:
                 # Top-level SQL commands
                 if type(node) in cmd_map:
                     features[cmd_map[type(node)]] += 1
-                # Clauses
-                if isinstance(node, exp.Where): features["WHERE"] += 1
-                elif isinstance(node, exp.Group): features["GROUP_BY"] += 1
-                elif isinstance(node, exp.Having): features["HAVING"] += 1
-                elif isinstance(node, exp.Order): features["ORDER_BY"] += 1
-                elif isinstance(node, exp.Limit): features["LIMIT"] += 1
-                elif isinstance(node, exp.With): features["CTE"] += 1
-                # Set operations
-                elif isinstance(node, exp.Union): features["UNION"] += 1
-                elif isinstance(node, exp.Intersect): features["INTERSECT"] += 1
-                elif isinstance(node, exp.Except): features["EXCEPT"] += 1
-                # Aggregates & predicates
-                elif isinstance(node, exp.AggFunc): features["AGG_FUNC"] += 1
-                elif isinstance(node, exp.And): features["AND"] += 1
-                elif isinstance(node, exp.Or): features["OR"] += 1
-                elif isinstance(node, exp.Not): features["NOT"] += 1
-                elif isinstance(node, exp.EQ): features["EQ_PRED"] += 1
-                elif isinstance(node, (exp.GT, exp.GTE, exp.LT, exp.LTE)): features["RANGE_PRED"] += 1
-                elif isinstance(node, exp.In): features["IN_PRED"] += 1
-                elif isinstance(node, exp.Like): features["LIKE_PRED"] += 1
+                # Clauses, set operations, aggregates and predicates
+                for node_types, feature_name in _NODE_FEATURES:
+                    if isinstance(node, node_types):
+                        features[feature_name] += 1
+                        break
 
         # ---------- 2. SEMANTIC JOIN COUNT (IMPLICIT + EXPLICIT) ----------
         join_edges = set()
@@ -96,15 +107,18 @@ class SQLFeatureExtractor:
                             for a, b in combinations(sorted(rels), 2):
                                 join_edges.add((a, b))
 
-            # Explicit JOIN ... ON
+            # Explicit JOIN ... ON. A sqlglot Join node holds only the
+            # right-hand relation, so the pair of relations has to be read out
+            # of the ON condition, exactly as the implicit case reads WHERE.
             for join in select.find_all(exp.Join):
-                left = join.this
-                right = join.args.get("this")
-                if left and right:
-                    a, b = left.alias_or_name, right.alias_or_name
-                    if a and b and a != b:
-                        join_occurrences += 1
-                        join_edges.add(tuple(sorted((a, b))))
+                on_clause = join.args.get("on")
+                if on_clause is None:
+                    continue
+                rels = referenced_relations(on_clause)
+                if len(rels) >= 2:
+                    join_occurrences += 1
+                    for a, b in combinations(sorted(rels), 2):
+                        join_edges.add((a, b))
 
             # Recurse into subqueries in FROM
             from_clause = select.args.get("from")

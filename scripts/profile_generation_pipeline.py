@@ -1,5 +1,4 @@
 import sys
-import os
 import time
 import json
 import logging
@@ -12,7 +11,7 @@ sys.path.append(str(project_root))
 
 from generators.circuit_merger import CircuitMerger
 from generators.lib.generator import BaseParams
-from config import get_circuit_config, get_simulation_config, config
+from config import get_circuit_config, get_simulation_config
 from feature_extractors.extractors import extract_features
 from simulators.simulate import QuantumSimulator
 

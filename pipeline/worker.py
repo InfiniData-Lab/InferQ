@@ -230,7 +230,7 @@ def _create_error_result(worker_id: int, error: Exception) -> dict:
     try:
         worker_logger = logging.getLogger(f'worker_{worker_id}')
         worker_logger.error(f"Pipeline failed: {str(error)}")
-    except:
+    except Exception:
         logger = logging.getLogger(__name__)
         logger.error(f"Worker {worker_id} pipeline failed: {str(error)}")
     

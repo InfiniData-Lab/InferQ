@@ -1,4 +1,4 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from qiskit import QuantumCircuit
 from config import get_circuit_config
@@ -18,20 +18,12 @@ class BaseParams:
 
     def __post_init__(self):
         """
-        Load defaults from central config if not provided.
+        Load defaults from central config for any field left unset.
         """
         config = get_circuit_config()
-        
-        if self.max_qubits is None: self.max_qubits = config["max_qubits"]
-        if self.min_qubits is None: self.min_qubits = config["min_qubits"]
-        if self.max_depth is None: self.max_depth = config["max_depth"]
-        if self.min_depth is None: self.min_depth = config["min_depth"]
-        if self.min_reps is None: self.min_reps = config["min_reps"]
-        if self.max_reps is None: self.max_reps = config["max_reps"]
-        if self.min_eval_qubits is None: self.min_eval_qubits = config["min_eval_qubits"]
-        if self.max_eval_qubits is None: self.max_eval_qubits = config["max_eval_qubits"]
-        if self.measure is None: self.measure = config["measure"]
-        if self.seed is None: self.seed = config["seed"]
+        for field_name in self.__dataclass_fields__:
+            if getattr(self, field_name) is None:
+                setattr(self, field_name, config[field_name])
 
 
 class Generator(ABC):
@@ -47,6 +39,7 @@ class Generator(ABC):
         """
         self.base_params = base_params
 
+    @abstractmethod
     def generate(self, *args, **kwargs) -> QuantumCircuit | None:
         """
         Generate content based on the provided arguments.
@@ -57,6 +50,7 @@ class Generator(ABC):
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
+    @abstractmethod
     def generate_parameters(self) -> tuple:
         """
         Generate parameters for the generator.

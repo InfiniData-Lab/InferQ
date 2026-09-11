@@ -6,9 +6,9 @@ Handles processing of individual quantum circuits with different modes.
 
 import os
 import logging
-import time
-import qiskit.qpy
 from qiskit import transpile
+
+from utils.qpy_io import load_circuit
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +35,7 @@ class CircuitProcessor:
         Returns:
             Tuple of (circuit, circuit_hash, filename)
         """
-        with open(file_path, "rb") as f:
-            circuits = qiskit.qpy.load(f)
-            qc = circuits[0] if isinstance(circuits, list) else circuits
+        qc = load_circuit(file_path)
         
         filename = os.path.basename(file_path)
         circuit_hash = os.path.splitext(filename)[0]
@@ -234,7 +232,7 @@ class SimulationProcessor(CircuitProcessor):
                                 sql_features, join_edges = SQLFeatureExtractor.extract_sql_features(result["sql_query"])
                                 for feat_name, count in sql_features.items():
                                     updates[f"infinidata_quantum_sql_{feat_name}"] = count
-                                updates[f"infinidata_quantum_sql_num_joins"] = len(join_edges)
+                                updates["infinidata_quantum_sql_num_joins"] = len(join_edges)
                             except Exception as e:
                                 logger.error(f"Failed to extract SQL features: {e}")
         
@@ -273,7 +271,7 @@ class SimulationProcessor(CircuitProcessor):
                     sql_features, join_edges = SQLFeatureExtractor.extract_sql_features(result["sql_query"])
                     for feat_name, count in sql_features.items():
                         updates[f"infinidata_quantum_sql_{feat_name}"] = count
-                    updates[f"infinidata_quantum_sql_num_joins"] = len(join_edges)
+                    updates["infinidata_quantum_sql_num_joins"] = len(join_edges)
                 except Exception as e:
                     logger.error(f"Failed to extract SQL features: {e}")
         

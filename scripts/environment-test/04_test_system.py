@@ -5,7 +5,6 @@ Tests system capabilities, memory, CPU, and performance settings
 """
 
 import os
-import sys
 import psutil
 import multiprocessing as mp
 import platform
@@ -62,7 +61,7 @@ def test_cpu_resources():
             print(f"   CPU Frequency: {cpu_freq.current:.1f} MHz (max: {cpu_freq.max:.1f})")
         else:
             print("   CPU Frequency: Not available")
-    except:
+    except Exception:
         print("   CPU Frequency: Not available")
     
     # CPU usage test
@@ -118,7 +117,7 @@ def test_memory_resources():
         swap = psutil.swap_memory()
         swap_gb = swap.total / (1024**3)
         print(f"   Swap Memory: {swap_gb:.1f} GB ({swap.percent:.1f}% used)")
-    except:
+    except Exception:
         print("   Swap Memory: Not available")
     
     return memory_ok
@@ -238,7 +237,7 @@ def test_quantum_performance():
         # Time the simulation
         start_time = time.time()
         job = simulator.run(compiled_circuit, shots=1000)
-        result = job.result()
+        job.result()
         sim_time = time.time() - start_time
         
         print(f"   4-qubit simulation (1000 shots): {sim_time:.3f} seconds")

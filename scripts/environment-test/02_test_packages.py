@@ -4,7 +4,6 @@ Test 2: Package Installation Verification
 Tests if all required packages are installed and importable
 """
 
-import sys
 import importlib
 import pkg_resources
 from packaging import version
@@ -148,7 +147,7 @@ def test_critical_packages():
             )
             print(f"     Compatibility: {'✅' if compatible else '❌'} {reason}")
         else:
-            print(f"     Version: ❌ Not found")
+            print("     Version: ❌ Not found")
             compatible = False
         
         package_ok = can_import and compatible
@@ -185,7 +184,7 @@ def test_optional_packages():
             )
             print(f"     Compatibility: {'✅' if compatible else '⚠️'} {reason}")
         else:
-            print(f"     Version: ⚠️ Not found")
+            print("     Version: ⚠️ Not found")
             compatible = False
         
         package_ok = can_import and compatible

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Sequence, Optional
 
 import numpy as np
@@ -91,9 +92,9 @@ class QAOA(Generator):
         self,
         num_qubits: int,
         p: int,
-        adjacency: "np.ndarray | list[list[float]] | None" = None,
-        cost_layer: "Callable[[QuantumCircuit, list, float], None] | None" = None,
-        mixer_layer: "Callable[[QuantumCircuit, list, float], None] | None" = None,
+        adjacency: np.ndarray | list[list[float]] | None = None,
+        cost_layer: Callable[[QuantumCircuit, list, float], None] | None = None,
+        mixer_layer: Callable[[QuantumCircuit, list, float], None] | None = None,
         gammas: Sequence[float] | None = None,
         betas: Sequence[float] | None = None,
         name: Optional[str] = None,

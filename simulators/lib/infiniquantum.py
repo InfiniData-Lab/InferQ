@@ -2,6 +2,7 @@ import time
 import logging
 import numpy as np
 import gc
+import threading
 import tracemalloc
 from timeit import default_timer as timer
 from qiskit import transpile
@@ -20,8 +21,7 @@ try:
     from InfiniQuantumSim.sql_commands import sql_einsum_query
     import opt_einsum as oe
     INFINI_QUANTUM_AVAILABLE = True
-except ImportError as e:
-    # logger.debug(f"InfiniQuantumSim import failed: {e}")
+except ImportError:
     INFINI_QUANTUM_AVAILABLE = False
 
 
@@ -45,6 +45,40 @@ def _normalise_omit_methods(methods):
     return normalised
 
 
+def _execute_with_cancellation(con, cur, statement: str, timeout: int | None):
+    """Run one statement on a DB-API cursor, cancelling it if it outruns the timeout.
+
+    The worker thread exists solely so a blocking ``execute`` can be abandoned:
+    DB-API offers no non-blocking execute, and the server-side cancel only takes
+    effect once someone else asks for it. Returns the fetched rows (an empty list
+    for DDL), or ``None`` when the statement had to be cancelled.
+    """
+    is_result_statement = not statement.lstrip().upper().startswith("CREATE")
+    rows = [None]
+    exception = [None]
+
+    def run_statement():
+        try:
+            cur.execute(statement)
+            rows[0] = cur.fetchall() if is_result_statement else []
+        except Exception as exc:
+            exception[0] = exc
+
+    thread = threading.Thread(target=run_statement, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+    if thread.is_alive():
+        try:
+            con.cancel()
+        except Exception:
+            pass
+        thread.join(timeout=0.5)
+        return None
+    if exception[0] is not None:
+        raise exception[0]
+    return rows[0]
+
+
 def _execute_statement_sequence(method: str, statements: list[str], timeout: int | None, p_size=None):
     """Execute SQL statements in one DB session and return the final result rows."""
     if method == "sqlite":
@@ -65,36 +99,11 @@ def _execute_statement_sequence(method: str, statements: list[str], timeout: int
             con.close()
 
     if method in {"psql", "umbra"}:
-        import threading
-
         con, cur = ses.connect_and_setup_db(method)
         try:
             result = None
             for statement in statements:
-                result_data = [None]
-                exception = [None]
-                is_result_statement = not statement.lstrip().upper().startswith("CREATE")
-
-                def run_statement():
-                    try:
-                        cur.execute(statement)
-                        result_data[0] = cur.fetchall() if is_result_statement else []
-                    except Exception as exc:
-                        exception[0] = exc
-
-                thread = threading.Thread(target=run_statement, daemon=True)
-                thread.start()
-                thread.join(timeout=timeout)
-                if thread.is_alive():
-                    try:
-                        con.cancel()
-                    except Exception:
-                        pass
-                    thread.join(timeout=0.5)
-                    return None
-                if exception[0] is not None:
-                    raise exception[0]
-                result = result_data[0]
+                result = _execute_with_cancellation(con, cur, statement, timeout)
                 if result is None:
                     return None
             return result
@@ -104,7 +113,6 @@ def _execute_statement_sequence(method: str, statements: list[str], timeout: int
 
     if method == "ducksql":
         import duckdb
-        import threading
 
         con = duckdb.connect()
         result = [None]

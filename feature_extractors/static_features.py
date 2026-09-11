@@ -1,6 +1,6 @@
+from collections import Counter
 from typing import Any
 from qiskit import QuantumCircuit
-from feature_extractors.graphs import *
 import logging
 
 # Configure logging

@@ -171,7 +171,7 @@ def select_manifest_rows(cands: list[dict], manifest: dict[str, dict], per_band:
         grouped[(row["engine"], row["cap_gb"], row["spill_band"])].append(row)
 
     selected: dict[str, dict] = {}
-    for key, group in sorted(grouped.items()):
+    for _key, group in sorted(grouped.items()):
         # Prefer the median spill/pressure example in each bucket over extremes.
         target_spill = _median(float(r["spill_proxy_gb"]) for r in group)
         ranked = sorted(group, key=lambda r: (

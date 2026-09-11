@@ -13,15 +13,14 @@ import logging
 import pandas as pd
 from pathlib import Path
 from tqdm import tqdm
-import pickle
 
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from qiskit import QuantumCircuit
-from simulators.simulate import QuantumSimulator
 from simulators.lib.infiniquantum import _execute_infiniquantum_simulation
 from utils.azure_connection import AzureConnection
+from utils.qpy_io import load_circuit
 from utils.table_storage import update_circuit_metadata_in_table
 
 # Setup logging
@@ -53,12 +52,7 @@ def load_circuit_from_hash(circuit_hash: str, circuits_base_dir: Path) -> Quantu
     if not circuit_path.exists():
         raise FileNotFoundError(f"Circuit file not found: {circuit_path}")
 
-    import qiskit.qpy
-    with open(circuit_path, 'rb') as f:
-        circuits = qiskit.qpy.load(f)
-        qc = circuits[0] if isinstance(circuits, list) else circuits
-
-    return qc
+    return load_circuit(circuit_path)
 
 def run_umbra_simulation(circuit: QuantumCircuit, timeout: int, n_runs: int = 5) -> dict:
     """

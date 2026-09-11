@@ -12,6 +12,8 @@ from azure.storage.blob import ContentSettings
 from io import BytesIO
 import qiskit.qpy
 
+from utils.qpy_io import load_circuit
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -66,7 +68,7 @@ def upload_circuit_blob(container_client, qc, qpy_sha256: str, serialization_met
             logger.debug(f"✓ QASM serialization for upload successful ({len(raw_bytes)} bytes)")
         except Exception as e:
             logger.error(f"All serialization methods failed for blob upload: {e}")
-            raise ValueError("Unable to serialize circuit for upload")
+            raise ValueError("Unable to serialize circuit for upload") from e
     
     # Create blob path
     rel_path = PurePosixPath(qpy_sha256[:2]) / f"{qpy_sha256}.{file_extension}"
@@ -124,9 +126,7 @@ def download_circuit_blob(container_client, blob_path: str, serialization_method
         logger.debug(f"Deserializing circuit using {serialization_method} method...")
         
         if serialization_method == "qpy":
-            buf = BytesIO(blob_data)
-            circuits = qiskit.qpy.load(buf)
-            circuit = circuits[0] if isinstance(circuits, list) else circuits
+            circuit = load_circuit(blob_data)
             logger.info(f"✓ Circuit loaded from QPY blob: {circuit.num_qubits} qubits, depth {circuit.depth()}")
             return circuit
         

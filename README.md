@@ -30,10 +30,13 @@ cd InferQ
 uv sync
 ```
 
-If you are not using `uv`, install the project with pip:
+If you are not using `uv`, install the project with pip. Install it editable
+when you work from the checkout: a plain `pip install .` copies the packages
+into `site-packages`, and because `scripts` resolves as a namespace package
+spanning both locations, that stale copy can shadow the files you are editing.
 
 ```bash
-python -m pip install .
+python -m pip install -e .
 ```
 
 `pyproject.toml` is the single source of dependency truth; there is no

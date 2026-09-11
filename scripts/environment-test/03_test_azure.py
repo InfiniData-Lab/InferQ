@@ -71,10 +71,8 @@ def test_azure_environment_variables():
     connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
     if connection_string:
         print("   ✅ AZURE_STORAGE_CONNECTION_STRING is also set (fallback)")
-        has_connection_string = True
     else:
         print("   ⚠️  AZURE_STORAGE_CONNECTION_STRING not set (optional)")
-        has_connection_string = False
     
     # Check for container and table names
     container_name = os.getenv('AZURE_CONTAINER', 'circuits')
@@ -116,7 +114,7 @@ def test_azure_connection():
                 
                 # Try to get table properties (lightweight operation)
                 try:
-                    properties = table_client.get_table_access_policy()
+                    table_client.get_table_access_policy()
                     print("   ✅ Table Storage accessible")
                     table_ok = True
                 except Exception as e:
@@ -134,7 +132,7 @@ def test_azure_connection():
                 
                 # Try to get container properties
                 try:
-                    properties = container_client.get_container_properties()
+                    container_client.get_container_properties()
                     print("   ✅ Blob Storage accessible")
                     blob_ok = True
                 except Exception as e:
@@ -188,7 +186,7 @@ def test_azure_write_permissions():
             try:
                 table_client.delete_entity(test_entity['PartitionKey'], test_entity['RowKey'])
                 print("   ✅ Table Storage cleanup successful")
-            except:
+            except Exception:
                 print("   ⚠️  Table Storage cleanup failed (entity may remain)")
             
             table_write_ok = True
@@ -213,7 +211,7 @@ def test_azure_write_permissions():
             try:
                 blob_client.delete_blob()
                 print("   ✅ Blob Storage cleanup successful")
-            except:
+            except Exception:
                 print("   ⚠️  Blob Storage cleanup failed (blob may remain)")
             
             blob_write_ok = True

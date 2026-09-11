@@ -23,7 +23,6 @@ import argparse
 import csv
 import json
 import logging
-import os
 import shutil
 import sys
 from dataclasses import dataclass, field

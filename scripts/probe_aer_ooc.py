@@ -24,12 +24,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import qiskit.qpy
 from qiskit import QuantumCircuit, transpile
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from utils.qpy_io import load_circuit  # noqa: E402
 
 _BASIS_GATES = ["u", "cx", "id", "rz", "sx", "x"]
 
@@ -166,9 +167,7 @@ def main() -> None:
 
         # -- load circuit --
         try:
-            with qpy_path.open("rb") as f:
-                circuits = qiskit.qpy.load(f)
-            qc = circuits[0]
+            qc = load_circuit(qpy_path)
         except Exception as exc:
             print(f"[probe]   {h[:8]}  SKIP  (load error: {exc})", file=sys.stderr)
             rows.append({

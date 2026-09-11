@@ -19,7 +19,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from utils.azure_connection import AzureConnection
 from simulators.lib.infiniquantum import _execute_infiniquantum_simulation
-import qiskit.qpy
+from utils.qpy_io import load_circuit
 
 # Setup logging
 logging.basicConfig(
@@ -71,11 +71,7 @@ def load_circuit_from_disk(circuit_hash, circuits_base_dir):
     if not circuit_path.exists():
         raise FileNotFoundError(f"Circuit file not found: {circuit_path}")
 
-    with open(circuit_path, 'rb') as f:
-        circuits = qiskit.qpy.load(f)
-        qc = circuits[0] if isinstance(circuits, list) else circuits
-
-    return qc
+    return load_circuit(circuit_path)
 
 
 def process_circuit(circuit_hash, circuits_dir, azure_conn, timeout, n_runs):

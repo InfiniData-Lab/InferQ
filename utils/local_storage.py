@@ -12,6 +12,7 @@ import qiskit.qpy
 import pickle
 
 from utils.circuit_hash import compute_circuit_hash
+from utils.qpy_io import load_circuit
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -105,7 +106,7 @@ def save_circuit_locally(
                 f.write(f"Qubits: {circuit.num_qubits}\n")
                 f.write(f"Depth: {circuit.depth()}\n")
                 f.write(f"Size: {circuit.size()}\n")
-                f.write(f"Serialization failed - only metadata available\n")
+                f.write("Serialization failed - only metadata available\n")
             logger.debug("✓ Circuit info saved as fallback")
 
     # Save the lowered SQL query next to the circuit it came from. It is written
@@ -168,9 +169,7 @@ def load_circuit_locally(circuit_dir: Path):
         qpy_path = circuit_dir / "circuit.qpy"
         if qpy_path.exists():
             try:
-                with open(qpy_path, "rb") as f:
-                    circuits = qiskit.qpy.load(f)
-                circuit = circuits[0] if isinstance(circuits, list) else circuits
+                circuit = load_circuit(qpy_path)
                 logger.info(f"✓ Circuit loaded from QPY: {circuit.num_qubits} qubits, depth {circuit.depth()}")
                 return circuit
             except Exception as e:

@@ -12,7 +12,6 @@ import argparse
 import csv
 import json
 import math
-import os
 from pathlib import Path
 import sys
 import traceback
@@ -489,10 +488,10 @@ def main() -> int:
     write_lines(hashes_file, wanted_hashes)
     write_lines(qpy_list, [str(p) for p in found_paths])
     write_lines(missing_file, missing_hashes)
-    profile_by_hash = dict(zip(selected["RowKey"], selected["size_profile"]))
-    circuit_size_by_hash = dict(zip(selected["RowKey"], selected["circuit_size"]))
+    profile_by_hash = dict(zip(selected["RowKey"], selected["size_profile"], strict=True))
+    circuit_size_by_hash = dict(zip(selected["RowKey"], selected["circuit_size"], strict=True))
     timeout_by_hash = (
-        dict(zip(selected["RowKey"], selected["engine_timeout_s"]))
+        dict(zip(selected["RowKey"], selected["engine_timeout_s"], strict=True))
         if "engine_timeout_s" in selected.columns
         else {}
     )

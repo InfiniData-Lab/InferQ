@@ -1,10 +1,8 @@
-import os
 import pandas as pd
 import math
 from pathlib import Path
 from tqdm import tqdm
 import io
-import sys
 
 def get_approx_rows_for_size(df, target_bytes=40 * 1024 * 1024, sample_size=1000):
     """
@@ -39,7 +37,7 @@ def consolidate_metadata(source_dir, output_dir, target_size_mb=40):
     print(f"Source: {source_path}")
     print(f"Destination: {output_path}")
 
-    print(f"Scanning for parquet files...")
+    print("Scanning for parquet files...")
     files = sorted(list(source_path.glob("*.parquet")))
     
     if not files:

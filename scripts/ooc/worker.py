@@ -36,6 +36,7 @@ for p in (INFERQ_ROOT, IQS_ROOT):
 
 # Imported after the sys.path bootstrap above, which is what makes InferQ
 # importable when this file is run directly as `python worker.py`.
+from scripts.lib import drain_cursor  # noqa: E402
 from utils.sql_query_modes import (  # noqa: E402
     count_iqs_ctes,
     materialize_iqs_ctes,
@@ -456,7 +457,8 @@ class _PgTempDirSampler(threading.Thread):
                 pass
             self._stop_event.wait(self.interval)
         try:
-            cur.close(); con.close()
+            cur.close()
+            con.close()
         except Exception:
             pass
 
@@ -540,7 +542,8 @@ def _run_postgres(query: str, args, run_idx: str, result: dict) -> None:
         sampler.stop()
         result["temp_dir_peak_bytes"] = sampler.peak_bytes
         try:
-            cur.close(); con.close()
+            cur.close()
+            con.close()
         except Exception:
             pass
 
@@ -557,17 +560,6 @@ def _pg_sum_plan(plan: Any, key: str) -> int:
         for v in plan.values():
             total += _pg_sum_plan(v, key)
     return total
-
-
-def _drain_cursor(cursor, *, chunk_size: int = 8192) -> int:
-    """Consume a result set without retaining all rows in Python memory."""
-    n_rows = 0
-    while True:
-        rows = cursor.fetchmany(chunk_size)
-        if not rows:
-            break
-        n_rows += len(rows)
-    return n_rows
 
 
 def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
@@ -637,7 +629,7 @@ def _run_duckdb(query: str, args, run_idx: str, result: dict) -> None:
             for stmt in statements:
                 cur = con.execute(stmt)
                 if not stmt.lstrip().upper().startswith("CREATE"):
-                    total_rows += _drain_cursor(cur, chunk_size=args.fetch_chunk_size)
+                    total_rows += drain_cursor(cur, chunk_size=args.fetch_chunk_size)
                 # profile_output is overwritten per statement; sum across.
                 try:
                     profile = json.loads(profile_path.read_text())
@@ -854,7 +846,7 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
             sz_before = db_path.stat().st_size if (m and db_path.exists()) else 0
             cur.execute(stmt)
             if not stmt.lstrip().upper().startswith("CREATE"):
-                total_rows += _drain_cursor(cur, chunk_size=args.fetch_chunk_size)
+                total_rows += drain_cursor(cur, chunk_size=args.fetch_chunk_size)
             elif m:
                 # journal_mode=OFF + synchronous=OFF means each CREATE TABLE
                 # writes straight to db_path. Delta = K# table bytes.
@@ -915,7 +907,8 @@ def _run_sqlite(query: str, args, run_idx: str, result: dict) -> None:
         })
     finally:
         try:
-            cur.close(); con.close()
+            cur.close()
+            con.close()
         except Exception:
             pass
 

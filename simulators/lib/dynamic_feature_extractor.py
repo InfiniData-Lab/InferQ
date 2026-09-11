@@ -61,7 +61,7 @@ class DynamicFeatureExtractor:
             elif hasattr(result, "get_counts") and qc.num_clbits > 0:
                 try:
                     data["counts"] = result.get_counts(0)
-                except:
+                except Exception:
                     # If counts extraction fails, don't store anything
                     pass
             metadata = getattr(result, "metadata", None)

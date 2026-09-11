@@ -293,7 +293,7 @@ class DuplicateDetector:
                 try:
                     file_updated = datetime.fromisoformat(file_updated_at)
                     file_age_hours = (datetime.now(timezone.utc) - file_updated).total_seconds() / 3600
-                except:
+                except (TypeError, ValueError):
                     pass
             
             logger.info(f"📁 Loaded cache: {len(self.known_hashes)} hashes")

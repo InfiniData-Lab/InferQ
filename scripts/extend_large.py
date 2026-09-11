@@ -41,6 +41,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.lib import BIN_EDGES_DEFAULT, assign_bin, write_manifest  # noqa: E402
+from utils.qpy_io import load_circuit  # noqa: E402
 
 try:
     from config import get_ooc_config  # noqa: E402
@@ -249,9 +250,7 @@ def main() -> None:
 
         # -- load original circuit --
         try:
-            with qpy_path.open("rb") as f:
-                circuits = qiskit.qpy.load(f)
-            qc_orig = circuits[0]
+            qc_orig = load_circuit(qpy_path)
         except Exception as exc:
             print(f"[extend] SKIP {orig_hash[:8]}: cannot load QPY – {exc}", file=sys.stderr)
             continue

@@ -39,7 +39,7 @@ _INFERQ_CHECKOUT = Path(__file__).resolve().parents[2]
 if str(_INFERQ_CHECKOUT) not in sys.path:
     sys.path.insert(0, str(_INFERQ_CHECKOUT))
 
-from scripts.lib import repo_root  # noqa: E402
+from scripts.lib import drain_cursor, repo_root  # noqa: E402
 
 REPO_ROOT = repo_root()
 INFERQ_ROOT = REPO_ROOT / "InferQ"
@@ -328,15 +328,6 @@ def tuning_for_run(
     return dict(tuning)
 
 
-def drain_cursor(cursor, chunk_size: int) -> int:
-    n_rows = 0
-    while True:
-        rows = cursor.fetchmany(chunk_size)
-        if not rows:
-            return n_rows
-        n_rows += len(rows)
-
-
 def execute_optional(execute: Callable[[str], Any], sql: str) -> None:
     try:
         execute(sql)
@@ -401,7 +392,7 @@ def run_duckdb(query: str, tuning: dict[str, Any], timeout_s: float, chunk_size:
         try:
             start = time.perf_counter()
             cur = con.execute(query)
-            rows = drain_cursor(cur, chunk_size)
+            rows = drain_cursor(cur, chunk_size=chunk_size)
             result["rows"] = rows
             if timing_scope == "contraction":
                 result["wall_time_s"] = time.perf_counter() - start
@@ -464,7 +455,7 @@ def run_sqlite(query: str, tuning: dict[str, Any], timeout_s: float, chunk_size:
     try:
         start = time.perf_counter()
         cur.execute(query)
-        rows = drain_cursor(cur, chunk_size)
+        rows = drain_cursor(cur, chunk_size=chunk_size)
         con.commit()
         execute_optional(cur.execute, "PRAGMA optimize")
         if timing_scope == "contraction":
@@ -516,7 +507,7 @@ def run_postgres(query: str, tuning: dict[str, Any], timeout_s: float, chunk_siz
         try:
             start = time.perf_counter()
             cur.execute(query)
-            rows = drain_cursor(cur, chunk_size)
+            rows = drain_cursor(cur, chunk_size=chunk_size)
             result["rows"] = rows
             if timing_scope == "contraction":
                 result["wall_time_s"] = time.perf_counter() - start
@@ -740,7 +731,7 @@ def main() -> int:
                     print(f"    {engine}/{profile_label} run={run_idx}", file=sys.stderr)
                     runner = RUNNERS[engine]
                     result = run_with_tracemalloc(
-                        lambda runner=runner, tuning=tuning: runner(
+                        lambda runner=runner, tuning=tuning, query=query: runner(
                             query, tuning, args.timeout_seconds, args.fetch_chunk_size
                         )
                     )
