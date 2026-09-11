@@ -1,149 +1,202 @@
-import os
-import struct
-from azure import identity
-from dotenv import load_dotenv
-import re
-from azure.storage.blob import ContainerClient
-from azure.data.tables import TableServiceClient, TableClient
+"""Azure Blob and Table client construction for InferQ.
+
+Credentials are read lazily, when a connection is first constructed, rather than
+at import time. Importing this module (directly, or transitively via
+``utils.table_storage``) therefore never requires Azure configuration, so the
+package remains importable in test and offline environments.
+"""
+
+from __future__ import annotations
+
 import logging
+import os
+import re
+from dataclasses import dataclass
 
-load_dotenv()
-
-# Configuration
-container_connection_string = os.environ["AZURE_CONTAINER_SAS_URL"]
-storage_account_name = os.environ["AZURE_STORAGE_ACCOUNT"]
-sas_token = os.environ["AZURE_STORAGE_SAS_TOKEN"]
-
-# Try to get account key from environment (more reliable for tables)
-storage_account_key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY")
-
-# Table configuration
-CIRCUITS_TABLE_NAME = "circuits"
+from azure.core.credentials import AzureSasCredential
+from azure.data.tables import TableClient, TableServiceClient
+from azure.storage.blob import ContainerClient
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_CIRCUITS_TABLE_NAME = "circuits"
+
+
 def table_safe(name: str) -> str:
+    """Turn an arbitrary feature name into an Azure Table-safe property name.
+
+    Azure Tables restrict property names to alphanumerics and underscores, and
+    forbid a leading digit.
     """
-    Turn arbitrary feature names into Azure Table-safe property names.
-    Azure Tables have restrictions on property names.
-    """
-    # Replace invalid characters with underscores
     cleaned = re.sub(r"[^0-9A-Za-z_]", "_", name.strip())
-    # Ensure it doesn't start with a number
     if cleaned and cleaned[0].isdigit():
         cleaned = f"prop_{cleaned}"
     return cleaned.lower()
 
-# Removed sql_safe function - no longer needed
+
+class AzureCredentialsError(RuntimeError):
+    """Raised when required Azure environment variables are missing."""
+
+
+@dataclass(frozen=True)
+class AzureCredentials:
+    """Azure storage credentials resolved from the environment."""
+
+    storage_account_name: str
+    sas_token: str
+    container_sas_url: str
+    account_key: str | None
+
+    #: Environment variables that must be set for any Azure access.
+    REQUIRED_VARS = (
+        "AZURE_STORAGE_ACCOUNT",
+        "AZURE_STORAGE_SAS_TOKEN",
+        "AZURE_CONTAINER_SAS_URL",
+    )
+
+    @classmethod
+    def from_env(cls) -> "AzureCredentials":
+        """Load credentials from the environment, consulting a local .env file.
+
+        Raises:
+            AzureCredentialsError: if any required variable is unset, naming all
+                of the missing ones at once.
+        """
+        load_dotenv()
+        missing = [var for var in cls.REQUIRED_VARS if not os.environ.get(var)]
+        if missing:
+            raise AzureCredentialsError(
+                "Missing required Azure environment variables: "
+                f"{', '.join(missing)}. See .env.example."
+            )
+        return cls(
+            storage_account_name=os.environ["AZURE_STORAGE_ACCOUNT"],
+            sas_token=os.environ["AZURE_STORAGE_SAS_TOKEN"],
+            container_sas_url=os.environ["AZURE_CONTAINER_SAS_URL"],
+            account_key=os.environ.get("AZURE_STORAGE_ACCOUNT_KEY"),
+        )
+
+    @property
+    def blob_endpoint(self) -> str:
+        return f"https://{self.storage_account_name}.blob.core.windows.net"
+
+    @property
+    def table_endpoint(self) -> str:
+        return f"https://{self.storage_account_name}.table.core.windows.net"
+
+    @property
+    def connection_string(self) -> str:
+        """Account-key connection string. Only valid when ``account_key`` is set."""
+        return (
+            "DefaultEndpointsProtocol=https;"
+            f"AccountName={self.storage_account_name};"
+            f"AccountKey={self.account_key};"
+            "EndpointSuffix=core.windows.net"
+        )
+
+    @property
+    def table_endpoint_with_sas(self) -> str:
+        """Table endpoint with the SAS token inlined, for the credential-object fallback."""
+        token = self.sas_token if self.sas_token.startswith("?") else f"?{self.sas_token}"
+        return f"{self.table_endpoint}{token}"
+
+    @property
+    def sas_credential(self) -> AzureSasCredential:
+        return AzureSasCredential(self.sas_token.lstrip("?"))
+
 
 class AzureConnection:
-    def __init__(self):
-        # Get Azure configuration from centralized config
+    """Blob container and Table clients for the configured storage account.
+
+    Authentication prefers the account key when available, because it is the
+    only method that reliably authorizes Table operations, and falls back to the
+    SAS token otherwise.
+    """
+
+    def __init__(self, credentials: AzureCredentials | None = None):
         from config import get_azure_config
+
         self.azure_config = get_azure_config()
-        
+        self.credentials = credentials or AzureCredentials.from_env()
+
         self.container_client = self.create_container_client()
         self.table_service_client = self.create_table_service_client()
         self.circuits_table_client = self.create_circuits_table_client()
 
-    # Removed create_sql_conn method - no longer needed
-    
     def create_container_client(self) -> ContainerClient:
-        """Create blob container client"""
-        # Use container name from config
-        container_name = self.azure_config.get('container_name', 'circuits')
-        
-        # If we have a full container connection string, use it directly
-        # Otherwise, build the container client using the configured container name
-        if container_connection_string and container_name in container_connection_string:
-            container_client = ContainerClient.from_container_url(container_connection_string)
-        else:
-            # Build container client from account details with configured container name
-            account_url = f"https://{storage_account_name}.blob.core.windows.net"
-            if storage_account_key:
-                connection_string = f"DefaultEndpointsProtocol=https;AccountName={storage_account_name};AccountKey={storage_account_key};EndpointSuffix=core.windows.net"
-                container_client = ContainerClient.from_connection_string(connection_string, container_name=container_name)
-            else:
-                from azure.core.credentials import AzureSasCredential
-                clean_sas = sas_token.lstrip('?')
-                credential = AzureSasCredential(clean_sas)
-                container_client = ContainerClient(account_url=account_url, container_name=container_name, credential=credential)
-        
-        return container_client
-    
+        """Create the blob container client for the configured container."""
+        creds = self.credentials
+        container_name = self.azure_config.get("container_name", "circuits")
+
+        # A container-scoped SAS URL already names its container, so it can only
+        # be used when it refers to the container we actually want.
+        if creds.container_sas_url and container_name in creds.container_sas_url:
+            return ContainerClient.from_container_url(creds.container_sas_url)
+        if creds.account_key:
+            return ContainerClient.from_connection_string(
+                creds.connection_string, container_name=container_name
+            )
+        return ContainerClient(
+            account_url=creds.blob_endpoint,
+            container_name=container_name,
+            credential=creds.sas_credential,
+        )
+
     def create_table_service_client(self) -> TableServiceClient:
-        """Create table service client"""
-        account_url = f"https://{storage_account_name}.table.core.windows.net"
-        
-        # Try different authentication methods
-        if storage_account_key:
-            # Use account key (most reliable)
-            connection_string = f"DefaultEndpointsProtocol=https;AccountName={storage_account_name};AccountKey={storage_account_key};EndpointSuffix=core.windows.net"
-            table_service_client = TableServiceClient.from_connection_string(connection_string)
-        else:
-            # Fallback to SAS token (may have permission issues)
-            try:
-                # Try using SAS token directly
-                from azure.core.credentials import AzureSasCredential
-                clean_sas = sas_token.lstrip('?')
-                credential = AzureSasCredential(clean_sas)
-                table_service_client = TableServiceClient(endpoint=account_url, credential=credential)
-            except Exception as e:
-                logger.warning(f"SAS token authentication failed: {e}")
-                # Last resort: try with full URL
-                clean_sas = sas_token if sas_token.startswith('?') else f'?{sas_token}'
-                endpoint_with_sas = f"{account_url}{clean_sas}"
-                table_service_client = TableServiceClient(endpoint=endpoint_with_sas)
-        
-        return table_service_client
-    
+        """Create the Table service client."""
+        creds = self.credentials
+        if creds.account_key:
+            return TableServiceClient.from_connection_string(creds.connection_string)
+        try:
+            return TableServiceClient(
+                endpoint=creds.table_endpoint, credential=creds.sas_credential
+            )
+        except Exception as e:
+            logger.warning("SAS credential authentication failed: %s", e)
+            return TableServiceClient(endpoint=creds.table_endpoint_with_sas)
+
     def create_circuits_table_client(self) -> TableClient:
-        """Create table client for circuits table"""
-        account_url = f"https://{storage_account_name}.table.core.windows.net"
-        # Use table name from config
-        table_name = self.azure_config.get('table_name', CIRCUITS_TABLE_NAME)
-        
-        # Try different authentication methods
-        if storage_account_key:
-            # Use account key (most reliable)
-            connection_string = f"DefaultEndpointsProtocol=https;AccountName={storage_account_name};AccountKey={storage_account_key};EndpointSuffix=core.windows.net"
-            table_client = TableClient.from_connection_string(connection_string, table_name=table_name)
+        """Create the circuits Table client, creating the table if absent."""
+        creds = self.credentials
+        table_name = self.azure_config.get("table_name", DEFAULT_CIRCUITS_TABLE_NAME)
+
+        if creds.account_key:
+            table_client = TableClient.from_connection_string(
+                creds.connection_string, table_name=table_name
+            )
         else:
-            # Fallback to SAS token
             try:
-                from azure.core.credentials import AzureSasCredential
-                clean_sas = sas_token.lstrip('?')
-                credential = AzureSasCredential(clean_sas)
-                table_client = TableClient(endpoint=account_url, table_name=table_name, credential=credential)
+                table_client = TableClient(
+                    endpoint=creds.table_endpoint,
+                    table_name=table_name,
+                    credential=creds.sas_credential,
+                )
             except Exception as e:
-                logger.warning(f"SAS token authentication failed: {e}")
-                # Last resort: try with full URL
-                clean_sas = sas_token if sas_token.startswith('?') else f'?{sas_token}'
-                endpoint_with_sas = f"{account_url}{clean_sas}"
-                table_client = TableClient(endpoint=endpoint_with_sas, table_name=table_name)
-        
-        # Create table if it doesn't exist
+                logger.warning("SAS credential authentication failed: %s", e)
+                table_client = TableClient(
+                    endpoint=creds.table_endpoint_with_sas, table_name=table_name
+                )
+
         try:
             table_client.create_table()
-            logger.info(f"Created table: {table_name}")
+            logger.info("Created table: %s", table_name)
         except Exception as e:
             if "TableAlreadyExists" in str(e) or "already exists" in str(e).lower():
-                logger.debug(f"Table {table_name} already exists")
+                logger.debug("Table %s already exists", table_name)
             else:
-                logger.warning(f"Error creating table: {e}")
-        
+                logger.warning("Error creating table %s: %s", table_name, e)
+
         return table_client
-    
-    # Removed get_conn method - no longer needed
-    
+
     def get_container_client(self) -> ContainerClient:
-        """Get blob container client"""
+        """Return the blob container client."""
         return self.container_client
-    
+
     def get_table_service_client(self) -> TableServiceClient:
-        """Get table service client"""
+        """Return the Table service client."""
         return self.table_service_client
-    
+
     def get_circuits_table_client(self) -> TableClient:
-        """Get circuits table client"""
+        """Return the circuits Table client."""
         return self.circuits_table_client

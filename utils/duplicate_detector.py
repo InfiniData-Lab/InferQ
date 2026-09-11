@@ -10,11 +10,8 @@ This module provides efficient duplicate detection for quantum circuits by:
 Author: InferQ Pipeline System
 """
 
-import os
 import json
 import logging
-import hashlib
-import fcntl
 from pathlib import Path
 from typing import Set, Optional
 from datetime import datetime, timezone

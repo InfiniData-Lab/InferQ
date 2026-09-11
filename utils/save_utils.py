@@ -28,8 +28,6 @@ from .blob_storage import (
     download_circuit_blob
 )
 
-# Removed SQL storage imports - no longer using SQL database
-
 # Re-export for convenience
 __all__ = [
     # Local storage
@@ -46,6 +44,4 @@ __all__ = [
     # Blob storage
     'upload_circuit_blob',
     'download_circuit_blob',
-    
-    # Removed SQL storage functions - no longer using SQL database
 ]

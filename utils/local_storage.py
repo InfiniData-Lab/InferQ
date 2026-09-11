@@ -9,11 +9,9 @@ from pathlib import Path
 import json
 import logging
 import qiskit.qpy
-from io import BytesIO
 import pickle
 
 from utils.circuit_hash import compute_circuit_hash
-from typing import Dict, Any
 
 # Configure logging
 logger = logging.getLogger(__name__)
