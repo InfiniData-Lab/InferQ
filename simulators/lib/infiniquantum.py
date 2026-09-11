@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from InfiniQuantumSim.TLtensor import QuantumCircuit as IQSQuantumCircuit, Gate as IQSGate, INDICES
-    import InfiniQuantumSim.sqlEinSum as ses
+    import InfiniQuantumSim.queryEinSum as ses
     from InfiniQuantumSim.sql_commands import sql_einsum_query
     import opt_einsum as oe
     INFINI_QUANTUM_AVAILABLE = True
@@ -32,9 +32,17 @@ _IQS_METHOD_ALIASES = {
     "duckdb": "ducksql",
 }
 
+# InfiniQuantumSim also benchmarks two array stores, both of which expect a server
+# this project never runs: SciDB over HTTP on localhost:8080 and a TileDB workspace
+# on disk. Nothing here records their results, so they are always omitted -- without
+# this the monolithic path blocks on a refused connection before any timing happens.
+_UNSUPPORTED_IQS_METHODS = ("scidb", "tiledb")
+
 
 def _normalise_omit_methods(methods):
-    return [_IQS_METHOD_ALIASES.get(method, method) for method in (methods or [])]
+    normalised = [_IQS_METHOD_ALIASES.get(method, method) for method in (methods or [])]
+    normalised.extend(m for m in _UNSUPPORTED_IQS_METHODS if m not in normalised)
+    return normalised
 
 
 def _execute_statement_sequence(method: str, statements: list[str], timeout: int | None, p_size=None):

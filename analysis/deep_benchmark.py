@@ -49,7 +49,7 @@ for p in (str(RDBMS_DIR), str(PROJECT_ROOT)):
 from InfiniQuantumSim.TLtensor import QuantumCircuit as IQSCircuit, Gate as IQSGate
 from InfiniQuantumSim.utils import INDICES
 from InfiniQuantumSim.sql_commands import sql_einsum_query
-import InfiniQuantumSim.sqlEinSum as ses
+import InfiniQuantumSim.queryEinSum as ses
 import opt_einsum as oe
 
 CIRCUITS_DIR = PROJECT_ROOT / "data" / "extremes"
