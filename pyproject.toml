@@ -146,17 +146,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# InfiniQuantumSim is a sibling checkout, not a published package. Keeping it out
-# of the default dependency set lets `uv sync` succeed without it; the SQL-backed
-# simulation paths already guard the import and degrade gracefully.
-sql = ["infiniquantumsim"]
+# InfiniQuantumSim is not on PyPI; it is installed straight from its git branch.
+# Keeping it out of the default dependency set lets `uv sync` succeed without it
+# (it pulls heavy array-store extras of its own), and the SQL-backed simulation
+# paths already guard the import and degrade gracefully. Install with
+# `uv sync --extra sql` or `uv pip install '.[sql]'`.
+sql = ["infiniquantumsim @ git+https://github.com/InfiniData-Lab/Quantum.git@inferq"]
 dev = [
     "pytest>=8",
     "ruff>=0.6",
 ]
-
-[tool.uv.sources]
-infiniquantumsim = { path = "../Infinidata-rdbms-simulator/", editable = true } # Local package dependency: https://anonymous.4open.science/r/Infinidata-rdbms-simulator-2320/README.md
 
 [tool.setuptools]
 package-dir = {"" = "."}

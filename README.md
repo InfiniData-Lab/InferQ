@@ -41,19 +41,24 @@ python -m pip install .
 
 ### Optional extras
 
-InfiniQuantumSim is a sibling checkout rather than a published package, so it is
-an optional extra. The base install therefore succeeds without it, and the
-SQL-backed simulation paths degrade gracefully when it is absent:
+InfiniQuantumSim is not published to PyPI, so it is declared as an optional
+extra that installs straight from its git branch:
 
 ```toml
-infiniquantumsim = { path = "../Infinidata-rdbms-simulator/", editable = true }
+sql = ["infiniquantumsim @ git+https://github.com/InfiniData-Lab/Quantum.git@inferq"]
 ```
 
-Install it when you need SQL-backed simulation or the query documentation tools:
+The base install therefore succeeds without it, and the SQL-backed simulation
+paths degrade gracefully when it is absent. Install it when you need SQL-backed
+simulation or the query documentation tools:
 
 ```bash
-uv sync --extra sql
+uv sync --extra sql        # or: uv pip install '.[sql]'
 ```
+
+The extra pulls in InfiniQuantumSim's own array-store dependencies (SciDB and
+TileDB). InferQ never benchmarks those two backends -- they expect servers this
+project does not run -- so they are omitted from every simulation request.
 
 Development tooling (pytest, ruff) is in the `dev` extra:
 
