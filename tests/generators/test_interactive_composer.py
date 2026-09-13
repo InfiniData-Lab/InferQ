@@ -1,15 +1,11 @@
-import os
-import sys
 import unittest
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
-
-from generators.circuit_merger import CircuitMerger
-from generators.interactive_composer import (
+from inferq.generators.base import BaseParams
+from inferq.generators.composer import (
     parse_parameter_overrides,
     pick_composition_parts,
 )
-from generators.lib.generator import BaseParams
+from inferq.generators.merger import CircuitMerger
 
 
 class TestInteractiveComposer(unittest.TestCase):

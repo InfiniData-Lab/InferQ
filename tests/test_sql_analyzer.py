@@ -1,6 +1,6 @@
 """SQL feature extraction, including the join topology the features report."""
 
-from feature_extractors.sql_analyzer import SQLFeatureExtractor
+from inferq.features.sql_analyzer import SQLFeatureExtractor
 
 
 def extract(sql: str):

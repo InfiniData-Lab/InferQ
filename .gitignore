@@ -1,78 +1,66 @@
+# Ignore by location, never by extension.
+#
+# Every generated or fetched artifact lands under one of the roots named below,
+# so no rule here needs a negation exception. If a new kind of output appears,
+# give it a home under data/, out/ or var/ rather than adding a pattern for its
+# file extension -- that is how the previous version of this file ended up with
+# eleven `!` escapes and 78 tracked-but-ignored files.
+
 # --- Python ---
 __pycache__/
 *.py[cod]
-.venv
-venv
-.DS_Store
+.venv/
+venv/
 
 # --- Build artifacts ---
 build/
 dist/
 *.egg-info/
 
-# --- Secrets and local environment ---
+# --- Tooling caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# --- Generated and fetched trees (see src/inferq/paths.py) ---
+# /data/  external datasets fetched by `inferq data fetch`
+# /out/   run output: results, figures, exports
+# /var/   machine-local state: the circuit store, caches, logs
+/data/
+/out/
+/var/
+
+# --- Legacy output locations, kept until every runner is migrated ---
+/circuits/
+/circuits_hpc/
+/test_circuits/
+/logs/
+/pgdata/
+
+# --- Research artifacts too large for git ---
+# Paper numbers are pinned to these exact files, so they are archived rather
+# than regenerated. docs/provenance/purged-data-sha256.txt records the sha256 of
+# each one; restore them there and `shasum -a 256 -c` will confirm the match.
+# Listed one by one rather than by glob: their sibling files in the same
+# directories are small and stay tracked, and a glob here would silently swallow
+# those the next time one is regenerated.
+/experiments/analysis/training_data/estimator_training_data.parquet
+/experiments/analysis/training_data/rdbms_training_data.parquet
+/experiments/analysis/training_data/selector_training_data.parquet
+/experiments/analysis/memory_profiling/sqlite_vs_qiskit_results.jsonl
+/experiments/analysis/finetuned/rdbms7705_sqlite_static_contr/rdbms7705_sqlite_static_contr_manifest.csv
+/experiments/analysis/finetuned/rdbms7705_sqlite_static_contr/rdbms7705_sqlite_static_contr_results.csv
+/experiments/analysis/finetuned/rdbms7705_sqlite_static_contr/rdbms7705_sqlite_static_contr_vs_baseline_qiskit_prism.csv
+
+# --- Secrets ---
+# The one extension-scoped block. Failing open here is catastrophic and no
+# tracked file matches.
 .env
-acct.key
+*.key
+*.pem
 
 # --- Editors and scratch ---
-.kiro
+.DS_Store
+.kiro/
 playground.ipynb
-
-# --- Generated circuits and caches ---
-circuits/
-circuits_hpc/
-circuit_hashes_cache.json
-test_circuits/
-pgdata/
-
-# --- Logs ---
-logs/
-*.log
-
-# --- Bulk data formats ---
-# Circuits and dataframes are large and reproducible; the exceptions below name
-# the artifacts that are intentionally versioned.
-*.qpy
-*.parquet
-*.csv
-*.jsonl
-
-# --- Generated figures and result blobs ---
-# Regenerable from the scripts under analysis/ and scripts/ooc/.
-*.png
-*.pdf
-analysis/**/results.json
-analysis/analysis_results.json
-analysis/deep_benchmark_results.json
-analysis/extremes_results.json
-analysis/scalability/profiling_stats_*.json
-analysis/**/*_hashes.txt
-analysis/**/*_qpy_paths.txt
-analysis/**/*_selection_summary.json
-analysis/**/*_profile_tunings.json
-analysis/ablation_results/splits/*.npz
-scripts/ooc/results/
-scripts/finetuned_rdbms/profiles/*_qpy_paths.txt
-
-# --- Versioned data (exceptions to the rules above) ---
-data/*
-!data/metadata/
-!data/metadata/*.parquet
-!data/ooc/
-!data/ooc/*.jsonl
-
-# Training datasets consumed by the estimator and selector notebooks.
-!analysis/training_data/*.parquet
-
-# Benchmark suite inventories.
-!scripts/benchmark_suites/benchmark_algorithms_deduplicated.csv
-!scripts/benchmark_suites/benchmark_algorithms_full.csv
-
-# Fine-tuning baselines and profiles.
-!scripts/finetuned_rdbms/baselines/*.csv
-!scripts/finetuned_rdbms/profiles/*.json
-!scripts/finetuned_rdbms/profiles/small_median_hashes.txt
-
-# Sample circuit selections referenced by analysis notebooks.
-!analysis/sample_csvs/
-!analysis/sample_csvs/*.csv

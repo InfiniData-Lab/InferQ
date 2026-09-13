@@ -14,7 +14,7 @@ import pytest
 
 pytest.importorskip("qiskit.qpy")
 
-from scripts.azure.download_circuits import (  # noqa: E402
+from inferq.transfer.download_circuits import (  # noqa: E402
     BlobRequest,
     Downloader,
     blob_path_from_url,
@@ -36,7 +36,7 @@ class FakeContainer:
 @pytest.fixture(autouse=True)
 def fake_download(monkeypatch):
     """Replace the Azure round-trip with a recorder that writes a stub file."""
-    import scripts.azure.download_circuits as module
+    import inferq.transfer.download_circuits as module
 
     def fake_download_circuit_blob(container_client, blob_path, method="qpy"):
         container_client.requested.append(blob_path)
@@ -126,7 +126,7 @@ def test_no_limit_is_never_exhausted(tmp_path):
 
 def test_run_hashes_shards_blob_path_and_flattens_output(tmp_path, monkeypatch):
     """Blobs are sharded by the hash's first two characters; output is flat."""
-    import scripts.azure.download_circuits as module
+    import inferq.transfer.download_circuits as module
 
     container = FakeContainer()
     monkeypatch.setattr(module, "connect", lambda: (container, "circuits"))

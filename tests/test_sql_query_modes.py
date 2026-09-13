@@ -1,10 +1,15 @@
 """Golden tests for the IQS SQL lowering.
 
-`generators/algorithms/*_queries/` holds committed reference SQL for each
-algorithm: the raw monolithic query plus the two lowered variants. Re-deriving
-the variants from the monolithic query and comparing against those files pins
-the lowering to output that has already been used in published experiments, so
-a refactor of `utils.sql_query_modes` cannot silently change query shape.
+`docs/query-structures/<name>/` holds committed reference SQL for each generator:
+the raw monolithic query plus the two lowered variants. Re-deriving the variants
+from the monolithic query and comparing against those files pins the lowering to
+output that has already been used in published experiments, so a refactor of
+`inferq.sql.query_modes` cannot silently change query shape.
+
+The fixtures cover all 17 generators. Before the restructure they lived beside
+the generators as `*_queries/` directories and the glob here matched only the ten
+that used the flat layout, so the four package-style algorithms' SQL went
+untested. Regenerate the tree with `tools/gen_query_docs.py`.
 """
 
 from __future__ import annotations
@@ -13,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from utils.sql_query_modes import (
+from inferq.sql.query_modes import (
     apply_sql_query_mode,
     count_iqs_ctes,
     iqs_cte_names,
@@ -24,7 +29,7 @@ from utils.sql_query_modes import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-QUERY_DIRS = sorted((REPO_ROOT / "generators" / "algorithms").glob("*_queries"))
+QUERY_DIRS = sorted(p for p in (REPO_ROOT / "docs" / "query-structures").glob("*") if p.is_dir())
 
 
 def _body(path: Path) -> str:
@@ -43,7 +48,7 @@ def _ids(dirs: list[Path]) -> list[str]:
 
 
 def test_reference_queries_exist():
-    assert QUERY_DIRS, "no generators/algorithms/*_queries/ fixtures found"
+    assert QUERY_DIRS, "no docs/query-structures/<name>/ fixtures found"
 
 
 @pytest.mark.parametrize("query_dir", QUERY_DIRS, ids=_ids(QUERY_DIRS))

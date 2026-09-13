@@ -1,0 +1,35 @@
+[project]
+name = "inferq-experiments"
+version = "0.1.0"
+description = "Research runners and analysis behind the InferQ paper. Never published."
+requires-python = ">=3.12,<3.14"
+
+dependencies = [
+    "inferq[azure,datasets,sql]",
+    "matplotlib>=3.10",
+    "pandas>=2.2",
+    "pyarrow>=20",
+    "scikit-learn>=1.8",
+    "scipy>=1.15",
+    "seaborn>=0.13",
+    "xgboost>=3.1",
+]
+
+[project.optional-dependencies]
+# Autotuning of the relational back ends. mlos-core pulls SMAC and FLAML, which
+# are heavy and which only two runners need.
+tuning = [
+    "ConfigSpace>=1.2",
+    "mlos-core[flaml,smac]>=0.6.2",
+]
+
+[tool.uv]
+# A virtual workspace member: uv installs these dependencies into the shared
+# environment but never builds or installs `experiments` itself. That is the
+# structural guarantee that research code cannot reach the published `inferq`
+# wheel -- there is no artifact for it to reach one through.
+#
+# The package is importable because the repository root is the working
+# directory: run a runner as `python -m experiments.ooc.run_experiment`, never
+# as `python experiments/ooc/run_experiment.py`.
+package = false

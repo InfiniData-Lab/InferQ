@@ -1,0 +1,20 @@
+# Normalize line endings for everything git detects as text.
+* text=auto eol=lf
+
+# Binary formats: never diff, never convert.
+*.qpy      binary
+*.parquet  binary
+*.npz      binary
+*.png      binary
+*.pdf      binary
+
+# Notebooks are JSON, but a textual diff of one is unreadable and the merge
+# driver corrupts them. Review them rendered.
+*.ipynb    -diff merge=union linguist-documentation
+
+# Generated query-structure artifacts: kept in git so drift is reviewable, but
+# not counted as hand-written source.
+docs/query-structures/** linguist-generated
+
+# The lockfile is generated; collapse it in reviews.
+uv.lock    -diff linguist-generated

@@ -11,7 +11,7 @@ anything that fails for a reason internal to the repository is a failure.
 """
 
 import importlib
-import sys
+import importlib.util
 import warnings
 from pathlib import Path
 
@@ -19,16 +19,26 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-#: Directories that hold research scripts and generated data rather than
+#: Import roots, each mapped to the directory dotted names are relative to.
+#: ``src`` is the package root of the distribution; ``experiments`` is a
+#: workspace member rooted at the repository itself.
+IMPORT_ROOTS = (
+    (REPO_ROOT / "src", REPO_ROOT / "src"),
+    (REPO_ROOT / "experiments", REPO_ROOT),
+)
+
+#: Directories that hold generated data or research output rather than
 #: importable library code.
 EXCLUDED_DIRS = {
     ".git",
+    ".ipynb_checkpoints",
     ".venv",
     "__pycache__",
     "analysis",
-    "circuits",
     "data",
     "node_modules",
+    "out",
+    "var",
 }
 
 #: Top-level distributions that are optional at runtime. A module that fails to
@@ -52,25 +62,26 @@ OPTIONAL_DEPENDENCIES = {
 
 
 def _module_names() -> list[str]:
-    """Return the dotted name of every module in the repository."""
+    """Return the dotted name of every importable module in the repository."""
     names = []
-    for path in sorted(REPO_ROOT.rglob("*.py")):
-        relative = path.relative_to(REPO_ROOT)
-        if EXCLUDED_DIRS.intersection(relative.parts):
-            continue
-        parts = list(relative.parts)
-        if parts[-1] == "__init__.py":
-            parts.pop()
-            if not parts:
+    for tree, anchor in IMPORT_ROOTS:
+        for path in sorted(tree.rglob("*.py")):
+            relative = path.relative_to(anchor)
+            if EXCLUDED_DIRS.intersection(relative.parts):
                 continue
-        else:
-            parts[-1] = parts[-1].removesuffix(".py")
-        # A directory whose name is not a valid identifier (e.g. environment-test)
-        # cannot be addressed as a package.
-        if not all(part.isidentifier() for part in parts):
-            continue
-        names.append(".".join(parts))
-    return names
+            parts = list(relative.parts)
+            if parts[-1] == "__init__.py":
+                parts.pop()
+                if not parts:
+                    continue
+            else:
+                parts[-1] = parts[-1].removesuffix(".py")
+            # A directory whose name is not a valid identifier (e.g.
+            # environment-test) cannot be addressed as a package.
+            if not all(part.isidentifier() for part in parts):
+                continue
+            names.append(".".join(parts))
+    return sorted(set(names))
 
 
 def _missing_optional_dependency(error: BaseException) -> str | None:
@@ -79,12 +90,6 @@ def _missing_optional_dependency(error: BaseException) -> str | None:
         return None
     root = error.name.split(".")[0]
     return root if root in OPTIONAL_DEPENDENCIES else None
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _repo_root_on_path():
-    if str(REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(REPO_ROOT))
 
 
 @pytest.mark.parametrize("module_name", _module_names())
@@ -103,13 +108,14 @@ def test_module_imports(module_name: str):
 def test_every_package_directory_is_importable():
     """A directory with an __init__.py must resolve as a package."""
     failures = []
-    for package_dir in sorted(REPO_ROOT.rglob("__init__.py")):
-        relative = package_dir.parent.relative_to(REPO_ROOT)
-        if not relative.parts or EXCLUDED_DIRS.intersection(relative.parts):
-            continue
-        if not all(part.isidentifier() for part in relative.parts):
-            continue
-        name = ".".join(relative.parts)
-        if importlib.util.find_spec(name) is None:
-            failures.append(name)
+    for tree, anchor in IMPORT_ROOTS:
+        for package_dir in sorted(tree.rglob("__init__.py")):
+            relative = package_dir.parent.relative_to(anchor)
+            if not relative.parts or EXCLUDED_DIRS.intersection(relative.parts):
+                continue
+            if not all(part.isidentifier() for part in relative.parts):
+                continue
+            name = ".".join(relative.parts)
+            if importlib.util.find_spec(name) is None:
+                failures.append(name)
     assert not failures, f"packages not resolvable: {failures}"

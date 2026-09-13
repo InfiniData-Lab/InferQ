@@ -1,7 +1,7 @@
 """Tests for the local storage layer and Azure Table name sanitisation.
 
 These run fully offline. Azure connectivity is exercised by the manual probe in
-``scripts/azure/test_azure_upload_connection.py``, not here.
+``src/inferq/transfer/test_azure_upload_connection.py``, not here.
 """
 
 import tempfile
@@ -10,8 +10,8 @@ from pathlib import Path
 
 from qiskit import QuantumCircuit
 
-from utils.azure_connection import table_safe
-from utils.local_storage import get_circuit_info, save_circuit_locally
+from inferq.remote.connection import table_safe
+from inferq.storage.local import get_circuit_info, save_circuit_locally
 
 
 def _bell_circuit() -> QuantumCircuit:

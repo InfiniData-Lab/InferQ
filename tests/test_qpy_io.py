@@ -6,7 +6,7 @@ import pytest
 import qiskit.qpy
 from qiskit import QuantumCircuit
 
-from utils.qpy_io import circuit_from_qpy_programs, load_circuit
+from inferq.storage.qpy import circuit_from_qpy_programs, load_circuit
 
 
 def _bell() -> QuantumCircuit:

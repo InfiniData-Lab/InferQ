@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.smoke_test import EngineStatus, omit_methods_for, verify_circuit_dir
+from inferq.cli.smoke import EngineStatus, omit_methods_for, verify_circuit_dir
 
 
 def _engine(name: str, available: bool) -> EngineStatus:

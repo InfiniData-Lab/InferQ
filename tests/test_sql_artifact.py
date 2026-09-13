@@ -12,8 +12,8 @@ from pathlib import Path
 
 from qiskit import QuantumCircuit
 
-from simulators import sql_artifact_from_results
-from utils.local_storage import save_circuit_locally
+from inferq.simulation import sql_artifact_from_results
+from inferq.storage.local import save_circuit_locally
 
 
 def _bell_circuit() -> QuantumCircuit:

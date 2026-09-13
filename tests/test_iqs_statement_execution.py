@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import unittest
 
-from simulators.lib.infiniquantum import _execute_statement_sequence
+from inferq.simulation.infiniquantum import _execute_statement_sequence
 
 SPLIT_STATEMENTS = [
     "CREATE TABLE a AS SELECT 1 AS i, 2.0 AS v",

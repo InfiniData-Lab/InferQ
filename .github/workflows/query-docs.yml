@@ -1,0 +1,36 @@
+name: Query-structure drift
+
+# The SQL reference under docs/query-structures/ is generated from the live
+# InfiniQuantumSim lowering, and tests/test_sql_query_modes.py treats it as a
+# fixture. If the lowering changes and the docs do not, the fixture silently
+# stops describing reality. This job regenerates and diffs.
+#
+# It is separate from CI because it needs InfiniQuantumSim, which is a git
+# dependency on a private-ish branch: a fork without access should still see a
+# green CI run rather than an unexplained failure.
+
+on:
+  push:
+    branches: [main, "release-*"]
+    paths:
+      - "src/inferq/generators/**"
+      - "src/inferq/sql/**"
+      - "tools/gen_query_docs.py"
+      - "docs/query-structures/**"
+  workflow_dispatch:
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install with InfiniQuantumSim
+        run: uv sync --group infiniquantum
+
+      - name: Check for drift
+        run: uv run python tools/gen_query_docs.py --check

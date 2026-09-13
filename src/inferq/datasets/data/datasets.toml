@@ -1,0 +1,107 @@
+# Dataset registry.
+#
+# Nothing here is vendored into the repository. Each entry names an
+# immutable upstream, an ordered list of mirrors to try, and a sha256 for
+# every file the loaders will read. `inferq data fetch <key>` downloads and
+# unpacks into $INFERQ_DATA_DIR (see inferq.paths); `inferq data verify
+# <key>` re-hashes what is on disk against this file.
+#
+# A committed per-file checksum is strictly more reproducible than the
+# vendored copy this replaces: that copy recorded an upstream commit SHA but
+# carried no checksums, so nothing could confirm the bytes matched it.
+
+version = 1
+
+[datasets.qasmbench]
+description = "QASMBench small + medium tiers (Li et al., NPJ QI 2022)."
+homepage = "https://github.com/pnnl/QASMBench"
+license = "BSD-3-Clause"
+citation = "Li et al., QASMBench: A Low-Level QASM Benchmark Suite for NISQ Evaluation and Simulation, ACM TQC 2023"
+
+# The upstream commit the checksums below were taken from. GitHub serves a
+# byte-stable tarball for a commit SHA, so this is the primary source and
+# needs no mirror of ours to stay reproducible.
+upstream = "https://github.com/pnnl/QASMBench.git"
+commit = "357b942396d5c2b7cbc1c229c585a6ef5ccaebac"
+mirrors = [
+    "https://codeload.github.com/pnnl/QASMBench/tar.gz/357b942396d5c2b7cbc1c229c585a6ef5ccaebac",
+]
+
+# Paths are relative to the dataset root and to the tarball's top-level
+# directory alike; the fetcher strips the leading component.
+strip_components = 1
+subdirs = ["small", "medium"]
+
+# The largest file is 81 MB for 14 qubits, which passes the default qubit
+# filter and would otherwise be handed to the QASM parser on every ingest.
+max_file_bytes = 8_000_000
+
+[datasets.qasmbench.files]
+"medium/bigadder_n18/bigadder_n18.qasm" = { sha256 = "097ac44672d0bb9696cd77e561bc094a661f45fa84762373df840efddac4d094", size = 1227 }
+"medium/bv_n14/bv_n14.qasm" = { sha256 = "c98cf8b70ed55423525f55bebe8293fd69a97a33472d83cbf5d39693b6ed5e14", size = 1176 }
+"medium/bv_n19/bv_n19.qasm" = { sha256 = "e80db1204270dc9fdf894c8acc682c2a2883c653185c61dcdc77a99ce5b6723a", size = 1571 }
+"medium/bwt_n21/bwt_n21.qasm" = { sha256 = "d53499b597f9f1f3253758501cbacbfb468fdcc77192d7f6f320ee5284bdefd4", size = 1476439 }
+"medium/cat_state_n22/cat_state_n22.qasm" = { sha256 = "a7b6a6a5c83397281250f255ce303f34e90c65d3990ef5b3ecc96fc685083c1e", size = 1105 }
+"medium/cc_n12/cc_n12.qasm" = { sha256 = "67cd81d8392049d251e32e4ad1d7399706c054f829f1ab347c3995fe72d914af", size = 1440 }
+"medium/dnn_n16/dnn_n16.qasm" = { sha256 = "c194be8740c380fc9679ebcca2515ac52215aea1c58dc5cfc507679a88c64d79", size = 46656 }
+"medium/factor247_n15/factor247_n15.qasm" = { sha256 = "eb18ab2af0cb5c41e4901104bef1a28626676e8d9be4839b0bf597ba81e4f11c", size = 8224552 }
+"medium/gcm_n13/gcm_h6.qasm" = { sha256 = "2519fdb644635c9f21671c725c23d83893e2b62ccfd926fe2d85b868a01e2bcd", size = 47454 }
+"medium/ghz_state_n23/ghz_state_n23.qasm" = { sha256 = "27e77c753e2993b3b4785872ec83d434dfac62cc526f4ee574347e6f5c8986ff", size = 1154 }
+"medium/hhl_n14/hhl_n14.qasm" = { sha256 = "db9a67316219936e78f2dd60e72aa215cf048a80f21a323dabbdfc24f19e701e", size = 85281883 }
+"medium/ising_n26/ising_n26.qasm" = { sha256 = "ac0dc5f6af55575ad454ce16f78820fa7e1aa16b027a6ab8e49af82b276054ba", size = 5155 }
+"medium/knn_n25/knn_n25.qasm" = { sha256 = "44d66b3aaca346922c64a61316bf166278621667e804fd59ea40eb465c33e678", size = 941 }
+"medium/multiplier_n15/multiplier_n15.qasm" = { sha256 = "e8ad585e5be09f96dd60f7495bd649562c6c05f8bf5d8a416b85a9d834e7eab8", size = 1501 }
+"medium/multiply_n13/multiply_n13.qasm" = { sha256 = "6d00a50a97f2224ddbb993ed3d82b1928cc1397997fc0347296d7fc42d731755", size = 1003 }
+"medium/qec9xz_n17/qec9xz_n17.qasm" = { sha256 = "27399092d22b16052641827cf12c87f524342ec308d8a2f6589a2d9f815682d3", size = 965 }
+"medium/qf21_n15/qf21_n15.qasm" = { sha256 = "46a3b2997c7aa44c97396a55cd4f0c71004cce4fbb52bee55b4c8ffe4fc8c7f3", size = 1880 }
+"medium/qft_n18/qft_n18.qasm" = { sha256 = "5ed6ee804a7067160294d7db81859886788ae56e853286e7307e9c74d5c35ab3", size = 13341 }
+"medium/qram_n20/qram_n20.qasm" = { sha256 = "2b22f2a0a013cb91c5b59063b04e33998a1e24bbd5300a085b01edadd9ac763d", size = 1999 }
+"medium/sat_n11/sat_n11.qasm" = { sha256 = "a876bce6261e0c6b2eff07cca8606a6937fe37ba46d8b1c28cc735d9c8fa325e", size = 1664 }
+"medium/seca_n11/seca_n11.qasm" = { sha256 = "42ed28a2fe7ef6e8f3498a4b4fe326886ba3ee730569874e6d6f928a4efb1b6a", size = 1800 }
+"medium/square_root_n18/square_root_n18.qasm" = { sha256 = "601bbadb967001504c15a00bc6740e7b91f4f125343af0bb2c3166f51515b650", size = 7648 }
+"medium/swap_test_n25/swap_test_n25.qasm" = { sha256 = "45649f6f4af12870b87c8088d97e286fff709b34e38f6363fef79c35a6bda1f0", size = 949 }
+"medium/vqe_n24/vqe_n24.qasm" = { sha256 = "810251e4416db8dfde203818be620fa88d7ef7f5d1604d064087509ac2ff0b02", size = 33543292 }
+"medium/wstate_n27/wstate_n27.qasm" = { sha256 = "ecd71063a3bf7e3a7a7440130c932f734aa13c6e368521e82a23f59572071a84", size = 2820 }
+"small/adder_n10/adder_n10.qasm" = { sha256 = "89af975627593648e7aca6ac6cb936d2c872093c1eedcaa1b2ab4fa14b602624", size = 751 }
+"small/adder_n4/adder_n4.qasm" = { sha256 = "30f0be9eb50d37ab2de7c87676e32ff7c66bc67eff32dfeafa0cf69951d92438", size = 398 }
+"small/basis_change_n3/basis_change_n3.qasm" = { sha256 = "2d998840327e516c71142442f6d9c2924962a8fad2e12e70a2c90d53a78be851", size = 1149 }
+"small/basis_trotter_n4/basis_test_n4.qasm" = { sha256 = "a6056d13a17783d499e4a8a87c62508534633ca0668225b49a8bf7c3c7e18a4a", size = 2036 }
+"small/basis_trotter_n4/basis_trotter_n4.qasm" = { sha256 = "9ead0e7d5f41cb6675c19457d4e414b77cf90c78cea3e0412bcccdc3f9f73dd5", size = 33278 }
+"small/bb84_n8/bb84_n8.qasm" = { sha256 = "32cb8b0b9a82ab794e99a69e24cce92fd313f37a4725cc61be2f1d761df4fd82", size = 799 }
+"small/bell_n4/bell_n4.qasm" = { sha256 = "1f3a1115385d87f6a444189776e521d6bba1d300f96454e85cb58bb3e297bf81", size = 932 }
+"small/cat_state_n4/cat_state_n4.qasm" = { sha256 = "caa882935bb73087db2edbee2aa77133965bdda3aec9687166f9e96b9a2ef8ff", size = 234 }
+"small/deutsch_n2/deutsch_n2.qasm" = { sha256 = "56a7b3389495fb497df1a331abb7d4f64ac57d397aaa1c1169d0ac33a10889cd", size = 216 }
+"small/dnn_n2/dnn_n2.qasm" = { sha256 = "ce0359edb654e5dd1f54035e07cec177d2f50ae1ecd45b651ba71637854b7921", size = 5276 }
+"small/dnn_n8/dnn_n8.qasm" = { sha256 = "7f1f342a59a7a9159a2f0fa619b8a64170a159158ae838eaa75b13212cf2a161", size = 22924 }
+"small/error_correctiond3_n5/error_correctiond3_n5.qasm" = { sha256 = "c33b5a03491bceb26ca6d494632936614df035a352d437369eca28087ae72ff5", size = 1517 }
+"small/fredkin_n3/fredkin_n3.qasm" = { sha256 = "5ede0e9d4cdc723afcdb515f16f984bf47cf53423e12fcafc10ee03bd9577996", size = 330 }
+"small/grover_n2/grover_n2.qasm" = { sha256 = "afd134759fa0eefb9f84a88d3e9f156cd54e83b10177d02c33bb6f519c08b813", size = 291 }
+"small/hhl_n10/hhl_n10.qasm" = { sha256 = "07f6ec77d01a41db21212b70fb024e06e26c6c563914e8cd8abc434a190aaddc", size = 3333758 }
+"small/hhl_n7/hhl_n7.qasm" = { sha256 = "8d7754418a92a0f8e28010f1430d7bc4e9db4b08f4f364473bd5290ee6fc8b94", size = 13202 }
+"small/hs4_n4/hs4_n4.qasm" = { sha256 = "f362ca9ffd7f045f517dfe4d67350794ac998f4eb427586a804eed9379340f63", size = 394 }
+"small/inverseqft_n4/inverseqft_n4.qasm" = { sha256 = "2b950bb566ea547918adcea27b13defb3ad31fb10bf3b4ccb25d51e91b5527b1", size = 439 }
+"small/ipea_n2/ipea_n2.qasm" = { sha256 = "78a11d6fadec00a0a119d9e40641124a40fd8b4eebacfb36e81ed525775e4ee8", size = 902 }
+"small/ising_n10/ising_n10.qasm" = { sha256 = "c10edc4a40eadf4d610aa012524e9eed4bdd1a02fc9d939cccae8ad4ed942f67", size = 10171 }
+"small/iswap_n2/iswap_n2.qasm" = { sha256 = "0c6d4dffaeb32c5758511cb51d5f89bcb6c97f3f60c1f5e3cbbeabb53c53ed50", size = 221 }
+"small/linearsolver_n3/linearsolver_n3.qasm" = { sha256 = "ad98aaab04fdd11eed43b6839122909c568ff848dd0b97ed09c11346dd592c42", size = 459 }
+"small/lpn_n5/lpn_n5.qasm" = { sha256 = "4216e9b4fdf9f22e6ae4f92a67aac8c634209093db4e3f0290f5413165b4de87", size = 313 }
+"small/pea_n5/pea_n5.qasm" = { sha256 = "0ab8129a30be0350c68704b5fcd91f2dfb4c868303c5ad761af411f277f91660", size = 709 }
+"small/qaoa_n3/qaoa_n3.qasm" = { sha256 = "4dc17a12b187cc3cf02962cf023a36de4cc48ed3923343ab9ef84e3daf89f5c7", size = 570 }
+"small/qaoa_n6/qaoa_n6.qasm" = { sha256 = "fde5eff21c334ef02430bbfa8ea38f9287625cab3ffbd45d92d79590ee27dcc9", size = 7120 }
+"small/qec_en_n5/qec_en_n5.qasm" = { sha256 = "d7b95967326b65050c5e645c180f2361f8cb3513dae7936de0e0cf53a63fec58", size = 530 }
+"small/qec_sm_n5/qec_sm_n5.qasm" = { sha256 = "dcf8d069188a5cf96a04aaaed23ff6f78e3663523c429609676e066a90332598", size = 377 }
+"small/qft_n4/qft_n4.qasm" = { sha256 = "62c6c8c7ddd95ac2b5367420b9925dbf82d6fb45725f089f01619a639621ad60", size = 308 }
+"small/qpe_n9/qpe_n9.qasm" = { sha256 = "b341d904913f8a41f22fee387a7939ec9b43873e5f2efeb739d57317ef2b4523", size = 1333 }
+"small/qrng_n4/qrng_n4.qasm" = { sha256 = "627d604f685cebe71f4d079cea6a9266a8d6a136279b6199b32cbc010079a184", size = 180 }
+"small/quantumwalks_n2/quantumwalks_n2.qasm" = { sha256 = "dea93828107b2b17f6381ed75cb8d985bc8790be74a7378179b441932a84e80b", size = 721 }
+"small/sat_n7/sat_n7.qasm" = { sha256 = "8b1f5b293141114e9f550d05fa04958f88f819e7d7aa7b1ef691c6158b0bd926", size = 873 }
+"small/shor_n5/shor_n5.qasm" = { sha256 = "e4dace5c3769f934e9c94786e9e12e5b2106960792a0812816cce36bc3b1a615", size = 452 }
+"small/simon_n6/simon_n6.qasm" = { sha256 = "756eee6bf939d1b5879da3ff1bae66cfd2599b9b96515f336ecde6f9ca512fc9", size = 631 }
+"small/teleportation_n3/teleportation_n3.qasm" = { sha256 = "71891c017af93f74cf72b1f222b26d02650ec23242ba9c96b0e8c34da93a5bd6", size = 338 }
+"small/toffoli_n3/toffoli_n3.qasm" = { sha256 = "3cd72f83491b25a3c7c94fa826f85fe13f1af28079268b2c34e144299380968f", size = 314 }
+"small/variational_n4/variational_n4.qasm" = { sha256 = "df4ced794da7fd4ca56eb2b02bce53ee77207bec77286cb4626115c6a9b6357d", size = 1241 }
+"small/vqe_n4/vqe_n4.qasm" = { sha256 = "f6777e4fdd8eadcbc8a85a5135e797a96d3b91b3f494593a5b8c9fdcd37530c6", size = 1812 }
+"small/vqe_uccsd_n4/vqe_uccsd_n4.qasm" = { sha256 = "be59c8aa33b7cc3b997187e09c24e5f59223cfe79a0c38016d3615d828fed1dd", size = 3342 }
+"small/vqe_uccsd_n6/vqe_uccsd_n6.qasm" = { sha256 = "f80361ccbdb3c333ba29a5efce4d1f0b1c018b4a63d40e9c2976df2144747fea", size = 33667 }
+"small/vqe_uccsd_n8/vqe_uccsd_n8.qasm" = { sha256 = "5bf2dd10d4767825289ebe9e30933986fa2782063cf60066a44487d7f257b115", size = 161450 }
+"small/wstate_n3/wstate_n3.qasm" = { sha256 = "9077432a88fea0f3da2c3b24558333c1a329261b20836ba82b253418d8c7b0dd", size = 328 }

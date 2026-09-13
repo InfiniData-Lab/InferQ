@@ -1,420 +1,387 @@
-
 # InferQ
 
-InferQ generates, simulates, and analyzes quantum circuits for benchmark and
-dataset construction. It combines a configurable circuit generator, parallel
-processing pipeline, Qiskit and InfiniQuantumSim simulation paths, feature
-extractors, duplicate detection, local storage, and optional Azure upload.
+InferQ generates, simulates and analyzes quantum circuits for benchmark and
+dataset construction. It combines a configurable circuit generator, a
+multiprocessing pipeline, Qiskit/Aer and InfiniQuantumSim simulation paths,
+static/graph/dynamic/SQL feature extraction, duplicate detection, a local
+content-addressed circuit store and optional Azure Blob + Table upload.
 
-## What Is In The Repo
+## Layout
 
-- `generators/`: circuit generators for algorithms and state-preparation circuits.
-- `generators/algorithms/*_queries/`: documented SQL query structures for algorithm generators.
-- `generators/state_prep_circuits/sql/`: documented SQL query structures for state-preparation generators.
-- `pipeline/`: multiprocessing orchestration and worker code.
-- `simulators/`: simulation backends and simulation-result processing.
-- `feature_extractors/`: static, graph, dynamic, and SQL feature extraction.
-- `utils/`: storage, hashing, Azure, and duplicate-detection helpers.
-- `scripts/`: operational scripts, out-of-core experiments, and benchmark utilities.
-- `config.py`: the main control plane for generation, simulation, storage,
-  database backend selection, synergies, and experiment defaults.
-- `main.py`: the only top-level pipeline entry point. It supports `parallel`,
-  `single`, and `interactive` pipeline modes.
+The repository is a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/)
+with two members.
+
+| Path | What it is |
+| --- | --- |
+| `src/inferq/` | The `inferq` distribution — the only thing that is published. |
+| `experiments/` | Workspace member `inferq-experiments`. Research runners, figure scripts and the out-of-core harness. Never published. |
+| `tests/` | The test suite, including the offline OOC fixtures under `tests/fixtures/`. |
+| `docs/` | Prose docs plus the generated SQL query-structure reference. |
+| `tools/` | Repository tooling: doc generation, shell helpers, environment probes. |
+
+Inside `src/inferq/`:
+
+| Package | Responsibility |
+| --- | --- |
+| `paths` | The one place a filesystem path is resolved. |
+| `sql` | Query-mode lowering (`monolithic`, `monolithic_materialized`, `split`). Dependency-free leaf. |
+| `config` | Settings: pipeline bounds, generator selection, simulator limits, storage and Azure defaults. |
+| `generators` | `base`, `params`, `registry`, `merger`, `composer`, plus `algorithms/` and `state_prep/`. |
+| `features` | Static, graph, dynamic and SQL feature extraction. |
+| `simulation` | Simulation backends and result processing. |
+| `storage` | QPY serialization, hashing, the local content-addressed store. |
+| `remote` | Azure Blob and Table clients. |
+| `transfer` | Bulk download/upload between the local store and Azure. |
+| `datasets` | Third-party corpora: the registry, the fetcher and the SupermarQ/MQT Bench/QASMBench loaders. |
+| `rerun` | Reprocessing a stage over circuits that already exist. |
+| `pipeline` | Multiprocessing orchestration and worker code. |
+| `cli` | The `inferq` console script. |
+
+Nothing generated or fetched is stored inside the source tree. See
+[Data locations](#data-locations).
 
 ## Setup
 
 InferQ targets Python `>=3.12,<3.14`.
 
 ```bash
-cd InferQ
 uv sync
 ```
 
-If you are not using `uv`, install the project with pip. Install it editable
-when you work from the checkout: a plain `pip install .` copies the packages
-into `site-packages`, and because `scripts` resolves as a namespace package
-spanning both locations, that stale copy can shadow the files you are editing.
+That installs `inferq` in editable mode, installs the `experiments` member's
+dependencies, and installs the `dev` group (pytest, ruff). `pyproject.toml` is
+the single source of dependency truth; there is no `requirements.txt`.
+
+Without uv:
 
 ```bash
 python -m pip install -e .
 ```
 
-`pyproject.toml` is the single source of dependency truth; there is no
-`requirements.txt`.
+### Extras and groups
 
-### Optional extras
+The base install is deliberately small — it is what you need to generate,
+simulate with Aer, extract features and write circuits locally.
 
-InfiniQuantumSim is not published to PyPI, so it is declared as an optional
-extra that installs straight from its git branch:
+| Install | Adds |
+| --- | --- |
+| `uv sync --extra azure` | Azure Blob + Table storage (`inferq.remote`, `inferq.transfer`). |
+| `uv sync --extra datasets` | SupermarQ and MQT Bench loaders. |
+| `uv sync --extra sql` | DuckDB, PostgreSQL and the einsum contraction planner. |
+| `uv sync --all-extras` | All of the above. |
+| `uv sync --group infiniquantum` | InfiniQuantumSim, the tensor-network-to-SQL lowering. |
 
-```toml
-sql = ["infiniquantumsim @ git+https://github.com/InfiniData-Lab/Quantum.git@inferq"]
+InfiniQuantumSim is not on PyPI. PyPI rejects any distribution whose
+`Requires-Dist` carries a direct URL — extras included — so it cannot be an
+extra without blocking every release. It is a PEP 735 dependency group resolved
+through `[tool.uv.sources]`, which is lockfile-local and never reaches the
+wheel. Every SQL-backed path degrades gracefully when it is absent.
+
+InfiniQuantumSim pulls in its own array-store dependencies (SciDB and TileDB).
+InferQ never benchmarks those two backends — they expect servers this project
+does not run — so they are omitted from every simulation request.
+
+## The `inferq` command
+
+One console script replaces every `python <path>` invocation.
+
+```
+inferq catalog    list circuits recorded in Azure Table Storage
+inferq data       list, fetch and verify the registered benchmark datasets
+inferq download   download circuits from Azure Blob Storage
+inferq ingest     ingest circuits from an external benchmark suite
+inferq paths      show the resolved data, cache, state and output directories
+inferq rerun      reprocess stored circuits (simulations, SQL or dynamic features)
+inferq run        generate, simulate and store circuits
+inferq smoke      end-to-end check of the local install
+inferq upload     upload local circuits to Azure Blob Storage
 ```
 
-The base install therefore succeeds without it, and the SQL-backed simulation
-paths degrade gracefully when it is absent. Install it when you need SQL-backed
-simulation or the query documentation tools:
+Sub-command modules are imported only once the command is selected, so
+`inferq --help` does not pay for Qiskit, Aer or the Azure SDK.
+
+## Data locations
+
+No path is resolved anywhere but `inferq.paths`, and no default points inside
+the checkout. Each root follows the XDG base directories and is overridable:
+
+| Env var | Default | Holds |
+| --- | --- | --- |
+| `INFERQ_DATA_DIR` | `~/.local/share/inferq` | Fetched datasets and the local circuit store. |
+| `INFERQ_CACHE_DIR` | `~/.cache/inferq` | Re-derivable scratch. |
+| `INFERQ_STATE_DIR` | `~/.local/state/inferq` | Checkpoints and logs. |
+| `INFERQ_OUT_DIR` | `<checkout>/out`, else `$PWD/out` | Experiment results and figures. |
 
 ```bash
-uv sync --extra sql        # or: uv pip install '.[sql]'
+inferq paths          # print the resolved roots and whether they exist
 ```
 
-The extra pulls in InfiniQuantumSim's own array-store dependencies (SciDB and
-TileDB). InferQ never benchmarks those two backends -- they expect servers this
-project does not run -- so they are omitted from every simulation request.
-
-Development tooling (pytest, ruff) is in the `dev` extra:
-
-```bash
-uv sync --extra dev
-```
+Directories are created by the writer that needs them, never at import time.
 
 ## Configuration
 
-`config.py` is the most important driver in the repo. Start there before
-changing code: it controls pipeline batch sizes, worker counts, circuit size
-limits, generator selection behavior, simulator limits, InfiniQuantumSim
-database methods, local/remote storage, Azure settings, OOC defaults, and
-finetuning paths. Many values can be overridden by environment variables, but
-the source-of-truth defaults are in `PipelineConfig`.
+`src/inferq/config/` holds the defaults: pipeline batch sizes and worker counts,
+circuit size limits, generator-selection behavior, synergy rules, simulator
+limits, InfiniQuantumSim method selection, storage and Azure settings, and OOC
+defaults. Many values accept an environment override; the source-of-truth
+defaults live in `PipelineConfig`.
 
 Key sections:
 
-- `PIPELINE_DEFAULTS`: worker count, batch size, upload cadence, iteration
-  limit, and batch timeout.
-- `CIRCUIT_GENERATION`: qubit/depth/repetition bounds, measurement setting,
-  seed, max generator count, stopping probability, and max circuit size.
-- `SYNERGY_RULES`: conditional generator-selection boosts used by the
-  template-based generator system.
-- `SIMULATION`: Qiskit simulator limits and InfiniQuantumSim backend selection.
-- `OOC`: out-of-core memory caps, engine list, temp paths, Docker image names,
-  and experiment defaults.
+- `PIPELINE_DEFAULTS` — worker count, batch size, upload cadence, iteration
+  limit, batch timeout.
+- `CIRCUIT_GENERATION` — qubit/depth/repetition bounds, measurement setting,
+  seed, max generator count, stopping probability, max circuit size.
+- `SYNERGY_RULES` — conditional generator-selection boosts.
+- `SIMULATION` — Aer limits and InfiniQuantumSim backend selection.
+- `OOC` — memory caps, engine list, temp paths, Docker image names.
 
-For Azure-backed runs, create a local `.env` file:
+For Azure-backed runs, copy `.env.example` to `.env` and fill in the connection
+details.
+
+## Benchmark datasets
+
+Third-party corpora are fetched and verified, never vendored. The registry lives
+at `src/inferq/datasets/data/datasets.toml` and ships in the wheel: it records
+the upstream URL, the pinned commit, an ordered mirror list, and a **sha256 per
+file**, so a fetched copy is checkable rather than merely claimed to match.
 
 ```bash
-cp .env.example .env
+inferq data list                 # what is registered, and what is present
+inferq data fetch qasmbench      # download, verify, unpack
+inferq data verify --all         # re-check an existing copy
 ```
 
-Then set the Azure connection details expected by the storage helpers.
+A fetch stages into a temporary directory and verifies before it replaces
+anything, so a failed fetch never damages the copy you already have. Files are
+unpacked under `$INFERQ_DATA_DIR/datasets/<key>/`.
 
-## Production Pipeline
+Loaders for SupermarQ, MQT Bench and QASMBench live in `inferq.datasets`. See
+[`docs/benchmark-suites.md`](docs/benchmark-suites.md) for the full benchmark
+table, per-suite inventory, algorithm descriptions and duplicate markings. The
+curated inventory CSVs (109 suite-specific entries; 85 algorithm families after
+deduplication) are wheel package data under `inferq/datasets/data/`.
 
-This is the normal dataset-generation path. It generates circuits, skips known
-duplicates, extracts features, runs configured simulators, writes local `.qpy`
-artifacts and metadata, and optionally uploads new circuits to Azure. It is not
-the same as the out-of-core RDBMS experiment harness described below.
+Ingest suite circuits into the pipeline with:
 
-Database-backed simulation is accepted in the production pipeline through the
-InfiniQuantumSim configuration in `config.py`. The accepted method names are
-`psql`, `sqlite`, `ducksql`, `umbra`, `eqc`, `np_mps`, and `np_one_shot`; set
-`SIMULATION["infiniquantum"]["omit_methods"]` to skip methods for a run. The
-default config currently omits the heavier database backends (`psql`,
-`ducksql`, and `umbra`) unless explicitly enabled, while still allowing the
-pipeline to record SQL-derived features and run the configured simulator set.
-The SQL execution shape is selected by
-`SIMULATION["infiniquantum"]["query_mode"]`, or by `IQ_QUERY_MODE` in the
-environment. Accepted values are `monolithic` (default),
-`monolithic_materialized`, and `split`.
+```bash
+inferq ingest --suites qasmbench
+```
 
-`config.py` is the main driver for production behavior. It centralizes worker
-counts, generator bounds, synergy rules, simulator limits, InfiniQuantumSim
-database acceptance, SQL query mode, storage, Azure, and logging defaults. Use
-environment variables for run-local overrides; edit `PipelineConfig` when a
-default should become part of the repository configuration.
+## Production pipeline
 
-`main.py` supports three production pipeline modes:
+The normal dataset-generation path: generate circuits, skip known duplicates,
+extract features, run the configured simulators, write local `.qpy` artifacts
+and metadata, and optionally upload new circuits to Azure. This is not the
+out-of-core RDBMS experiment harness described further down.
 
 | Mode | Command | Use when |
 | --- | --- | --- |
-| `parallel` | `python main.py` or `python main.py parallel` | Generating dataset batches with multiprocessing. |
-| `single` | `python main.py single` | Running one generated circuit through extraction, simulation, and storage. |
-| `interactive` | `python main.py interactive` | Manually composing a circuit from generator templates before optionally running the normal pipeline. |
-
-Run the default parallel production pipeline:
+| `parallel` | `inferq run` or `inferq run parallel` | Generating dataset batches with multiprocessing. |
+| `single` | `inferq run single` | Running one generated circuit through extraction, simulation and storage. |
+| `interactive` | `inferq run interactive` | Composing a circuit from generator templates by hand first. |
 
 ```bash
-python main.py
+inferq run --workers 8 --batch-size 50 --iterations 10
+inferq run --azure-interval 500
+inferq run --profile
+inferq run interactive --generate-only
 ```
 
-Useful options:
+Interactive mode enumerates the generator templates, accepts indexes, names or
+ranges such as `1,13` or `GHZ,QFTGenerator`, previews each template's default
+parameters and lets you override them; the composed circuit can then go through
+the same extraction/simulation/storage path. See
+[`docs/interactive.md`](docs/interactive.md).
+
+Database-backed simulation is configured through
+`SIMULATION["infiniquantum"]`. Accepted method names are `psql`, `sqlite`,
+`ducksql`, `umbra`, `eqc`, `np_mps` and `np_one_shot`; `omit_methods` skips
+methods for a run. The default config omits the heavier database backends
+(`psql`, `ducksql`, `umbra`) unless explicitly enabled, while still recording
+SQL-derived features. The SQL execution shape comes from
+`SIMULATION["infiniquantum"]["query_mode"]` or `IQ_QUERY_MODE`, one of
+`monolithic` (default), `monolithic_materialized` or `split`.
+
+The shell wrapper adds environment checks, log-file naming and basic monitoring:
 
 ```bash
-python main.py --workers 8 --batch-size 50 --iterations 10
-python main.py --azure-interval 500
-python main.py --profile
+./tools/run_parallel.sh --workers 8 --batch-size 50 --iterations 10
 ```
 
-The shell wrapper adds environment checks, log-file naming, and basic monitoring
-messages:
+## Generator templates and synergies
 
-```bash
-./scripts/run_parallel.sh --workers 8 --batch-size 50 --iterations 10
-```
-
-For a single generate/extract/simulate/store iteration, use:
-
-```bash
-python main.py single
-```
-
-For an interactive composition run, use:
-
-```bash
-python main.py interactive
-```
-
-Interactive mode is a guided pipeline entry point. It enumerates the templates
-in `generators/`, accepts indexes, names, or ranges such as `1,13` or
-`GHZ,QFTGenerator`, previews each template's generated default parameters, and
-lets you override parameters. After the circuit is built, it can run the same
-feature extraction, simulation, local storage, and optional Azure upload path as
-the generated pipeline. See `interactive.md` for the detailed workflow,
-including how explicit selections are used to deterministically create parts of
-compositions.
-
-To only build the composed circuit without processing it:
-
-```bash
-python main.py interactive --generate-only
-```
-
-## Generator Templates And Synergies
-
-InferQ uses a template-based circuit generation system under `generators/`.
 Each generator implements a small interface: produce representative parameters,
-then build a Qiskit circuit from those parameters. The available templates cover
-algorithm circuits such as QFT, QPE, QAOA, Grover, QNN, VQE, and quantum walks,
-plus state-preparation templates such as GHZ, W-state, graph states,
-RealAmplitudes, TwoLocal, EfficientSU2, and random circuits.
+then build a Qiskit circuit from them. Algorithm templates cover QFT, QPE, QAOA,
+Grover, QNN, VQE, amplitude estimation, Deutsch-Jozsa and quantum walks;
+state-preparation templates cover GHZ, W-state, graph states, RealAmplitudes,
+TwoLocal, EfficientSU2 and random circuits. Every algorithm uses the same
+one-module-per-algorithm layout.
 
-`generators/circuit_merger.py` composes these templates into hierarchical
-circuits. It does not choose each template independently: after one generator is
-selected, the merger updates the probability distribution for the next choice.
-The fixed type-level rules live in `config.py` as `SYNERGY_RULES`; for example,
-QFT boosts QPE, variational algorithms boost ansatz templates, and entangling
-state-preparation templates boost compatible algorithms. To define or tune
-synergies, edit `SYNERGY_RULES` with:
+`inferq.generators.merger` composes templates into hierarchical circuits. It
+does not choose each template independently: after one generator is selected the
+merger updates the probability distribution for the next choice. The type-level
+rules are `SYNERGY_RULES` in the config:
 
 ```python
 {"trigger": ["QFTGenerator"], "targets": ["QPE"], "multiplier": 2.5}
 ```
 
-`trigger` names the selected generator class, `targets` names the generators to
-boost, and `multiplier` controls how strongly their selection probabilities are
-increased.
+`trigger` names the selected generator class, `targets` the generators to boost,
+`multiplier` how strongly.
 
-## SQL Query Structure Documentation
+## SQL query-structure reference
 
-Representative InfiniQuantumSim SQL query structures are checked into the
-generator folders. Each documented generator has:
+Representative InfiniQuantumSim query structures for all 17 generators are
+generated into `docs/query-structures/<generator>/`:
 
-- `query_structure.md`: circuit parameters, operation counts, CTE counts, and variant notes.
-- `monolithic.sql`: the raw `WITH ... SELECT` query.
-- `monolithic_materialized.sql`: the same query with `AS MATERIALIZED` CTE hints.
-- `split.sql`: one materialized `K*` contraction table per step plus the final SELECT.
+- `query_structure.md` — circuit parameters, operation counts, CTE counts, variant notes.
+- `monolithic.sql` — the raw `WITH ... SELECT` query.
+- `monolithic_materialized.sql` — the same query with `AS MATERIALIZED` CTE hints.
+- `split.sql` — one materialized `K*` contraction table per step plus the final SELECT.
 
-Regenerate algorithm query docs:
+Regenerate them with:
 
 ```bash
-python generators/generate_query_structure_docs.py
+uv run python tools/gen_query_docs.py
 ```
 
-Regenerate state-preparation query docs:
+`src/inferq/generators/sql-templates.md` explains the recursive SQL layout and
+how the `K*` contraction chain maps to the three modes.
+`tests/test_sql_query_modes.py` pins the lowering by re-deriving the
+materialized and split forms from each committed monolithic query.
+
+## OOC and fine-tuning experiments
+
+`experiments/` lowers InfiniQuantumSim tensor contractions into SQL and runs them
+through relational engines under explicit memory caps. It is a workspace member,
+not part of the distribution: `uv sync` installs its dependencies but never
+builds it, so research code cannot reach the wheel. Run its modules with `-m`
+from the repository root.
+
+| Package | What it does |
+| --- | --- |
+| `experiments/ooc/` | Out-of-core and limited-memory experiments; RDBMS spill behavior against Aer. |
+| `experiments/finetuned_rdbms/` | Raw-monolithic RDBMS benchmark runs and MLOS-based tuning. |
+| `experiments/analysis/` | Figure and dataset scripts. `plotting.py` holds the shared palette, byte-axis formatters and figure writer. |
+| `experiments/misc/` | One-off runners kept for provenance. |
+| `experiments/_common/` | Helpers shared across the above: qubit-count binning, cursors, the QPY-plus-manifest writer. |
 
 ```bash
-python generators/generate_state_prep_query_structure_docs.py
-```
-
-See `generators/sql-templates.md` for the recursive SQL file layout, the four
-files in each query folder, and how the `K*` contraction chain maps to
-monolithic, materialized, and split SQL.
-
-## Existing Benchmarks
-
-InferQ supports generated circuits and imported benchmark suites.
-
-Checked-in benchmark inventory:
-
-- `scripts/benchmark_suites/benchmark_algorithms_full.csv`: 109 suite-specific
-  entries.
-- `scripts/benchmark_suites/benchmark_algorithms_deduplicated.csv`: 85
-  normalized algorithm families after merging equivalent algorithms.
-- Source coverage: 8 SupermarQ entries, 34 MQT Bench entries, and 67 QASMBench
-  entries. Some families appear in more than one suite, so these counts are not
-  additive after deduplication.
-
-Benchmark tooling:
-
-- `scripts/benchmark_suites/`: loaders for SupermarQ, MQT Bench, and QASMBench.
-- `scripts/benchmark_suites/qasmbench_qasm/`: vendored QASMBench QASM files and
-  manifest metadata.
-- `scripts/ingest_benchmarks.py`: ingestion path for suite circuits.
-- `data/ooc/`: selected circuit sets used by analysis and out-of-core
-  experiments.
-
-See `scripts/benchmark_suites/README.md` for the full benchmark table, per-file
-folder inventory, algorithm descriptions, and duplicate-name markings.
-
-## OOC And Fine-Tuning Experiments
-
-InferQ can lower InfiniQuantumSim tensor contractions into SQL and run them
-through relational engines for controlled database experiments. This is separate
-from the production pipeline: these scripts benchmark specific circuits under
-explicit engine settings, memory caps, SQL modes, and tuning profiles.
-
-Experiment areas:
-
-- `scripts/ooc/`: out-of-core and limited-memory experiments. These compare RDBMS
-  spill behavior against Aer under explicit memory caps.
-- `scripts/azure/download_circuits.py`: the single downloader for circuits held
-  in Azure Blob Storage, with one subcommand per way of naming the blob set:
-  `all` (the whole container), `metadata` (the `blob_url` column of the fetched
-  parquet files, resumable via a checkpoint), `hashes` (explicit hashes or a CSV
-  column) and `public` (an anonymous container, copied byte-for-byte). The
-  historical entry points — `scripts/download_circuits_by_hash.py`,
-  `scripts/download_from_csv.py`, `scripts/download_public_circuits.py`,
-  `scripts/azure/fetch_all_blobs.py` and
-  `scripts/azure/download_circuits_from_metadata.py` — remain as thin wrappers
-  that pin a mode and keep their own flags.
-- `scripts/finetuned_rdbms/`: raw-monolithic RDBMS benchmark runs and MLOS-based
-  tuning over selected circuit sets.
-- `scripts/rerun_pipeline/`: re-runs a stage over circuits that already exist.
-  `rerun_cli.py` is the one driver, selected with `--mode
-  {simulations,sql,dynamic}`; `rerun_simulations.py`, `rerun_sql_features.py`
-  and `rerun_dynamic_features.py` are wrappers that pin a mode and keep their
-  own flags.
-- `scripts/lib/`: helpers shared across the scripts — repository-root
-  resolution, the qubit-count binning used by the circuit selectors, and the
-  QPY-plus-manifest writer used by the manifest builders.
-- `analysis/finetuned/`: local output folders for finetuning runs.
-- `analysis/`: figure and dataset scripts for these experiments. Run them from
-  that directory (`python analysis/ooc_inferq_plot.py`); `analysis/plotting.py`
-  holds the shared font pick, engine palette, byte-axis formatters and figure
-  writer, while each script keeps its own `plt.rcParams` block because the
-  papers they feed use different styles.
-
-Supported database and benchmark engines:
-
-- `postgres`: PostgreSQL 12.22 in a separate Docker container. The custom
-  `inferq-ooc-postgres:12.22` image applies cap-aware settings before each run.
-- `duckdb`: embedded DuckDB inside the worker container, with an explicit memory
-  limit and spill directory.
-- `sqlite`: Python stdlib SQLite inside the worker container. Split mode uses
-  regular disk-backed tables rather than TEMP tables so intermediates do not
-  stay in heap on SQLite builds where `PRAGMA temp_store` is ineffective.
-- `umbra`: InfiniQuantumSim's Umbra backend. It is available as an RDBMS
-  benchmark target and can be rerun over existing circuits with
-  `scripts/rerun_umbra_to_azure.py`; it is omitted from the default simulator
-  config unless explicitly enabled.
-- `aer`: Qiskit Aer baseline methods, used for simulator comparison rather than
-  SQL execution.
-
-The SQL engines used by the OOC runner share these query modes:
-
-- `monolithic`: runs the raw InfiniQuantumSim `WITH ... SELECT` query. This is
-  the closest translation, but DuckDB and SQLite can inline the whole CTE
-  cascade and exhaust memory on larger circuits.
-- `monolithic_materialized`: keeps one query but adds `AS MATERIALIZED` CTE
-  hints. PostgreSQL, DuckDB, and SQLite understand this form.
-- `split`: decomposes every `K*` contraction CTE into a materialized table, then
-  runs the final SELECT. This is the default for out-of-core experiments because
-  it bounds peak memory to roughly one contraction step.
-
-All three modes are implemented once in `utils/sql_query_modes.py`. The OOC
-worker, the fine-tuned RDBMS runner, the simulator's SQL backend, and the
-per-algorithm reference SQL generator all lower queries through that module, so
-they cannot drift apart. `tests/test_sql_query_modes.py` pins the lowering by
-re-deriving `generators/algorithms/*_queries/{monolithic_materialized,split}.sql`
-from the committed monolithic query and comparing.
-
-Typical database-only OOC runs use:
-
-```bash
-python -m scripts.ooc.run_experiment \
+uv run python -m experiments.ooc.run_experiment \
   --engines postgres,duckdb,sqlite \
   --mode split \
   --resume
+
+uv run python -m experiments.finetuned_rdbms.run_all_116 --prepare-only
+uv run python -m experiments.finetuned_rdbms.run_all_116 \
+  --engines duckdb,sqlite,postgres --profile balanced --n-runs 3 --warmup 1
+
+uv run python -m experiments.finetuned_rdbms.mlos_tune_rdbms \
+  --engines duckdb,sqlite,postgres --pilot-size 12 --trials 20 --validate
 ```
 
-Fine-tuned RDBMS runs use the finetuning scripts instead:
+MLOS tuning needs the `experiments` member's own extra:
+`uv sync --all-packages --extra tuning`.
+
+Engines:
+
+- `postgres` — PostgreSQL 12.22 in a separate Docker container; the custom
+  `inferq-ooc-postgres:12.22` image applies cap-aware settings before each run.
+- `duckdb` — embedded in the worker container, with an explicit memory limit and
+  spill directory.
+- `sqlite` — stdlib SQLite in the worker container. Split mode uses disk-backed
+  tables rather than TEMP tables, so intermediates do not stay in heap on builds
+  where `PRAGMA temp_store` is ineffective.
+- `umbra` — InfiniQuantumSim's Umbra backend; omitted from the default simulator
+  config unless explicitly enabled.
+- `aer` — Qiskit Aer baseline, for simulator comparison rather than SQL execution.
+
+Query modes, as used by the runner:
+
+- `monolithic` — the raw `WITH ... SELECT`. Closest translation, but DuckDB and
+  SQLite can inline the whole CTE cascade and exhaust memory on larger circuits.
+- `monolithic_materialized` — one query plus `AS MATERIALIZED` hints. PostgreSQL,
+  DuckDB and SQLite all understand this form.
+- `split` — every `K*` contraction CTE becomes a materialized table, then the
+  final SELECT runs. Default for out-of-core work: it bounds peak memory to
+  roughly one contraction step.
+
+All three are implemented once in `inferq.sql`. The OOC worker, the fine-tuned
+RDBMS runner, the simulator's SQL backend and the reference SQL generator all
+lower through that module, so they cannot drift apart.
+
+See [`experiments/ooc/README.md`](experiments/ooc/README.md),
+[`experiments/ooc/DESIGN.md`](experiments/ooc/DESIGN.md) and
+[`experiments/finetuned_rdbms/README.md`](experiments/finetuned_rdbms/README.md)
+for Docker setup, memory-cap accounting, spill metrics, tuning profiles and
+result schemas.
+
+## Smoke test
+
+`inferq smoke` answers one question: is this install set up to run the pipeline?
+It drives the parallel pipeline over a handful of small circuits and then checks
+that every artifact landed on disk.
 
 ```bash
-python scripts/finetuned_rdbms/run_all_116.py --prepare-only
-python scripts/finetuned_rdbms/run_all_116.py \
-  --engines duckdb,sqlite,postgres \
-  --profile balanced \
-  --n-runs 3 \
-  --warmup 1
+inferq smoke                              # 3 circuits, local only
+inferq smoke --circuits 5 --query-mode split
+inferq smoke --azure                      # include the upload step
 ```
 
-MLOS tuning is available through:
-
-```bash
-python scripts/finetuned_rdbms/mlos_tune_rdbms.py \
-  --engines duckdb,sqlite,postgres \
-  --pilot-size 12 \
-  --trials 20 \
-  --validate
-```
-
-See `scripts/ooc/README.md`, `scripts/ooc/DESIGN.md`, and
-`scripts/finetuned_rdbms/README.md` for Docker setup, memory-cap accounting,
-spill metrics, tuning profiles, and result schema details.
-
-## Smoke Test
-
-`scripts/smoke_test.py` answers one question: is this checkout set up to run the
-pipeline? It drives the production parallel pipeline over a handful of small
-circuits and then checks that every artifact landed on disk.
-
-```bash
-python scripts/smoke_test.py                 # 3 circuits, local only
-python scripts/smoke_test.py --circuits 5 --query-mode split
-python scripts/smoke_test.py --azure         # include the upload step
-```
-
-Before running anything it reports the interpreter and package versions, whether
-InfiniQuantumSim is installed, and which SQL engines are reachable. SQLite and
-DuckDB run in-process and always take part. PostgreSQL and Umbra are probed with
-the environment variables they read (`POSTGRES_*`, `UMBRA_*`); an engine that
-does not answer is named along with the reason and the variables that would
-configure it, and is then omitted from the run so the simulation does not block
-on a connection that will never open. A missing engine is reported, never fatal.
+It first reports the interpreter and package versions, whether InfiniQuantumSim
+is installed, and which SQL engines are reachable. SQLite and DuckDB run
+in-process and always take part. PostgreSQL and Umbra are probed with the
+variables they read (`POSTGRES_*`, `UMBRA_*`); an engine that does not answer is
+named along with the reason and the variables that would configure it, then
+omitted so the simulation never blocks on a connection that will not open. A
+missing engine is reported, never fatal.
 
 Azure upload is off unless `--azure` is passed, so a smoke run never writes
-throwaway circuits into shared storage. Generation limits are pinned low for the
-run, and each attempt uses a fresh seed so repeat runs produce new circuits
-rather than colliding with duplicate detection.
+throwaway circuits into shared storage. Generation limits are pinned low and
+each attempt uses a fresh seed, so repeat runs produce new circuits rather than
+colliding with duplicate detection.
 
 ## Testing
 
-Run the test suite with:
-
 ```bash
-uv sync --extra dev
-python -m pytest
+uv sync
+uv run pytest
 ```
 
-`tests/test_import_integrity.py` asserts that every module in the repository is
-importable, skipping only those whose optional third-party dependencies are
+`tests/test_import_integrity.py` imports every module under `src/` and
+`experiments/`, skipping only those whose optional third-party dependencies are
 absent. It is the guard against bare sibling imports and stale symbols that
-static review misses.
+static review misses. Environment and integration probes live under
+`tools/environment-test/`; they talk to live services and are excluded from
+collection.
 
-Environment and integration checks live under `scripts/environment-test/`.
-Those checks still import `run_extraction_pipeline` from `main.py`.
+Two structural guards run in CI and can be run by hand:
 
-## Operational Notes
+```bash
+uv run python tools/check_repo_hygiene.py dist/*.whl
+uv run --group infiniquantum python tools/gen_query_docs.py --check
+```
 
-- Generated circuits are written under the local circuits directory from
-  `config.py`, one directory per circuit hash holding `circuit.qpy` (or a
-  fallback serialization), `meta.json`, and -- whenever InfiniQuantumSim lowered
-  the circuit -- `circuit.sql`, the query that was actually executed. The mode
-  that shaped it is recorded as `sql_query_mode` in `meta.json`. The query is a
-  file rather than a metadata field because the `split` mode runs to tens of
-  kilobytes.
+The first rejects tracked-but-ignored files, `.gitignore` negations, any tracked
+file over 1 MB, stored notebook outputs, path resolution outside `inferq.paths`,
+and a wheel that carries data or research code. The second fails if the SQL
+lowering changed without `docs/query-structures/` being regenerated.
+
+## Operational notes
+
+- Generated circuits are written one directory per circuit hash, holding
+  `circuit.qpy` (or a fallback serialization), `meta.json`, and — whenever
+  InfiniQuantumSim lowered the circuit — `circuit.sql`, the query that was
+  actually executed. The mode that shaped it is recorded as `sql_query_mode` in
+  `meta.json`. The query is a file rather than a metadata field because `split`
+  runs to tens of kilobytes.
 - Duplicate detection uses local cache state and, when enabled, Azure metadata.
-- The parallel pipeline intentionally logs mostly batch-level status; worker-level
-  debug output is suppressed unless logging is configured more verbosely.
-- Large experiment outputs and downloaded benchmark data should stay out of
-  commits unless they are intentionally part of a reproducible artifact.
+- The parallel pipeline logs mostly batch-level status; worker-level debug output
+  is suppressed unless logging is configured more verbosely.
+- `docs/provenance/` records the sha256 of large generated artifacts that were
+  deliberately left out of the repository.
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).

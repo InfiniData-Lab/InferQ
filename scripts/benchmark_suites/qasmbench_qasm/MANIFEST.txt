@@ -1,9 +1,0 @@
-QASMBench vendored snapshot
-upstream: https://github.com/pnnl/QASMBench.git
-ref: main
-commit: 357b942396d5c2b7cbc1c229c585a6ef5ccaebac
-tiers: small, medium
-files-per-tier:
-  small: 85
-  medium: 47
-total: 132

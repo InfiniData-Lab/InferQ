@@ -10,7 +10,7 @@ or the config file asks for.
 
 from __future__ import annotations
 
-from simulators.lib.infiniquantum import (
+from inferq.simulation.infiniquantum import (
     _UNSUPPORTED_IQS_METHODS,
     _normalise_omit_methods,
 )

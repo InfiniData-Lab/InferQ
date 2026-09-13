@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "release-*"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # The full workspace: the library, all extras, the experiments member's
+      # dependencies and the dev group. InfiniQuantumSim is deliberately left
+      # out -- it is a git dependency, and every path that needs it degrades
+      # gracefully, which is exactly what this job should be proving.
+      - name: Install
+        run: uv sync --all-packages --all-extras --python ${{ matrix.python-version }}
+
+      - name: Lint
+        run: uv run ruff check src experiments tests tools
+
+      - name: Test
+        run: uv run pytest -q
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The hygiene guard reads the index, not history, but a shallow clone
+          # is enough and keeps the checkout fast.
+          fetch-depth: 1
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build the distribution
+        run: uv build
+
+      # Structural guards: no tracked-but-ignored files, no .gitignore
+      # negations, no tracked file over 1 MB, no stored notebook outputs, no
+      # path resolution outside inferq.paths, and a wheel that is source only.
+      - name: Repository hygiene
+        run: uv run python tools/check_repo_hygiene.py dist/*.whl
+
+      # The wheel must work with nothing but its own declared dependencies --
+      # not the workspace, not the checkout. Installing it into a bare
+      # environment and running the console script is what catches a module that
+      # only imported because the repository root happened to be on sys.path.
+      - name: Install the wheel in isolation
+        run: |
+          uv venv /tmp/wheel-env
+          VIRTUAL_ENV=/tmp/wheel-env uv pip install dist/*.whl
+          cd /tmp
+          /tmp/wheel-env/bin/inferq --help
+          /tmp/wheel-env/bin/inferq data list
+          /tmp/wheel-env/bin/python -c "from inferq import paths; assert paths.repo_root() is None"

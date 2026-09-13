@@ -1,192 +1,147 @@
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
 
 [project]
 name = "inferq"
 version = "0.1.0"
 description = "Generation, simulation, and feature extraction for quantum-circuit benchmark datasets."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12,<3.14"
+authors = [{ name = "InfiniData Lab" }]
+keywords = ["quantum", "qiskit", "benchmark", "simulation", "database"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Typing :: Typed",
+]
+
+# Abstract runtime requirements only: every distribution listed here is imported
+# by a module under src/inferq that is reachable without an extra. Version
+# ranges, not pins -- a library that pins its dependencies cannot be installed
+# alongside anything else. The exact versions used for the paper live in
+# uv.lock.
 dependencies = [
-    "adlfs==2024.12.0",
-    "aiohappyeyeballs==2.6.1",
-    "aiohttp==3.11.18",
-    "aiohttp-retry==2.9.1",
-    "aiosignal==1.3.2",
-    "amqp==5.3.1",
-    "annotated-types==0.7.0",
-    "antlr4-python3-runtime==4.9.3",
-    "appdirs==1.4.4",
-    "argcomplete==3.6.2",
-    "asyncssh==2.21.0",
-    "atpublic==6.0.1",
-    "attrs==25.3.0",
-    "azure-core==1.34.0",
-    "azure-data-tables>=12.7.0",
-    "azure-datalake-store==0.0.53",
-    "azure-identity==1.23.0",
-    "azure-storage-blob==12.25.1",
-    "billiard==4.2.1",
-    "celery==5.5.2",
-    "certifi==2025.4.26",
-    "cffi==1.17.1",
-    "charset-normalizer==3.4.2",
-    "click==8.2.0",
-    "click-didyoumean==0.3.1",
-    "click-plugins==1.1.1",
-    "click-repl==0.3.0",
-    "colorama==0.4.6",
-    "configobj==5.0.9",
-    "cryptography==45.0.2",
-    "dictdiffer==0.9.0",
-    "dill==0.4.0",
-    "diskcache==5.6.3",
-    "distro==1.9.0",
-    "dotenv==0.9.9",
-    "dpath==2.2.0",
-    "dulwich==0.22.8",
-    "entrypoints==0.4",
-    "filelock==3.18.0",
-    "flatten-dict==0.4.2",
-    "flufl-lock==8.2.0",
-    "frozenlist==1.6.0",
-    "fsspec==2025.3.2",
-    "funcy==2.0",
-    "gitdb==4.0.12",
-    "gitpython==3.1.44",
-    "grandalf==0.8",
-    "gto==1.7.2",
-    "hydra-core==1.3.2",
-    "idna==3.10",
-    "ipykernel>=6.29.5",
-    "isodate==0.7.2",
-    "iterative-telemetry==0.0.10",
-    "jmespath==1.0.1",
-    "knack==0.12.0",
-    "kombu==5.5.3",
-    "markdown-it-py==3.0.0",
-    "matplotlib>=3.10.9",
-    "mdurl==0.1.2",
-    "mlos-core[flaml,smac]>=0.6.2",
-    "mpmath==1.3.0",
-    "msal==1.32.3",
-    "msal-extensions==1.3.1",
-    "multidict==6.4.3",
-    "networkx==3.4.2",
-    "numpy~=2.2.5",
-    "duckdb==1.1.3",
-    "opt-einsum==3.3.0",
-    "psycopg2-binary==2.9.10",
-    "omegaconf==2.3.0",
-    "orjson==3.10.18",
-    "packaging==25.0",
-    "pandas==2.2.3",
-    "pathspec==0.12.1",
-    "pbr==6.1.1",
-    "platformdirs==4.3.8",
-    "prompt-toolkit==3.0.51",
-    "propcache==0.3.1",
-    "psutil==7.0.0",
-    "pyarrow==20.0.0",
-    "pycparser==2.22",
-    "pydantic==2.11.4",
-    "pydantic-core==2.33.2",
-    "pydot==4.0.0",
-    "pygments==2.19.1",
-    "pygtrie==2.5.0",
-    "pyjwt==2.10.1",
-    "pylatexenc>=2.10",
-    "pyparsing==3.2.3",
-    "python-dateutil==2.9.0.post0",
-    "python-dotenv==1.1.0",
-    "pytz==2025.2",
-    "pyyaml==6.0.2",
-    "qiskit==2.0.1",
-    "qiskit-aer==0.17.0",
-    "requests==2.32.3",
-    "retworkx==0.16.0",
-    "rich==14.0.0",
-    "ruamel-yaml==0.18.10",
-    "ruamel-yaml-clib==0.2.12",
-    "rustworkx==0.16.0",
-    "scikit-learn>=1.8.0",
-    "scipy==1.15.3",
-    "scmrepo==3.3.11",
-    "seaborn>=0.13.2",
-    "semver==3.0.4",
-    "setuptools==80.7.1",
-    "shellingham==1.5.4",
-    "shortuuid==1.0.13",
-    "shtab==1.7.2",
-    "six==1.17.0",
-    "smmap==5.0.2",
-    "sqltrie==0.11.2",
-    "stevedore==5.4.1",
-    "symengine==0.13.0",
-    "sympy==1.14.0",
-    "tabulate==0.9.0",
-    "tomlkit==0.13.2",
-    "tqdm>=4.67.3",
-    "typer==0.15.3",
-    "typing-extensions==4.13.2",
-    "typing-inspection==0.4.0",
-    "tzdata==2025.2",
-    "urllib3==2.4.0",
-    "vine==5.1.0",
-    "voluptuous==0.15.2",
-    "wcwidth==0.2.13",
-    "yarl==1.20.0",
-    "zc-lockfile==3.0.post1",
-    "sqlglot>=28.5.0",
-    "xgboost>=3.1.3",
-    "mqt-bench>=2.2",
-    "supermarq>=0.5",
-    "fastparquet>=2026.5.0",
+    "networkx>=3.4",
+    "numpy>=2.2,<3",
+    "psutil>=7",
+    "python-dotenv>=1.1",
+    "qiskit>=2.0,<3",
+    "qiskit-aer>=0.17",
+    "rustworkx>=0.16",
+    "sqlglot>=28.5",
+    "tqdm>=4.67",
 ]
 
 [project.optional-dependencies]
-# InfiniQuantumSim is not on PyPI; it is installed straight from its git branch.
-# Keeping it out of the default dependency set lets `uv sync` succeed without it
-# (it pulls heavy array-store extras of its own), and the SQL-backed simulation
-# paths already guard the import and degrade gracefully. Install with
-# `uv sync --extra sql` or `uv pip install '.[sql]'`.
-sql = ["infiniquantumsim @ git+https://github.com/InfiniData-Lab/Quantum.git@inferq"]
+# Azure Blob + Table storage: the `inferq.remote` and `inferq.transfer` packages.
+azure = [
+    "azure-data-tables>=12.7",
+    "azure-identity>=1.23",
+    "azure-storage-blob>=12.25",
+    "pandas>=2.2",
+    "pyarrow>=20",
+]
+# Third-party circuit corpora loaded by `inferq.datasets`.
+datasets = [
+    "mqt-bench>=2.2",
+    "supermarq>=0.5",
+]
+# Relational back ends for the SQL simulation path and the smoke test. The
+# tensor-network-to-SQL lowering itself comes from InfiniQuantumSim, which is
+# not on PyPI; see the `infiniquantum` dependency group below.
+sql = [
+    "duckdb>=1.1",
+    "opt-einsum>=3.3",
+    "psycopg2-binary>=2.9",
+]
+all = [
+    "inferq[azure,datasets,sql]",
+]
+
+[project.scripts]
+inferq = "inferq.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/InfiniData-Lab/InferQ"
+Repository = "https://github.com/InfiniData-Lab/InferQ"
+
+[dependency-groups]
 dev = [
     "pytest>=8",
     "ruff>=0.6",
 ]
+# InfiniQuantumSim is a git dependency. PyPI rejects any distribution whose
+# Requires-Dist carries a direct URL -- extras included -- so it can never be a
+# `[project.optional-dependencies]` entry without blocking every release. As a
+# PEP 735 group resolved through [tool.uv.sources] it is lockfile-local and
+# never reaches the wheel. Install with `uv sync --group infiniquantum`.
+infiniquantum = ["infiniquantumsim"]
 
-[tool.setuptools]
-package-dir = {"" = "."}
-# config.py and main.py are top-level modules, not packages. They must be listed
-# explicitly: `generators` and `utils` both do `from config import ...`, so a
-# wheel without them installs a package that cannot be imported.
-py-modules = ["config", "main"]
+[tool.uv]
+default-groups = ["dev"]
 
-[tool.setuptools.packages.find]
+[tool.uv.workspace]
+members = ["experiments"]
+
+[tool.uv.sources]
+infiniquantumsim = { git = "https://github.com/InfiniData-Lab/Quantum.git", branch = "inferq" }
+inferq = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/inferq"]
+
+[tool.hatch.build.targets.sdist]
+# The sdist is the source of the wheel plus what is needed to verify it. It is
+# deliberately not the whole checkout: experiments/, docs/ and the generated
+# trees are research output, not distribution content.
 include = [
-    "generators*",
-    "feature_extractors*",
-    "simulators*",
-    "pipeline*",
-    "utils*",
-    "scripts*",
+    "/src",
+    "/tests",
+    "/tools",
+    "/README.md",
+    "/LICENSE",
 ]
-exclude = ["tests*", "circuits*", "analysis*", "data*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Keep collection inside tests/: several modules under scripts/, simulators/, and
-# utils/ are named test_* but are live-service probes, not unit tests.
-norecursedirs = ["analysis", "circuits", "data", "scripts", ".venv"]
+# `experiments` is a virtual workspace member: uv installs its dependencies but
+# not the package, so the repository root has to be on the import path for the
+# import-integrity test to reach it.
+pythonpath = ["."]
+# Collection stays inside tests/: several modules under experiments/ and
+# tools/ are named test_* but are live-service probes, not unit tests.
+norecursedirs = ["build", "data", "docs", "experiments", "out", "var", ".venv"]
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-exclude = ["analysis", "circuits", "data", ".venv"]
+extend-exclude = ["build", "data", "docs", "out", "var", "*.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["inferq", "experiments"]
+
+[tool.ruff.lint.per-file-ignores]
+# Lazy packages: every name is re-exported through a PEP 562 `__getattr__`, and
+# the `if TYPE_CHECKING` block exists purely so type checkers and IDEs still see
+# the public surface. `__all__` is computed from the export table, so ruff
+# cannot tell those imports are the contract rather than dead weight.
+"src/inferq/__init__.py" = ["F401"]
+"src/inferq/datasets/__init__.py" = ["F401"]
+"src/inferq/simulation/__init__.py" = ["F401"]
+
+# Plotting and analysis scripts. These are frozen research code: they produced
+# numbers that are in the paper, so reformatting them buys nothing and risks a
+# figure changing. Lint them for real defects, not for house style.
+"experiments/analysis/*.py" = ["B905", "E402", "E701", "E702", "F403", "F405"]
+"experiments/analysis/**/*.py" = ["B905", "E402", "E701", "E702", "F403", "F405"]

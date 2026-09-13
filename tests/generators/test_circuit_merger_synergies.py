@@ -1,15 +1,12 @@
 import unittest
 from unittest.mock import MagicMock, patch
+
 import numpy as np
-import sys
-import os
 
-# Ensure project root is in path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+from inferq.config import get_synergy_rules
+from inferq.generators.base import BaseParams
+from inferq.generators.merger import CircuitMerger
 
-from config import get_synergy_rules
-from generators.circuit_merger import CircuitMerger
-from generators.lib.generator import BaseParams
 
 class TestCircuitMergerSynergies(unittest.TestCase):
     
@@ -32,7 +29,7 @@ class TestCircuitMergerSynergies(unittest.TestCase):
             self.mock_generators.append(m)
             
         # Patch initialize_generators to return our mocks and avoid real init
-        patcher = patch('generators.circuit_merger.CircuitMerger.initialize_generators', return_value=self.mock_generators)
+        patcher = patch('inferq.generators.merger.CircuitMerger.initialize_generators', return_value=self.mock_generators)
         self.addCleanup(patcher.stop)
         self.mock_init = patcher.start()
         
