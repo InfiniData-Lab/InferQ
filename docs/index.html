@@ -622,6 +622,7 @@
       <div class="navgroup">
         <h2>Architecture</h2>
         <ol>
+          <li><a href="#pillars">The three pillars</a></li>
           <li><a href="#layers">Layer map</a></li>
           <li><a href="#pipeline">Generation pipeline</a></li>
           <li><a href="#lowering">Circuit to SQL</a></li>
@@ -846,6 +847,202 @@ uv run inferq ingest --suites qasmbench --max-qubits 20 --limit 50</code></pre>
           <div class="code-head">Where did it go</div>
 <pre><code>uv run inferq paths</code></pre>
         </div>
+      </section>
+
+      <!-- ── pillars ───────────────────────────────────────────────────── -->
+      <section id="pillars">
+        <p class="sec-kicker">Architecture</p>
+        <h2 class="sec">The three pillars</h2>
+
+        <p>
+          Everything the project does rests on three subsystems, and almost every module belongs to
+          one of them. <strong>Generators</strong> produce circuits. <strong>Features</strong>
+          measure what a circuit <em>is</em>. <strong>Simulation</strong> measures what a circuit
+          <em>costs</em>. The pipeline is not a fourth pillar — it is the loop that drives the three
+          in a fixed order and writes down what they produce.
+        </p>
+
+        <p>
+          That order is the design. A circuit is generated before it is measured, measured before it
+          is run, and run before anything is written, so that a single record can carry the
+          structure and the cost of the same circuit side by side. The whole point of the corpus is
+          that pairing: structure on one side, cost on the other, joined by one identity.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 700 446" role="img" aria-label="The three pillars of InferQ and the pipeline that drives them. Generators produce a circuit; a duplicate check gates it; feature extraction measures its structure; simulation measures its cost through Aer methods and a tensor-network lowering to SQL. All three contribute to one flat record per circuit, which is written to the content-addressed store. Paths and configuration underpin all of it.">
+            <defs>
+              <marker id="pa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+              </marker>
+              <marker id="pare" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--re)"/>
+              </marker>
+              <marker id="paim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--im)"/>
+              </marker>
+            </defs>
+
+            <!-- orchestration frame -->
+            <text x="12" y="15" font-family="IBM Plex Sans, sans-serif" font-size="10.5" font-weight="600" letter-spacing="0.11em" fill="currentColor" opacity="0.55">PIPELINE &mdash; DRIVES THE THREE IN THIS ORDER, ONCE PER CIRCUIT</text>
+            <rect x="12" y="24" width="676" height="348" rx="4" fill="none" stroke="currentColor" stroke-width="1.1" stroke-dasharray="4 3" opacity="0.55"/>
+
+            <!-- pillar I -->
+            <rect x="36" y="56" width="180" height="120" rx="3" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="50" y="78" font-family="IBM Plex Sans, sans-serif" font-size="12.5" font-weight="600" fill="currentColor">I &middot; GENERATORS</text>
+            <line x1="50" y1="86" x2="202" y2="86" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+            <text x="50" y="104" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.72">17 builders</text>
+            <text x="50" y="119" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.72">7 state prep &middot; 10 algorithm</text>
+            <text x="50" y="137" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.72">synergy-weighted chain</text>
+            <text x="50" y="152" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.72">flat side-by-side composition</text>
+            <text x="50" y="169" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--re)">produces a circuit</text>
+
+            <!-- pillar II -->
+            <rect x="260" y="56" width="180" height="120" rx="3" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="274" y="78" font-family="IBM Plex Sans, sans-serif" font-size="12.5" font-weight="600" fill="currentColor">II &middot; FEATURES</text>
+            <line x1="274" y1="86" x2="426" y2="86" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+            <text x="274" y="104" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.72">11 static measures</text>
+            <text x="274" y="119" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.72">15 interaction-graph measures</text>
+            <text x="274" y="137" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.72">one shared memo cache</text>
+            <text x="274" y="152" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.72">a failure writes a null</text>
+            <text x="274" y="169" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--re)">measures what it is</text>
+
+            <!-- pillar III -->
+            <rect x="484" y="56" width="180" height="120" rx="3" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="498" y="78" font-family="IBM Plex Sans, sans-serif" font-size="12.5" font-weight="600" fill="currentColor">III &middot; SIMULATION</text>
+            <line x1="498" y1="86" x2="650" y2="86" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+            <text x="498" y="104" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.72">7 Aer methods</text>
+            <text x="498" y="119" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.72">tensor-network lowering to SQL</text>
+            <text x="498" y="137" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.72">7 execution backends</text>
+            <text x="498" y="152" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.72">3 query modes</text>
+            <text x="498" y="169" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--im)">measures what it costs</text>
+
+            <!-- I to II, with the dedupe gate on it -->
+            <line x1="216" y1="116" x2="256" y2="116" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa)"/>
+            <text x="236" y="108" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" text-anchor="middle">circuit</text>
+            <text x="236" y="132" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="var(--im)" text-anchor="middle">hash</text>
+            <text x="236" y="144" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="var(--im)" text-anchor="middle">first</text>
+            <path d="M 236 148 L 236 162" stroke="var(--im)" stroke-width="1.1" stroke-dasharray="3 2" marker-end="url(#paim)"/>
+            <text x="236" y="174" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="var(--im)" text-anchor="middle">seen it?</text>
+            <text x="236" y="186" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="var(--im)" text-anchor="middle">stop</text>
+
+            <!-- II to III -->
+            <line x1="440" y1="116" x2="480" y2="116" stroke="currentColor" stroke-width="1.3" marker-end="url(#pa)"/>
+            <text x="460" y="108" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" text-anchor="middle">same</text>
+            <text x="460" y="132" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" text-anchor="middle">circuit</text>
+
+            <!-- contributions down into the record -->
+            <line x1="126" y1="176" x2="126" y2="238" stroke="currentColor" stroke-width="1.2" marker-end="url(#pa)"/>
+            <text x="134" y="200" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.75">the circuit itself</text>
+            <text x="134" y="213" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.55">serialized</text>
+
+            <line x1="350" y1="176" x2="350" y2="238" stroke="currentColor" stroke-width="1.2" marker-end="url(#pa)"/>
+            <text x="358" y="200" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.75">26 structural</text>
+            <text x="358" y="213" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.55">features</text>
+
+            <line x1="574" y1="176" x2="574" y2="238" stroke="currentColor" stroke-width="1.2" marker-end="url(#pa)"/>
+            <text x="582" y="200" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.75">cost metrics, dynamic</text>
+            <text x="582" y="213" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.55">and SQL features, the query</text>
+
+            <!-- the record -->
+            <rect x="36" y="240" width="628" height="46" rx="3" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="50" y="262" font-family="IBM Plex Sans, sans-serif" font-size="12.5" font-weight="600" fill="currentColor">one flat record per circuit</text>
+            <text x="50" y="277" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.68">structure and cost under a single identity &mdash; which is the whole reason the order is fixed</text>
+
+            <line x1="350" y1="286" x2="350" y2="306" stroke="currentColor" stroke-width="1.2" marker-end="url(#pa)"/>
+
+            <!-- storage -->
+            <rect x="36" y="308" width="628" height="46" rx="3" fill="none" stroke="var(--re)" stroke-width="1.6"/>
+            <text x="50" y="330" font-family="IBM Plex Sans, sans-serif" font-size="12.5" font-weight="600" fill="var(--re)">content-addressed store</text>
+            <text x="50" y="345" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.68">the digest names the directory &middot; the same record is mirrored to blob and table storage</text>
+
+            <!-- foundation -->
+            <rect x="12" y="392" width="676" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1" opacity="0.75"/>
+            <text x="26" y="411" font-family="IBM Plex Sans, sans-serif" font-size="11.5" font-weight="600" fill="currentColor" opacity="0.8">paths &middot; configuration</text>
+            <text x="26" y="426" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.6">underneath all three &mdash; every location resolved in one place, every default and override in another</text>
+            <line x1="350" y1="372" x2="350" y2="388" stroke="currentColor" stroke-width="1" opacity="0.45" marker-start="url(#pa)"/>
+          </svg>
+          <figcaption>
+            <b>Three pillars, one record.</b> The pink branch is the cheapest thing in the diagram
+            and the most important: the circuit is hashed before either measuring pillar runs, so a
+            composition the corpus already contains costs one digest instead of a full feature pass
+            and a full simulation sweep. Everything below the pillars exists to make the structure
+            and the cost of one circuit addressable together.
+          </figcaption>
+        </figure>
+
+        <h3>What belongs to which pillar</h3>
+
+        <div class="tw">
+          <table>
+            <thead><tr><th>Pillar</th><th>Answers</th><th>Its output ends up as</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><span class="pill re">I &middot; Generators</span></td>
+                <td>What circuits should exist at all?</td>
+                <td>The serialized circuit, and the composition recorded in its name</td>
+              </tr>
+              <tr>
+                <td><span class="pill re">II &middot; Features</span></td>
+                <td>What is this circuit, structurally?</td>
+                <td>Static and interaction-graph measurements &mdash; the predictors</td>
+              </tr>
+              <tr>
+                <td><span class="pill im">III &middot; Simulation</span></td>
+                <td>What does running it actually cost, and by which route?</td>
+                <td>Per-method timings, memory, state-derived measures, the lowered query and its own SQL features &mdash; the targets</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          Read as a machine-learning problem, pillar&nbsp;II produces the inputs and pillar&nbsp;III
+          produces the labels; pillar&nbsp;I decides what the training distribution looks like. The
+          synergy rules matter for exactly that reason — they are what keeps the corpus looking like
+          plausible algorithm pipelines instead of uniform noise over the generator list.
+        </p>
+
+        <h3>The same three pillars, three entry points</h3>
+
+        <p>
+          Generation is not the only way through them. Three commands traverse the same pillars in
+          the same order, differing only in where the circuit comes from and which pillars are
+          allowed to re-run.
+        </p>
+
+        <div class="tw">
+          <table>
+            <thead><tr><th>Entry point</th><th>Pillar I</th><th>Pillar II</th><th>Pillar III</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><code>inferq run</code></td>
+                <td>Composes a new circuit</td>
+                <td>Full pass</td>
+                <td>Full sweep</td>
+              </tr>
+              <tr>
+                <td><code>inferq ingest</code></td>
+                <td>Replaced by a published benchmark suite</td>
+                <td>Full pass</td>
+                <td>Full sweep</td>
+              </tr>
+              <tr>
+                <td><code>inferq rerun</code></td>
+                <td>Skipped — reads circuits already stored</td>
+                <td>Recomputed only in the dynamic-feature mode</td>
+                <td>Re-run in the simulation and SQL modes</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          This is why the pillars are worth naming: the ingest path is not a separate pipeline, and
+          neither is the backfill path. They are the same three stages with one stage swapped out or
+          switched off, which is what keeps a circuit that arrived from a published suite directly
+          comparable to one the composer invented.
+        </p>
       </section>
 
       <!-- ── layers ────────────────────────────────────────────────────── -->
