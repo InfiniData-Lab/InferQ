@@ -1,0 +1,2616 @@
+<title>InferQ Handbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+
+<style>
+  /* ── tokens ───────────────────────────────────────────────────────────── */
+  :root {
+    --ground:    #F6F5F9;
+    --surface:   #FFFFFF;
+    --surface-2: #EFEDF4;
+    --ink:       #14131A;
+    --muted:     #5D5A6B;
+    --faint:     #86829A;
+    --border:    #E0DEE7;
+    --border-2:  #CFCCDC;
+
+    /* the two accents are the real and imaginary parts of an amplitude —
+       the (i, re, im) tuples that literally appear in the generated SQL */
+    --re:        #3A4FD8;
+    --re-soft:   #E8EAFB;
+    --im:        #B8336A;
+    --im-soft:   #FAE8F0;
+
+    --ok:        #1F7A5C;
+    --ok-soft:   #E3F2EC;
+    --warn:      #9A6510;
+    --warn-soft: #FAF0DE;
+    --bad:       #B4322A;
+    --bad-soft:  #FBE9E7;
+
+    --sans: "IBM Plex Sans", ui-sans-serif, "Helvetica Neue", Arial, sans-serif;
+    --serif: "IBM Plex Serif", ui-serif, Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    --rail: 268px;
+    --toc: 224px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:    #111019;
+      --surface:   #191825;
+      --surface-2: #211F30;
+      --ink:       #EDECF2;
+      --muted:     #9C98AE;
+      --faint:     #767289;
+      --border:    #2C2A3B;
+      --border-2:  #3B3851;
+
+      --re:        #8494FF;
+      --re-soft:   #1E2145;
+      --im:        #F2799F;
+      --im-soft:   #3A1E2B;
+
+      --ok:        #5FCCA4;
+      --ok-soft:   #14302A;
+      --warn:      #DFA84E;
+      --warn-soft: #332812;
+      --bad:       #F0857B;
+      --bad-soft:  #38191A;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:    #111019;
+    --surface:   #191825;
+    --surface-2: #211F30;
+    --ink:       #EDECF2;
+    --muted:     #9C98AE;
+    --faint:     #767289;
+    --border:    #2C2A3B;
+    --border-2:  #3B3851;
+
+    --re:        #8494FF;
+    --re-soft:   #1E2145;
+    --im:        #F2799F;
+    --im-soft:   #3A1E2B;
+
+    --ok:        #5FCCA4;
+    --ok-soft:   #14302A;
+    --warn:      #DFA84E;
+    --warn-soft: #332812;
+    --bad:       #F0857B;
+    --bad-soft:  #38191A;
+  }
+
+  /* ── base ─────────────────────────────────────────────────────────────── */
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 16px;
+    line-height: 1.68;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--re); text-underline-offset: 2px; }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--re);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  code, kbd, pre, .mono { font-family: var(--mono); font-variant-ligatures: none; }
+
+  /* ── shell ────────────────────────────────────────────────────────────── */
+  .shell {
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+
+  /* ── left rail ────────────────────────────────────────────────────────── */
+  .rail {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    padding: 26px 20px 40px 26px;
+  }
+
+  .brand { display: flex; gap: 11px; align-items: flex-start; margin-bottom: 4px; }
+
+  .brand-mark { flex: 0 0 auto; margin-top: 3px; }
+
+  .brand-name {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+  }
+  .brand-sub {
+    font-family: var(--sans);
+    font-size: 11.5px;
+    color: var(--faint);
+    letter-spacing: 0.055em;
+    text-transform: uppercase;
+    margin-top: 3px;
+  }
+
+  .rail-meta {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    background: var(--ground);
+    border-radius: 3px;
+    padding: 8px 10px;
+    margin: 18px 0 22px;
+    line-height: 1.75;
+  }
+  .rail-meta span { color: var(--faint); }
+
+  .navtoggle {
+    display: none;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    background: var(--surface-2);
+    color: var(--ink);
+    border: 1px solid var(--border-2);
+    border-radius: 3px;
+    padding: 7px 12px;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+  }
+
+  nav ol { list-style: none; margin: 0; padding: 0; }
+
+  .navgroup { margin-bottom: 19px; }
+  .navgroup > h2 {
+    font-family: var(--sans);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 7px;
+  }
+  .navgroup a {
+    display: block;
+    font-family: var(--sans);
+    font-size: 13.5px;
+    line-height: 1.4;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 4px 0 4px 11px;
+    border-left: 2px solid var(--border);
+  }
+  .navgroup a:hover { color: var(--ink); border-left-color: var(--border-2); }
+  .navgroup a.active {
+    color: var(--re);
+    font-weight: 600;
+    border-left-color: var(--re);
+  }
+
+  /* ── main column ──────────────────────────────────────────────────────── */
+  .main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+
+  .doc {
+    width: 100%;
+    max-width: 780px;
+    padding: 0 24px 140px;
+    padding-block-start: 44px;
+  }
+
+  @media (min-width: 1320px) {
+    .main { grid-template-columns: minmax(0, 1fr) var(--toc); justify-items: stretch; }
+    .doc { max-width: 800px; margin: 0 auto; justify-self: center; }
+    .toc { display: block; }
+  }
+
+  .toc {
+    display: none;
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 48px 24px 60px 8px;
+  }
+  .toc h2 {
+    font-family: var(--sans);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 9px;
+  }
+  .toc a {
+    display: block;
+    font-family: var(--sans);
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 3px 0 3px 10px;
+    border-left: 2px solid var(--border);
+  }
+  .toc a.active { color: var(--im); border-left-color: var(--im); }
+
+  /* ── masthead ─────────────────────────────────────────────────────────── */
+  .masthead { border-bottom: 1px solid var(--border); padding-bottom: 30px; margin-bottom: 10px; }
+
+  .eyebrow {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--im);
+    margin: 0 0 12px;
+  }
+
+  .masthead h1 {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: clamp(31px, 5.5vw, 45px);
+    line-height: 1.08;
+    letter-spacing: -0.028em;
+    margin: 0 0 14px;
+    text-wrap: balance;
+  }
+
+  .lede {
+    font-size: 18.5px;
+    line-height: 1.6;
+    color: var(--muted);
+    margin: 0;
+    max-width: 62ch;
+  }
+
+  .statline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    margin-top: 28px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .statline div {
+    flex: 1 1 108px;
+    padding: 11px 14px;
+    border-right: 1px solid var(--border);
+  }
+  .statline div:last-child { border-right: 0; }
+  .statline b {
+    display: block;
+    font-family: var(--sans);
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .statline span {
+    display: block;
+    font-family: var(--sans);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin-top: 2px;
+  }
+
+  /* ── sections ─────────────────────────────────────────────────────────── */
+  section { padding-top: 52px; scroll-margin-top: 20px; }
+
+  h2.sec {
+    font-family: var(--sans);
+    font-size: 27px;
+    font-weight: 700;
+    letter-spacing: -0.022em;
+    line-height: 1.18;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  .sec-kicker {
+    font-family: var(--sans);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 9px;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-size: 17.5px;
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    margin: 34px 0 9px;
+    scroll-margin-top: 20px;
+  }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 24px 0 7px;
+  }
+
+  p { margin: 0 0 15px; max-width: 68ch; }
+  section > p:first-of-type { margin-top: 12px; }
+
+  ul, ol.body { margin: 0 0 16px; padding-left: 21px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  strong { font-weight: 600; }
+
+  /* inline code */
+  p code, li code, td code, th code, dd code, dt code, figcaption code {
+    font-size: 0.855em;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.5px 4px;
+    white-space: nowrap;
+  }
+
+  /* ── code blocks ──────────────────────────────────────────────────────── */
+  .code {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    margin: 0 0 18px;
+    overflow: hidden;
+  }
+  .code-head {
+    font-family: var(--sans);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    padding: 7px 13px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .code pre {
+    margin: 0;
+    padding: 13px;
+    overflow-x: auto;
+    font-size: 12.8px;
+    line-height: 1.72;
+  }
+  .code pre code { background: none; border: 0; padding: 0; white-space: pre; }
+  .cm { color: var(--faint); }
+  .kw { color: var(--im); }
+  .fl { color: var(--re); }
+
+  /* ── tables ───────────────────────────────────────────────────────────── */
+  .tw { overflow-x: auto; margin: 0 0 20px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-family: var(--sans); font-size: 13.2px; }
+  th {
+    text-align: left;
+    font-weight: 600;
+    font-size: 10.5px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--faint);
+    padding: 9px 13px;
+    border-bottom: 1px solid var(--border-2);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  td {
+    padding: 9px 13px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    line-height: 1.5;
+  }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td code { white-space: nowrap; }
+
+  /* ── callouts ─────────────────────────────────────────────────────────── */
+  .note {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--re);
+    background: var(--surface);
+    border-radius: 0 3px 3px 0;
+    padding: 13px 16px;
+    margin: 0 0 20px;
+    font-size: 15px;
+  }
+  .note p:last-child { margin-bottom: 0; }
+  .note.warn { border-left-color: var(--warn); }
+  .note.drift { border-left-color: var(--bad); }
+  .note-label {
+    font-family: var(--sans);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--re);
+    display: block;
+    margin-bottom: 4px;
+  }
+  .note.warn .note-label { color: var(--warn); }
+  .note.drift .note-label { color: var(--bad); }
+
+  /* ── pills ────────────────────────────────────────────────────────────── */
+  .pill {
+    display: inline-block;
+    font-family: var(--sans);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    padding: 1.5px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .pill.on   { background: var(--ok-soft);   color: var(--ok);   border-color: var(--ok); }
+  .pill.off  { background: var(--bad-soft);  color: var(--bad);  border-color: var(--bad); }
+  .pill.part { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+  .pill.re   { background: var(--re-soft);   color: var(--re);   border-color: var(--re); }
+  .pill.im   { background: var(--im-soft);   color: var(--im);   border-color: var(--im); }
+
+  /* ── figures ──────────────────────────────────────────────────────────── */
+  figure {
+    margin: 22px 0 24px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--surface);
+    padding: 20px 18px 14px;
+  }
+  figure svg { display: block; width: 100%; max-width: 100%; height: auto; color: var(--ink); }
+  figcaption {
+    font-family: var(--sans);
+    font-size: 12.3px;
+    line-height: 1.5;
+    color: var(--muted);
+    margin-top: 14px;
+    padding-top: 11px;
+    border-top: 1px solid var(--border);
+  }
+  figcaption b { color: var(--ink); font-weight: 600; }
+
+  /* ── definition grid ──────────────────────────────────────────────────── */
+  .dgrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 0 0 20px;
+  }
+  .dgrid > div { background: var(--surface); padding: 13px 15px; }
+  .dgrid dt {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--re);
+    margin: 0 0 4px;
+  }
+  .dgrid dd {
+    margin: 0;
+    font-family: var(--sans);
+    font-size: 12.8px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+
+  /* ── mode cards ───────────────────────────────────────────────────────── */
+  .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 12px; margin: 0 0 20px; }
+  .mode {
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--surface);
+    padding: 14px 15px;
+  }
+  .mode h5 {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    font-weight: 500;
+    margin: 0 0 7px;
+    color: var(--im);
+  }
+  .mode p { font-family: var(--sans); font-size: 12.8px; line-height: 1.52; color: var(--muted); margin: 0 0 8px; }
+  .mode pre {
+    margin: 0;
+    font-size: 11.4px;
+    line-height: 1.6;
+    color: var(--ink);
+    background: var(--ground);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 8px 9px;
+    overflow-x: auto;
+  }
+
+  /* ── footer ───────────────────────────────────────────────────────────── */
+  .foot {
+    margin-top: 64px;
+    padding-top: 22px;
+    border-top: 1px solid var(--border);
+    font-family: var(--sans);
+    font-size: 12.3px;
+    color: var(--faint);
+    line-height: 1.65;
+  }
+
+  /* ── narrow ───────────────────────────────────────────────────────────── */
+  @media (max-width: 940px) {
+    .shell { grid-template-columns: minmax(0, 1fr); }
+    .rail {
+      position: static;
+      height: auto;
+      border-right: 0;
+      border-bottom: 1px solid var(--border);
+      padding: 20px 18px 18px;
+    }
+    .navtoggle { display: block; margin-bottom: 0; }
+    .rail nav { display: none; margin-top: 16px; }
+    .rail nav.open { display: block; }
+    .rail-meta { margin-bottom: 16px; }
+    .doc { padding: 0 18px 90px; padding-block-start: 30px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
+  }
+  html { scroll-behavior: smooth; }
+</style>
+
+<div class="shell">
+
+  <!-- ══ left rail ══════════════════════════════════════════════════════ -->
+  <aside class="rail">
+    <div class="brand">
+      <svg class="brand-mark" width="24" height="24" viewBox="0 0 24 24" role="img" aria-label="InferQ mark: two entangled amplitude components">
+        <circle cx="9" cy="12" r="6.2" fill="none" stroke="var(--re)" stroke-width="1.6"/>
+        <circle cx="15" cy="12" r="6.2" fill="none" stroke="var(--im)" stroke-width="1.6"/>
+        <line x1="12" y1="4.4" x2="12" y2="19.6" stroke="currentColor" stroke-width="1" opacity="0.35"/>
+      </svg>
+      <div>
+        <div class="brand-name">InferQ</div>
+        <div class="brand-sub">Handbook</div>
+      </div>
+    </div>
+
+    <div class="rail-meta">
+      <span>branch</span> release-v1<br>
+      <span>python</span> &gt;=3.12,&lt;3.14<br>
+      <span>entry</span> inferq
+    </div>
+
+    <button class="navtoggle" id="navtoggle" aria-expanded="false" aria-controls="nav">Contents</button>
+
+    <nav id="nav">
+      <div class="navgroup">
+        <h2>Getting started</h2>
+        <ol>
+          <li><a href="#overview">What InferQ is</a></li>
+          <li><a href="#install">Install</a></li>
+          <li><a href="#quickstart">Quickstart</a></li>
+        </ol>
+      </div>
+      <div class="navgroup">
+        <h2>Architecture</h2>
+        <ol>
+          <li><a href="#layers">Layer map</a></li>
+          <li><a href="#pipeline">Generation pipeline</a></li>
+          <li><a href="#lowering">Circuit to SQL</a></li>
+          <li><a href="#modes">Query modes</a></li>
+        </ol>
+      </div>
+      <div class="navgroup">
+        <h2>Reference</h2>
+        <ol>
+          <li><a href="#cli">Command line</a></li>
+          <li><a href="#config">Configuration</a></li>
+          <li><a href="#paths">Paths and data</a></li>
+          <li><a href="#generators">Generators</a></li>
+          <li><a href="#features">Feature catalogue</a></li>
+          <li><a href="#simulation">Simulation methods</a></li>
+          <li><a href="#storage">Storage and Azure</a></li>
+          <li><a href="#datasets">Benchmark datasets</a></li>
+        </ol>
+      </div>
+      <div class="navgroup">
+        <h2>Experiments</h2>
+        <ol>
+          <li><a href="#ooc">Out-of-core harness</a></li>
+          <li><a href="#tuning">Engine tuning</a></li>
+        </ol>
+      </div>
+      <div class="navgroup">
+        <h2>Project</h2>
+        <ol>
+          <li><a href="#dev">Development and CI</a></li>
+          <li><a href="#drift">Known drift</a></li>
+        </ol>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- ══ main ═══════════════════════════════════════════════════════════ -->
+  <div class="main">
+    <article class="doc">
+
+      <header class="masthead">
+        <p class="eyebrow">Repository documentation &middot; current state</p>
+        <h1>InferQ</h1>
+        <p class="lede">
+          A benchmark-dataset factory for quantum circuits: it generates circuits, measures them
+          along static, graph and dynamic axes, simulates them through both a state-vector engine
+          and a relational database, and stores every result under a content address.
+        </p>
+        <div class="statline">
+          <div><b>34,703</b><span>lines of Python</span></div>
+          <div><b>17</b><span>circuit generators</span></div>
+          <div><b>26</b><span>structural features</span></div>
+          <div><b>9</b><span>CLI commands</span></div>
+          <div><b>3</b><span>SQL query modes</span></div>
+        </div>
+      </header>
+
+      <!-- ── overview ──────────────────────────────────────────────────── -->
+      <section id="overview">
+        <p class="sec-kicker">Getting started</p>
+        <h2 class="sec">What InferQ is</h2>
+
+        <p>
+          InferQ exists to answer a question that needs a large, well-labelled corpus to answer at
+          all: <em>what does it cost to simulate a given quantum circuit, and can that cost be
+          predicted from the circuit's structure?</em> Answering it requires thousands of circuits,
+          each annotated with structural measurements and with the observed cost of running it
+          several different ways. InferQ is the machine that produces that corpus.
+        </p>
+
+        <p>
+          The distinctive part is the second simulation path. Alongside the conventional Qiskit Aer
+          state-vector route, InferQ lowers each circuit into a tensor-network contraction and emits
+          that contraction as a single SQL query, which is then executed on PostgreSQL, DuckDB,
+          SQLite or Umbra. A database engine's buffer pool and spill-to-disk machinery become the
+          memory manager for quantum simulation — which is what makes circuits too large for a
+          64&nbsp;GB state vector still tractable.
+        </p>
+
+        <h3>The shape of the repository</h3>
+
+        <p>
+          The tree is a <strong>uv workspace</strong> with two members that are deliberately
+          asymmetric.
+        </p>
+
+        <div class="dgrid">
+          <div>
+            <dt>src/inferq</dt>
+            <dd>The library and CLI. Published as a wheel. Source layout, 94 modules, 17.3k lines. Everything here must import cleanly from an installed wheel with no repository on disk.</dd>
+          </div>
+          <div>
+            <dt>experiments/</dt>
+            <dd>The research harness. Marked <code>package = false</code>, never published. 14.2k lines of out-of-core benchmarking, engine tuning and figure generation.</dd>
+          </div>
+          <div>
+            <dt>tools/</dt>
+            <dd>Repository maintenance: the hygiene guard that inspects built wheels, and the generator that regenerates the committed SQL reference.</dd>
+          </div>
+          <div>
+            <dt>docs/</dt>
+            <dd>Committed reference material, including one directory per generator holding the exact SQL each one lowers to under all three query modes.</dd>
+          </div>
+        </div>
+
+        <p>
+          The separation is enforced, not merely conventional: a hygiene check runs against the built
+          wheel in CI and fails the build if anything from <code>experiments/</code> or
+          <code>tools/</code>, or any data artifact, ends up inside it.
+        </p>
+      </section>
+
+      <!-- ── install ───────────────────────────────────────────────────── -->
+      <section id="install">
+        <p class="sec-kicker">Getting started</p>
+        <h2 class="sec">Install</h2>
+
+        <p>
+          Python 3.12 or 3.13. The project is built with <a href="https://docs.astral.sh/uv/">uv</a>
+          and hatchling.
+        </p>
+
+        <div class="code">
+          <div class="code-head">Development install</div>
+<pre><code><span class="cm"># the whole workspace, every extra, dev tooling</span>
+uv sync --all-packages --all-extras
+
+<span class="cm"># verify</span>
+uv run inferq --help</code></pre>
+        </div>
+
+        <h3>Optional extras</h3>
+
+        <p>
+          The base install is deliberately lean — Qiskit, Aer, rustworkx, sqlglot, numpy, psutil,
+          tqdm, networkx and python-dotenv. Everything heavier sits behind an extra.
+        </p>
+
+        <div class="tw">
+          <table>
+            <thead>
+              <tr><th>Extra</th><th>Pulls in</th><th>Needed for</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>azure</code></td><td>azure-storage-blob, azure-data-tables, azure-identity, pandas, pyarrow</td><td>Blob and Table upload, metadata consolidation, the transfer commands</td></tr>
+              <tr><td><code>datasets</code></td><td>mqt-bench, supermarq</td><td>Ingesting the MQT Bench and SupermarQ suites</td></tr>
+              <tr><td><code>sql</code></td><td>duckdb, psycopg2-binary, opt-einsum</td><td>Executing lowered SQL against DuckDB and PostgreSQL</td></tr>
+              <tr><td><code>all</code></td><td>all three</td><td>Everything</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>InfiniQuantumSim is a dependency group, not an extra</h3>
+
+        <p>
+          The tensor-network lowering engine lives in a git repository, not on PyPI. PyPI rejects any
+          distribution whose metadata carries a direct-URL <code>Requires-Dist</code>, so it cannot be
+          an extra without making the wheel unpublishable. It is instead a
+          <a href="https://peps.python.org/pep-0735/">PEP&nbsp;735</a> dependency group, which uv
+          resolves but which never reaches the wheel's metadata.
+        </p>
+
+        <div class="code">
+          <div class="code-head">Adding the lowering engine</div>
+<pre><code>uv sync --group infiniquantum</code></pre>
+        </div>
+
+        <div class="note">
+          <span class="note-label">Graceful degradation is a tested property</span>
+          <p>
+            The main CI job installs <em>without</em> that group on purpose. Every code path that
+            touches the lowering engine degrades to a recorded failure rather than an exception, and
+            the test suite passes with the engine absent. If you break that, CI catches it.
+          </p>
+        </div>
+      </section>
+
+      <!-- ── quickstart ────────────────────────────────────────────────── -->
+      <section id="quickstart">
+        <p class="sec-kicker">Getting started</p>
+        <h2 class="sec">Quickstart</h2>
+
+        <p>
+          The fastest way to confirm a working environment is the end-to-end smoke test. It probes
+          which database engines are actually reachable, generates a small circuit, runs it through
+          the full extract-simulate-store path, and verifies what landed on disk.
+        </p>
+
+        <div class="code">
+          <div class="code-head">Smoke test</div>
+<pre><code>uv run inferq smoke
+
+<span class="cm"># include the Azure upload leg (off by default)</span>
+uv run inferq smoke --azure</code></pre>
+        </div>
+
+        <p>Then generate circuits. The parallel mode is the production path.</p>
+
+        <div class="code">
+          <div class="code-head">Generate</div>
+<pre><code><span class="cm"># 5 batches of 10 circuits across 8 worker processes</span>
+uv run inferq run parallel --workers 8 --batch-size 10 --iterations 5
+
+<span class="cm"># one circuit, in-process, useful under a debugger</span>
+uv run inferq run single
+
+<span class="cm"># pick the generators by hand</span>
+uv run inferq run interactive</code></pre>
+        </div>
+
+        <p>Or ingest a published benchmark suite instead of generating.</p>
+
+        <div class="code">
+          <div class="code-head">Ingest</div>
+<pre><code>uv run inferq data fetch qasmbench
+uv run inferq ingest --suites qasmbench --max-qubits 20 --limit 50</code></pre>
+        </div>
+
+        <p>Everything written lands under paths you can always print.</p>
+
+        <div class="code">
+          <div class="code-head">Where did it go</div>
+<pre><code>uv run inferq paths</code></pre>
+        </div>
+      </section>
+
+      <!-- ── layers ────────────────────────────────────────────────────── -->
+      <section id="layers">
+        <p class="sec-kicker">Architecture</p>
+        <h2 class="sec">Layer map</h2>
+
+        <p>
+          The library is organised as a dependency stack rather than a flat set of packages. Each
+          layer may import from the layers below it and never from the layers above. This is what
+          keeps the import graph acyclic and what lets the test suite import every module in a fresh
+          subprocess without tripping a cycle.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 700 452" role="img" aria-label="Dependency stack of the InferQ library: paths and SQL query modes at the base, then configuration, then generators and feature extraction, then simulation, then storage, then remote transfer and datasets, then pipeline and rerun orchestration, with the command line at the top.">
+            <defs>
+              <marker id="dep" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+              </marker>
+            </defs>
+
+            <!-- direction spine -->
+            <line x1="34" y1="44" x2="34" y2="408" stroke="currentColor" stroke-width="1" opacity="0.3" marker-end="url(#dep)"/>
+            <text x="22" y="230" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.6" text-anchor="middle" transform="rotate(-90 22 230)">imports downward only</text>
+
+            <!-- L7 cli -->
+            <rect x="54" y="24" width="560" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="70" y="43" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="currentColor">cli</text>
+            <text x="70" y="58" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">run &middot; smoke &middot; ingest &middot; rerun &middot; download &middot; upload &middot; catalog &middot; paths &middot; data</text>
+            <text x="640" y="49" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.5" text-anchor="middle">L7</text>
+
+            <!-- L6 -->
+            <rect x="54" y="76" width="274" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <text x="70" y="95" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="currentColor">pipeline</text>
+            <text x="70" y="110" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">batch loop, worker pool, Azure buffer</text>
+            <rect x="340" y="76" width="274" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <text x="356" y="95" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="currentColor">rerun</text>
+            <text x="356" y="110" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">backfill over an existing corpus</text>
+            <text x="640" y="101" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.5" text-anchor="middle">L6</text>
+
+            <!-- L5 -->
+            <rect x="54" y="128" width="178" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <text x="70" y="147" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="currentColor">remote</text>
+            <text x="70" y="162" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">Blob + Table clients</text>
+            <rect x="244" y="128" width="178" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <text x="260" y="147" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="currentColor">transfer</text>
+            <text x="260" y="162" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">bulk up/down, metadata</text>
+            <rect x="436" y="128" width="178" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <text x="452" y="147" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="currentColor">datasets</text>
+            <text x="452" y="162" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">suite fetch + loaders</text>
+            <text x="640" y="153" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.5" text-anchor="middle">L5</text>
+
+            <!-- L4 -->
+            <rect x="54" y="180" width="560" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <text x="70" y="199" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="currentColor">storage</text>
+            <text x="70" y="214" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">content-addressed write &middot; duplicate cache &middot; QPY serialization</text>
+            <text x="640" y="205" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.5" text-anchor="middle">L4</text>
+
+            <!-- L3 -->
+            <rect x="54" y="232" width="560" height="42" rx="3" fill="none" stroke="var(--im)" stroke-width="1.5"/>
+            <text x="70" y="251" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="var(--im)">simulation</text>
+            <text x="70" y="266" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">Aer methods &middot; tensor-network lowering &middot; per-engine timing</text>
+            <text x="640" y="257" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.5" text-anchor="middle">L3</text>
+
+            <!-- L2 -->
+            <rect x="54" y="284" width="274" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <text x="70" y="303" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="currentColor">generators</text>
+            <text x="70" y="318" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">17 builders + synergy composer</text>
+            <rect x="340" y="284" width="274" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <text x="356" y="303" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="currentColor">features</text>
+            <text x="356" y="318" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">static, graph, SQL extractors</text>
+            <text x="640" y="309" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.5" text-anchor="middle">L2</text>
+
+            <!-- L1 -->
+            <rect x="54" y="336" width="560" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <text x="70" y="355" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="currentColor">config</text>
+            <text x="70" y="370" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">defaults + environment overrides &middot; pure, import-time safe</text>
+            <text x="640" y="361" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.5" text-anchor="middle">L1</text>
+
+            <!-- L0 -->
+            <rect x="54" y="388" width="274" height="42" rx="3" fill="none" stroke="var(--re)" stroke-width="1.5"/>
+            <text x="70" y="407" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="var(--re)">paths</text>
+            <text x="70" y="422" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">every filesystem location, one module</text>
+            <rect x="340" y="388" width="274" height="42" rx="3" fill="none" stroke="var(--re)" stroke-width="1.5"/>
+            <text x="356" y="407" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="var(--re)">sql.query_modes</text>
+            <text x="356" y="422" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">imports only the regex module</text>
+            <text x="640" y="413" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.5" text-anchor="middle">L0</text>
+          </svg>
+          <figcaption>
+            <b>The import stack.</b> The two blue modules at the base are true leaves — they import
+            nothing from the rest of the library, which is why they can be pinned as stable contracts
+            and tested in isolation. The pink layer is the widest surface: everything above it is
+            orchestration, everything below it is input.
+          </figcaption>
+        </figure>
+
+        <h3>Two invariants the layers protect</h3>
+
+        <p>
+          <strong>Path resolution is centralised.</strong> One module resolves every filesystem
+          location in the library, and it is the only place allowed to create a directory. Nothing
+          touches the filesystem at import time. A hygiene rule enforces this mechanically: inside
+          <code>src/</code>, walking up the tree with <code>parents[…]</code> is forbidden everywhere
+          except in that one module, and hard-coding the repository's own name is forbidden outright.
+          The result is that an installed wheel with no repository on disk behaves correctly instead
+          of silently writing into a directory that happens to be nearby.
+        </p>
+
+        <p>
+          <strong>Configuration is a pure computation.</strong> Building the config object reads
+          defaults and environment variables and does nothing else — no I/O, no network, no
+          directory creation. This matters because several entry points construct it at import time,
+          and because every worker process re-reads it per task, which is what makes environment
+          variables a live per-task control channel.
+        </p>
+
+        <h3>Lazy exports</h3>
+
+        <p>
+          The top-level package defines a module-level <code>__getattr__</code> in the style of
+          <a href="https://peps.python.org/pep-0562/">PEP&nbsp;562</a>, memoising each resolved name
+          back into the module globals. Twenty generator classes, the simulator and its supporting
+          types, and the three storage entry points are all reachable as top-level attributes, but
+          none of them — and none of Qiskit or Aer — is imported until first touched. The CLI
+          repeats the trick one level up: the subcommand's module is imported only after argument
+          parsing has selected it, so <code>inferq --help</code> never pays for Qiskit.
+        </p>
+      </section>
+
+      <!-- ── pipeline ──────────────────────────────────────────────────── -->
+      <section id="pipeline">
+        <p class="sec-kicker">Architecture</p>
+        <h2 class="sec">Generation pipeline</h2>
+
+        <p>
+          The parallel pipeline is the production path. Its design is unusual in one respect worth
+          understanding before reading the code: <strong>there is no inter-process communication
+          beyond function arguments and return values</strong>. No queue, no pipe, no manager, no
+          lock. The only shared object is a single integer flag used to request shutdown, and only
+          the parent ever writes to it.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 700 486" role="img" aria-label="Parallel pipeline topology: a parent process runs a batch loop that submits tasks to a persistent worker pool, collects results under a batch-wide timeout, unions session hashes for cross-worker deduplication, and flushes an upload buffer to Azure; each worker runs a six-step sequence ending in the only disk write.">
+            <defs>
+              <marker id="fa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+              </marker>
+              <marker id="fare" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--re)"/>
+              </marker>
+              <marker id="faim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--im)"/>
+              </marker>
+            </defs>
+
+            <!-- parent -->
+            <rect x="14" y="14" width="296" height="458" rx="4" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="28" y="34" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" letter-spacing="0.09em" fill="currentColor" opacity="0.6">PARENT PROCESS</text>
+
+            <rect x="30" y="48" width="264" height="34" rx="3" fill="none" stroke="currentColor" stroke-width="1"/>
+            <text x="42" y="69" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor">check shutdown flag</text>
+            <text x="282" y="69" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity="0.55" text-anchor="end">mp.Value</text>
+
+            <line x1="162" y1="82" x2="162" y2="98" stroke="currentColor" stroke-width="1" marker-end="url(#fa)"/>
+
+            <rect x="30" y="100" width="264" height="52" rx="3" fill="none" stroke="var(--re)" stroke-width="1.4"/>
+            <text x="42" y="120" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor">submit one batch</text>
+            <text x="42" y="137" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">batch_size futures, one seed offset each</text>
+
+            <line x1="162" y1="152" x2="162" y2="168" stroke="currentColor" stroke-width="1" marker-end="url(#fa)"/>
+
+            <rect x="30" y="170" width="264" height="52" rx="3" fill="none" stroke="currentColor" stroke-width="1"/>
+            <text x="42" y="190" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor">collect until batch budget</text>
+            <text x="42" y="207" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">leftovers cancelled, recorded as timeouts</text>
+
+            <line x1="162" y1="222" x2="162" y2="238" stroke="currentColor" stroke-width="1" marker-end="url(#fa)"/>
+
+            <rect x="30" y="240" width="264" height="52" rx="3" fill="none" stroke="currentColor" stroke-width="1"/>
+            <text x="42" y="260" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor">union session hashes</text>
+            <text x="42" y="277" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">cross-worker dedup, one batch of overlap</text>
+
+            <line x1="162" y1="292" x2="162" y2="308" stroke="currentColor" stroke-width="1" marker-end="url(#fa)"/>
+
+            <rect x="30" y="310" width="264" height="52" rx="3" fill="none" stroke="var(--im)" stroke-width="1.4"/>
+            <text x="42" y="330" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor">flush upload buffer</text>
+            <text x="42" y="347" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">only circuits that were actually written</text>
+
+            <path d="M 30 336 L 20 336 L 20 74 L 30 74" fill="none" stroke="currentColor" stroke-width="1" opacity="0.45" marker-end="url(#fa)"/>
+            <text x="8" y="205" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.5" text-anchor="middle" transform="rotate(-90 8 205)">next batch</text>
+
+            <rect x="30" y="392" width="264" height="62" rx="3" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3"/>
+            <text x="42" y="412" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor">on exit: final flush</text>
+            <text x="42" y="429" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">runs in a finally block, so an interrupt</text>
+            <text x="42" y="443" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">still drains the buffer</text>
+
+            <!-- worker -->
+            <rect x="390" y="14" width="296" height="372" rx="4" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="404" y="34" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" letter-spacing="0.09em" fill="currentColor" opacity="0.6">WORKER TASK</text>
+            <text x="672" y="34" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.5" text-anchor="end">pool reused across all batches</text>
+
+            <rect x="406" y="48" width="264" height="30" rx="3" fill="none" stroke="currentColor" stroke-width="1"/>
+            <text x="418" y="67" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor">1 &nbsp;compose circuit from generators</text>
+
+            <rect x="406" y="86" width="264" height="46" rx="3" fill="none" stroke="var(--re)" stroke-width="1.4"/>
+            <text x="418" y="105" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor">2 &nbsp;hash and check for a duplicate</text>
+            <text x="418" y="121" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--re)">returns here before any expensive work</text>
+
+            <rect x="406" y="140" width="264" height="30" rx="3" fill="none" stroke="currentColor" stroke-width="1"/>
+            <text x="418" y="159" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor">3 &nbsp;extract structural features</text>
+
+            <rect x="406" y="178" width="264" height="30" rx="3" fill="none" stroke="currentColor" stroke-width="1"/>
+            <text x="418" y="197" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor">4 &nbsp;simulate every method</text>
+
+            <rect x="406" y="216" width="264" height="30" rx="3" fill="none" stroke="currentColor" stroke-width="1"/>
+            <text x="418" y="235" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor">5 &nbsp;fold in dynamic and SQL features</text>
+
+            <rect x="406" y="254" width="264" height="46" rx="3" fill="none" stroke="var(--im)" stroke-width="1.4"/>
+            <text x="418" y="273" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor">6 &nbsp;write the circuit directory</text>
+            <text x="418" y="289" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--im)">the only disk write in the whole worker</text>
+
+            <line x1="538" y1="78" x2="538" y2="86" stroke="currentColor" stroke-width="1" marker-end="url(#fa)"/>
+            <line x1="538" y1="132" x2="538" y2="140" stroke="currentColor" stroke-width="1" marker-end="url(#fa)"/>
+            <line x1="538" y1="170" x2="538" y2="178" stroke="currentColor" stroke-width="1" marker-end="url(#fa)"/>
+            <line x1="538" y1="208" x2="538" y2="216" stroke="currentColor" stroke-width="1" marker-end="url(#fa)"/>
+            <line x1="538" y1="246" x2="538" y2="254" stroke="currentColor" stroke-width="1" marker-end="url(#fa)"/>
+
+            <rect x="406" y="316" width="264" height="54" rx="3" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3"/>
+            <text x="418" y="335" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor">config re-read per task</text>
+            <text x="418" y="352" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">so environment variables are live controls,</text>
+            <text x="418" y="365" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">not frozen at pool creation</text>
+
+            <!-- cross arrows -->
+            <path d="M 294 126 C 340 126 360 63 400 63" fill="none" stroke="var(--re)" stroke-width="1.3" marker-end="url(#fare)"/>
+            <text x="348" y="88" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--re)" text-anchor="middle">seed offset + known hashes</text>
+
+            <path d="M 400 282 C 360 282 340 196 296 196" fill="none" stroke="var(--im)" stroke-width="1.3" marker-end="url(#faim)"/>
+            <text x="348" y="250" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--im)" text-anchor="middle">result + live circuit object</text>
+          </svg>
+          <figcaption>
+            <b>Parent and worker, and nothing between them.</b> The blue path carries work out; the
+            pink path carries the finished circuit back, so the parent — not the worker — owns the
+            upload. The duplicate check sits at step 2 for a reason: a repeat composition costs one
+            hash instead of a full simulation.
+          </figcaption>
+        </figure>
+
+        <h3>Consequences of that design</h3>
+
+        <ul>
+          <li>
+            <strong>The pool is created once</strong> and reused for every batch. Worker start-up
+            cost — importing Qiskit and Aer — is paid once per process, not once per batch.
+          </li>
+          <li>
+            <strong>The timeout is batch-wide, not per-task.</strong> A single pathological circuit
+            can consume the whole budget; the remaining futures are cancelled and recorded as
+            timeouts rather than lost.
+          </li>
+          <li>
+            <strong>Deduplication has a one-batch overlap window.</strong> Each worker is handed the
+            union of hashes known at batch start. Two workers inside the same batch can therefore
+            both produce the same circuit; the content-addressed write catches that at the
+            filesystem level, where the directory creation simply fails and the second write is
+            reported as a duplicate.
+          </li>
+          <li>
+            <strong>There is no checkpoint file.</strong> Resumability comes from three places
+            instead: the content-addressed store itself, the duplicate cache on disk (written
+            atomically through a temporary file and a rename), and the in-memory session union.
+            Killing the process and restarting it resumes correctly.
+          </li>
+          <li>
+            <strong>Workers return live circuit objects.</strong> The parent holds them so that the
+            upload leg never has to re-read what the worker just wrote.
+          </li>
+        </ul>
+
+        <div class="note warn">
+          <span class="note-label">Two things to know before tuning</span>
+          <p>
+            The worker ceiling is 22, and the reason is not CPU count — beyond that, the Azure upload
+            path and the per-worker Aer memory footprint become the bottleneck. And the resource
+            monitor blocks for a full second per call while sampling CPU, and measures disk usage on
+            the current working directory rather than on the configured store.
+          </p>
+        </div>
+      </section>
+
+      <!-- ── lowering ──────────────────────────────────────────────────── -->
+      <section id="lowering">
+        <p class="sec-kicker">Architecture</p>
+        <h2 class="sec">Circuit to SQL</h2>
+
+        <p>
+          This is the mechanism that distinguishes InferQ from a conventional circuit-benchmark
+          harness. A quantum circuit is a tensor network; contracting that network yields the output
+          state; and a tensor contraction is a sequence of joins and sums — which is to say, it is
+          expressible in SQL. The lowering path turns a circuit into one query and hands it to a
+          database engine.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 700 330" role="img" aria-label="The lowering chain: a quantum circuit is transpiled to a fixed basis, checked against a character index budget, converted to an einsum contraction with a randomized greedy path search, and emitted as a SQL query consisting of tensor CTEs, numbered contraction CTEs, and a final select.">
+            <defs>
+              <marker id="lw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+              </marker>
+            </defs>
+
+            <!-- stage 1 -->
+            <rect x="10" y="40" width="122" height="60" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="71" y="66" font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor" text-anchor="middle">QuantumCircuit</text>
+            <text x="71" y="83" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.6" text-anchor="middle">as generated</text>
+
+            <line x1="132" y1="70" x2="164" y2="70" stroke="currentColor" stroke-width="1.2" marker-end="url(#lw)"/>
+
+            <!-- stage 2 -->
+            <rect x="166" y="40" width="132" height="60" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="232" y="62" font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor" text-anchor="middle">transpile</text>
+            <text x="232" y="78" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.62" text-anchor="middle">u cx id rz sx x</text>
+            <text x="232" y="91" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.62" text-anchor="middle">optimization level 2</text>
+
+            <line x1="298" y1="70" x2="330" y2="70" stroke="currentColor" stroke-width="1.2" marker-end="url(#lw)"/>
+
+            <!-- stage 3 gate -->
+            <rect x="332" y="40" width="146" height="60" rx="3" fill="none" stroke="var(--im)" stroke-width="1.5"/>
+            <text x="405" y="62" font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="var(--im)" text-anchor="middle">index budget gate</text>
+            <text x="405" y="78" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.62" text-anchor="middle">qubits + 3 &times; gates must</text>
+            <text x="405" y="91" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.62" text-anchor="middle">fit ~600 index characters</text>
+
+            <line x1="478" y1="70" x2="510" y2="70" stroke="currentColor" stroke-width="1.2" marker-end="url(#lw)"/>
+
+            <!-- stage 4 -->
+            <rect x="512" y="40" width="178" height="60" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="601" y="62" font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor" text-anchor="middle">contraction path</text>
+            <text x="601" y="78" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.62" text-anchor="middle">randomized greedy search,</text>
+            <text x="601" y="91" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.62" text-anchor="middle">256 repeats, single-threaded</text>
+
+            <!-- drop to sql -->
+            <path d="M 601 100 L 601 122 L 350 122 L 350 148" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#lw)"/>
+            <text x="470" y="138" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.6" text-anchor="middle">emit as one query</text>
+
+            <!-- failure branch -->
+            <path d="M 405 100 L 405 112 L 120 112 L 120 148" fill="none" stroke="var(--im)" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#lw)"/>
+            <rect x="34" y="150" width="172" height="40" rx="3" fill="none" stroke="var(--im)" stroke-width="1.2" stroke-dasharray="4 3"/>
+            <text x="120" y="167" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="var(--im)" text-anchor="middle">not lowerable</text>
+            <text x="120" y="182" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.62" text-anchor="middle">recorded as a failure, not raised</text>
+
+            <!-- sql body -->
+            <rect x="230" y="150" width="460" height="164" rx="3" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="246" y="170" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" letter-spacing="0.09em" fill="currentColor" opacity="0.6">EMITTED QUERY</text>
+
+            <rect x="246" y="182" width="428" height="36" rx="2" fill="none" stroke="var(--re)" stroke-width="1.3"/>
+            <text x="260" y="198" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--re)">WITH  &lt;tensor CTEs&gt;</text>
+            <text x="260" y="212" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.62">one relation per gate, rows are (index, real, imaginary)</text>
+
+            <line x1="460" y1="218" x2="460" y2="230" stroke="currentColor" stroke-width="1" marker-end="url(#lw)"/>
+
+            <rect x="246" y="232" width="428" height="36" rx="2" fill="none" stroke="var(--im)" stroke-width="1.3"/>
+            <text x="260" y="248" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--im)">K1, K2, … Kn</text>
+            <text x="260" y="262" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.62">one CTE per contraction step, each joining the previous</text>
+
+            <line x1="460" y1="268" x2="460" y2="280" stroke="currentColor" stroke-width="1" marker-end="url(#lw)"/>
+
+            <rect x="246" y="282" width="428" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <text x="260" y="298" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">SELECT …</text>
+            <text x="662" y="298" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.62" text-anchor="end">the output amplitudes</text>
+          </svg>
+          <figcaption>
+            <b>Where a circuit stops being a circuit.</b> The pink gate is the real constraint: the
+            lowering engine names every tensor index with a single character and has roughly 600 of
+            them, so a circuit whose transpiled form runs past a couple of hundred gates cannot be
+            lowered at all. Generation caps are set <em>below</em> the simulator's caps for exactly
+            this reason.
+          </figcaption>
+        </figure>
+
+        <p>
+          The <code class="mono">K</code> prefix is load-bearing. Everything downstream — the query
+          mode rewriter, the CTE counters, the experiment harness's per-step statistics — identifies
+          contraction steps by that prefix and treats every other CTE as a helper that must be
+          carried along.
+        </p>
+      </section>
+
+      <!-- ── modes ─────────────────────────────────────────────────────── -->
+      <section id="modes">
+        <p class="sec-kicker">Architecture</p>
+        <h2 class="sec">Query modes</h2>
+
+        <p>
+          One lowered query, three ways to hand it to an engine. The mode is the independent variable
+          in most of the out-of-core experiments, because it decides whether the engine gets to keep
+          intermediate results in memory, is forced to materialise them, or is told to write each one
+          to a real table.
+        </p>
+
+        <p>
+          The rewriter that implements this is the most carefully pinned module in the repository. It
+          imports nothing but the regular-expression module, it extracts CTE bodies by balancing
+          parentheses rather than by pattern-matching them, and it accepts an already-materialised
+          query as input so that re-applying a mode is idempotent.
+        </p>
+
+        <div class="modes">
+          <div class="mode">
+            <h5>monolithic</h5>
+            <p>Identity. The query is handed to the engine exactly as the lowering engine produced it, and the planner decides everything.</p>
+<pre>WITH t1 AS (…),
+     K1 AS (…),
+     K2 AS (…)
+SELECT …</pre>
+          </div>
+          <div class="mode">
+            <h5>monolithic_materialized</h5>
+            <p>Every CTE — helpers and contraction steps alike — gains a materialisation hint, forcing the engine to compute each one once into a temporary result.</p>
+<pre>WITH t1 AS MATERIALIZED (…),
+     K1 AS MATERIALIZED (…),
+     K2 AS MATERIALIZED (…)
+SELECT …</pre>
+          </div>
+          <div class="mode">
+            <h5>split</h5>
+            <p>Each contraction step becomes its own <code>CREATE TABLE</code>. Helper CTEs are repeated as a shared prefix on every statement. Returns a list of statements, not a string.</p>
+<pre>CREATE TEMP TABLE K1 AS
+  WITH t1 AS (…) …;
+CREATE TEMP TABLE K2 AS
+  WITH t1 AS (…) …;
+WITH t1 AS (…) SELECT …</pre>
+          </div>
+        </div>
+
+        <h3>Why split mode has a non-temporary variant</h3>
+
+        <p>
+          Split mode defaults to temporary tables, which is what you want on PostgreSQL and DuckDB.
+          SQLite is the exception: under the compile-time setting the project's SQLite runs with, the
+          pragma that would direct temporary storage to disk is a no-op, so temporary tables live in
+          memory and the whole point of the mode — forcing intermediates through the storage layer —
+          is lost. The rewriter therefore takes a flag that emits plain tables instead, and the SQLite
+          worker passes it.
+        </p>
+
+        <h3>The committed SQL reference</h3>
+
+        <p>
+          For all 17 generators, <code>docs/query-structures/</code> holds a directory containing a
+          prose description plus the exact SQL that generator lowers to under each of the three
+          modes. These files are generated, not hand-written, and the generator is deterministic:
+          symbolic parameters are fixed to a fixed arithmetic progression in name-sorted order, gate
+          names are numbered in circuit order, and the contraction path uses the plain greedy
+          optimiser rather than the randomised one.
+        </p>
+
+        <p>
+          A dedicated CI workflow regenerates the whole tree into a temporary directory and
+          byte-compares it against what is committed, reporting missing and stale files and failing
+          the build on either. It runs only when the generators, the SQL modules, the doc generator
+          itself, or the committed tree change — because unlike the main test job, it needs the git
+          dependency installed.
+        </p>
+
+        <p>
+          Separately, the test suite reads those same 17 committed fixtures and re-derives them:
+          applying the materialisation rewrite to the monolithic file must reproduce the materialised
+          file byte for byte, and joining the split statements must reproduce the split file. The
+          fixtures are both documentation and the mode rewriter's regression suite.
+        </p>
+      </section>
+
+      <!-- ── cli ───────────────────────────────────────────────────────── -->
+      <section id="cli">
+        <p class="sec-kicker">Reference</p>
+        <h2 class="sec">Command line</h2>
+
+        <p>
+          A single console entry point with nine subcommands. Argument parsing selects the
+          subcommand, and only then is that subcommand's module imported.
+        </p>
+
+        <div class="tw">
+          <table>
+            <thead>
+              <tr><th>Command</th><th>Does</th><th>Key flags</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>inferq run</code></td>
+                <td>Generate circuits in <code>parallel</code>, <code>single</code> or <code>interactive</code> mode</td>
+                <td><code>--workers</code> <code>--iterations</code> <code>--batch-size</code> <code>--azure-interval</code> <code>--batch-timeout</code> <code>--generate-only</code> <code>--profile</code> <code>--log-file</code></td>
+              </tr>
+              <tr>
+                <td><code>inferq smoke</code></td>
+                <td>End-to-end environment check: probe engines, generate, simulate, store, verify</td>
+                <td><code>--azure</code></td>
+              </tr>
+              <tr>
+                <td><code>inferq ingest</code></td>
+                <td>Pull circuits from published benchmark suites through the same extract-simulate-store path</td>
+                <td><code>--suites</code> <code>--min-qubits</code> <code>--max-qubits</code> <code>--max-circuit-size</code> <code>--limit</code> <code>--dry-run</code> <code>--dedupe-scope</code> <code>--iq-omit-methods</code> <code>--iq-runs</code></td>
+              </tr>
+              <tr>
+                <td><code>inferq rerun</code></td>
+                <td>Backfill over an existing corpus: re-simulate, re-lower, or recompute dynamic features</td>
+                <td><code>--mode</code> (simulations, sql, dynamic) &middot; <code>--sim-mode</code> (auto, all, rdbms)</td>
+              </tr>
+              <tr><td><code>inferq download</code></td><td>Fetch circuits from Azure by hash list, CSV, metadata table or public container</td><td>mode-dependent</td></tr>
+              <tr><td><code>inferq upload</code></td><td>Push a local store to Azure Blob and Table</td><td>mode-dependent</td></tr>
+              <tr><td><code>inferq catalog</code></td><td>List and consolidate remote metadata</td><td>mode-dependent</td></tr>
+              <tr><td><code>inferq paths</code></td><td>Print every resolved location and where each one came from</td><td>—</td></tr>
+              <tr><td><code>inferq data</code></td><td>Manage registered external datasets: <code>list</code>, <code>fetch</code>, <code>verify</code></td><td><code>--force</code> <code>--quick</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>What the smoke test actually checks</h3>
+
+        <p>
+          It is worth running before anything else because it is the only command that reports on the
+          environment rather than assuming it. It probes each database engine in turn — SQLite and
+          DuckDB always run in-process; PostgreSQL and Umbra are contacted over their configured host
+          and port — and builds the omission list from what it finds, so an absent engine is skipped
+          rather than failed. It then runs the full pipeline and verifies the resulting directory on
+          disk. Azure is excluded unless explicitly requested.
+        </p>
+
+        <p>
+          Its retries change the generation seed by a fixed stride, so a retry explores different
+          circuits instead of re-attempting the one that failed. Configuration reaches the worker
+          children through the process environment — that is the only channel that exists.
+        </p>
+
+        <h3>Ingest ordering and failure handling</h3>
+
+        <p>
+          The ingest command sorts its work by qubit count, then source, then benchmark name, so
+          interrupting it leaves a clean prefix of the corpus rather than a random sample. It also
+          catches a broader class of failure than usual around the extraction and simulation steps,
+          because one of the Rust-backed Qiskit transpiler passes raises a panic that does not derive
+          from the ordinary exception base class; keyboard interrupts and exit requests are still
+          re-raised.
+        </p>
+      </section>
+
+      <!-- ── config ────────────────────────────────────────────────────── -->
+      <section id="config">
+        <p class="sec-kicker">Reference</p>
+        <h2 class="sec">Configuration</h2>
+
+        <p>
+          One module holds every default and every environment override, grouped into sections. Each
+          section is a plain dictionary of defaults, overlaid by environment variables that are read
+          and type-cast at construction time. Booleans accept <code>1</code>, <code>true</code>,
+          <code>yes</code> and <code>on</code>.
+        </p>
+
+        <h3>Sections and their defaults</h3>
+
+        <div class="tw">
+          <table>
+            <thead>
+              <tr><th>Section</th><th>Notable defaults</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>PIPELINE</code></td>
+                <td class="num">workers 1 &middot; batch_size 10 &middot; azure_upload_interval 10 &middot; max_iterations unbounded &middot; batch_timeout 200&nbsp;s</td>
+              </tr>
+              <tr>
+                <td><code>CIRCUIT_GENERATION</code></td>
+                <td class="num">qubits 1–30 &middot; depth 1–200 &middot; reps 1–5 &middot; eval qubits 2–6 &middot; measure off &middot; seed 4 &middot; stopping probability 0.3 &middot; max generators 5 &middot; max circuit size 1500</td>
+              </tr>
+              <tr>
+                <td><code>SIMULATION</code></td>
+                <td class="num">shots none &middot; seed 0 &middot; timeout 5&nbsp;s &middot; statevector / unitary / MPS all capped at 20 qubits &middot; max circuit size 1000</td>
+              </tr>
+              <tr>
+                <td><code>SIMULATION.infiniquantum</code></td>
+                <td>omits PostgreSQL, EQC, DuckDB and Umbra by default &middot; query mode <code>monolithic</code> &middot; benchmark on &middot; 5 runs</td>
+              </tr>
+              <tr>
+                <td><code>STORAGE</code></td>
+                <td class="num">circuits directory <code>circuits</code> &middot; duplicate cache <code>circuit_hashes_cache.json</code> &middot; local cap 50&nbsp;GB</td>
+              </tr>
+              <tr>
+                <td><code>AZURE</code></td>
+                <td>container <code>circuits</code> &middot; table <code>circuits</code> &middot; disabled by default</td>
+              </tr>
+              <tr>
+                <td><code>SYNERGY_RULES</code></td>
+                <td>six directional weight multipliers used during composition</td>
+              </tr>
+              <tr>
+                <td><code>OOC</code></td>
+                <td>the out-of-core harness — roughly 28 further overrides, listed in the experiments section</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Worker count is capped at 22</h3>
+
+        <p>
+          The recommended worker count is two fewer than the machine's cores, clamped to 22. The
+          ceiling is not a CPU limit: past that point the Azure upload path and the per-worker Aer
+          memory footprint dominate, and adding processes makes throughput worse rather than better.
+        </p>
+
+        <h3>Synergy rules</h3>
+
+        <p>
+          Composition does not pick generators uniformly. Six directional rules bias what follows
+          what, so composed circuits look like plausible algorithm pipelines rather than noise.
+        </p>
+
+        <div class="tw">
+          <table>
+            <thead><tr><th>When this was just picked</th><th>These become more likely</th><th>Weight</th></tr></thead>
+            <tbody>
+              <tr><td>QFT</td><td>Quantum phase estimation</td><td class="num">&times;2.5</td></tr>
+              <tr><td>Quantum phase estimation</td><td>QFT</td><td class="num">&times;2.0</td></tr>
+              <tr><td>Graph state</td><td>Quantum walk</td><td class="num">&times;1.7</td></tr>
+              <tr><td>VQE, QAOA, QNN</td><td>Real amplitudes, two-local</td><td class="num">&times;1.6</td></tr>
+              <tr><td>GHZ</td><td>Quantum walk, QAOA, VQE</td><td class="num">&times;1.4</td></tr>
+              <tr><td>GHZ, W state, graph state, efficient SU(2), quantum walk</td><td>Deutsch–Jozsa, Grover without ancilla</td><td class="num">&times;1.3</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Environment variables</h3>
+
+        <p>
+          Roughly ninety overrides exist. They fall into predictable families:
+          pipeline sizing, circuit-generation bounds, simulation limits, lowering-engine control,
+          storage locations, Azure credentials, and the out-of-core harness. Two families are worth
+          calling out because they are used routinely.
+        </p>
+
+        <div class="code">
+          <div class="code-head">Controlling the lowering engine</div>
+<pre><code><span class="fl">IQ_QUERY_MODE</span>=split          <span class="cm"># monolithic | monolithic_materialized | split</span>
+<span class="fl">IQ_OMIT_METHODS</span>=psql,umbra   <span class="cm"># skip engines you do not have</span>
+<span class="fl">IQ_N_RUNS</span>=5                  <span class="cm"># repetitions per engine, for timing</span>
+<span class="fl">IQ_RUN_BENCHMARK</span>=true</code></pre>
+        </div>
+
+        <div class="code">
+          <div class="code-head">Relocating everything</div>
+<pre><code><span class="fl">INFERQ_DATA_DIR</span>=/mnt/big/inferq/data
+<span class="fl">INFERQ_CACHE_DIR</span>=/mnt/big/inferq/cache
+<span class="fl">INFERQ_STATE_DIR</span>=/mnt/big/inferq/state
+<span class="fl">INFERQ_OUT_DIR</span>=/mnt/big/inferq/out</code></pre>
+        </div>
+
+        <p>
+          Credentials come from a <code>.env</code> file; <code>.env.example</code> in the repository
+          root lists every recognised key. The account key is the preferred Azure credential, because
+          it is the only method that reliably authorises Table operations as well as Blob operations.
+        </p>
+      </section>
+
+      <!-- ── paths ─────────────────────────────────────────────────────── -->
+      <section id="paths">
+        <p class="sec-kicker">Reference</p>
+        <h2 class="sec">Paths and data</h2>
+
+        <p>
+          Every location follows the same three-step precedence: an explicit environment override
+          wins; otherwise, if the process is running from inside the repository, a directory under
+          the repository is used; otherwise the platform's standard user directory is used.
+        </p>
+
+        <div class="tw">
+          <table>
+            <thead>
+              <tr><th>Location</th><th>Override</th><th>In-repo</th><th>Installed</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Data</td><td><code>INFERQ_DATA_DIR</code></td><td><code>var/data</code></td><td><code>~/.local/share/inferq</code></td></tr>
+              <tr><td>Cache</td><td><code>INFERQ_CACHE_DIR</code></td><td><code>var/cache</code></td><td><code>~/.cache/inferq</code></td></tr>
+              <tr><td>State</td><td><code>INFERQ_STATE_DIR</code></td><td><code>var/state</code></td><td><code>~/.local/state/inferq</code></td></tr>
+              <tr><td>Output</td><td><code>INFERQ_OUT_DIR</code></td><td><code>out/</code></td><td><code>./out</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          Output is the deliberate exception: it does not live under <code>var/</code> and does not
+          follow the platform convention, because generated figures and result tables are artifacts a
+          person goes looking for, and they should land next to where the command was run.
+        </p>
+
+        <h3>Detecting the repository</h3>
+
+        <p>
+          "Running from inside the repository" is decided by walking upward looking for a project file
+          that belongs to InferQ specifically — either named as one of this project's own
+          distributions, or declaring the uv workspace. A project file belonging to some unrelated
+          project does not count. From an installed wheel the walk finds nothing and returns nothing,
+          which is the normal case and is asserted directly in CI.
+        </p>
+
+        <h3>Resolving a circuit from a manifest</h3>
+
+        <p>
+          Manifests record both a hash and a path, and the resolver trusts the hash. Recorded paths
+          are not portable between machines — the experiment harness runs the same manifest on a
+          workstation and inside a container with different mounts — so the hash is used to
+          re-derive the location, and the recorded path is only a fallback. Three on-disk layouts are
+          probed in turn, covering the flat store, the two-character fan-out, and the
+          directory-per-circuit form.
+        </p>
+      </section>
+
+      <!-- ── generators ────────────────────────────────────────────────── -->
+      <section id="generators">
+        <p class="sec-kicker">Reference</p>
+        <h2 class="sec">Generators</h2>
+
+        <p>
+          Seventeen circuit builders, split into two families. Each implements a two-method contract:
+          sample a parameter set, and build a circuit from it. A shared parameter dataclass back-fills
+          any field left unset from the circuit-generation configuration, so a generator can be driven
+          either by explicit arguments or entirely by config.
+        </p>
+
+        <div class="tw">
+          <table>
+            <thead><tr><th>#</th><th>Generator</th><th>Family</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td class="num">1</td><td><code>GHZ</code></td><td><span class="pill re">state prep</span></td><td>Maximally entangled basis state</td></tr>
+              <tr><td class="num">2</td><td><code>WState</code></td><td><span class="pill re">state prep</span></td><td>Single-excitation symmetric state</td></tr>
+              <tr><td class="num">3</td><td><code>GraphState</code></td><td><span class="pill re">state prep</span></td><td>Built from a sampled random graph</td></tr>
+              <tr><td class="num">4</td><td><code>RandomCircuit</code></td><td><span class="pill re">state prep</span></td><td>Unstructured baseline</td></tr>
+              <tr><td class="num">5</td><td><code>EfficientU2</code></td><td><span class="pill re">state prep</span></td><td>Hardware-efficient ansatz</td></tr>
+              <tr><td class="num">6</td><td><code>RealAmplitudes</code></td><td><span class="pill re">state prep</span></td><td>Real-valued variational ansatz</td></tr>
+              <tr><td class="num">7</td><td><code>TwoLocal</code></td><td><span class="pill re">state prep</span></td><td>Configurable rotation/entangler ansatz</td></tr>
+              <tr><td class="num">8</td><td><code>AmplitudeEstimation</code></td><td><span class="pill im">algorithm</span></td><td></td></tr>
+              <tr><td class="num">9</td><td><code>DeutschJozsa</code></td><td><span class="pill im">algorithm</span></td><td></td></tr>
+              <tr><td class="num">10</td><td><code>GroverNoAncilla</code></td><td><span class="pill im">algorithm</span></td><td>Iteration count from the standard optimum</td></tr>
+              <tr><td class="num">11</td><td><code>GroverVChain</code></td><td><span class="pill im">algorithm</span></td><td>V-chain multi-control variant</td></tr>
+              <tr><td class="num">12</td><td><code>QAOA</code></td><td><span class="pill im">algorithm</span></td><td></td></tr>
+              <tr><td class="num">13</td><td><code>QFTGenerator</code></td><td><span class="pill im">algorithm</span></td><td></td></tr>
+              <tr><td class="num">14</td><td><code>QNN</code></td><td><span class="pill im">algorithm</span></td><td></td></tr>
+              <tr><td class="num">15</td><td><code>QuantumWalk</code></td><td><span class="pill im">algorithm</span></td><td></td></tr>
+              <tr><td class="num">16</td><td><code>QPE</code></td><td><span class="pill im">algorithm</span></td><td></td></tr>
+              <tr><td class="num">17</td><td><code>VQEGenerator</code></td><td><span class="pill im">algorithm</span></td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>The registry is a hand-maintained list</h3>
+
+        <p>
+          There is no discovery mechanism and no registry module. The set of generators is an ordered
+          list inside the composer, paired with a name-to-class map derived from it, and the two
+          family memberships are separate string sets in the same file. Instantiation is defensive:
+          any class whose constructor raises is silently dropped from the live registry rather than
+          failing the process.
+        </p>
+
+        <div class="note warn">
+          <span class="note-label">Adding a generator</span>
+          <p>
+            Three edits in the composer, not one: the ordered class list, and both family string
+            sets. Miss the family sets and the new generator will build fine but will never
+            participate correctly in synergy-weighted selection.
+          </p>
+        </div>
+
+        <h3>Composition</h3>
+
+        <p>
+          "Hierarchical" in the composed circuit's name describes how it was selected, not how it is
+          nested — the structure is flat. Members are placed side by side onto one register with a
+          barrier between them, each composed starting from qubit zero across as many qubits as it
+          needs. Parameter names are rewritten with a per-member suffix so that two copies of the same
+          ansatz do not collide, and any parameter still free at the end is bound to a uniformly
+          random angle.
+        </p>
+
+        <p>Selection proceeds as a short weighted chain:</p>
+
+        <ol class="body">
+          <li>Start from uniform weights over the live registry.</li>
+          <li>Draw one generator with replacement, weighted.</li>
+          <li>Damp the one just drawn so repeats are unlikely but possible.</li>
+          <li>Shift the balance across families — picking a state-prep raises the algorithms and lowers the other state-preps, and the reverse for an algorithm.</li>
+          <li>Apply every matching synergy rule multiplicatively, then renormalise.</li>
+          <li>After the first pick, stop with a fixed probability each step; otherwise continue up to the maximum chain length.</li>
+        </ol>
+
+        <p>
+          The chain length is therefore geometric, truncated at the configured maximum. Note that the
+          step meant to raise the stopping probability as the chain grows is written as a clamp that
+          never actually raises it, so the stopping rate is constant in practice.
+        </p>
+
+        <h3>Seeding</h3>
+
+        <p>
+          Every parameter-sampling helper accepts a seed argument and ignores it. Seeding happens
+          exactly once, in the composer's constructor, which seeds both the standard library's random
+          module and NumPy's global state. This is worth knowing because it means reproducibility is a
+          property of the composer, not of any individual sampler, and calling a sampler directly
+          without constructing a composer gives unseeded results.
+        </p>
+
+        <h3>Interactive composition</h3>
+
+        <p>
+          A thin parsing and prompting layer sits over the composer and builds nothing itself. It
+          accepts generator selections as indexes, inclusive ranges, or case-insensitive names, and
+          accepts parameter overrides as JSON, as a Python literal, or as comma-separated key-value
+          pairs. Empty input means "use the random path", which makes the interactive mode a
+          convenient way to reach the normal generator with a seed you chose.
+        </p>
+      </section>
+
+      <!-- ── features ──────────────────────────────────────────────────── -->
+      <section id="features">
+        <p class="sec-kicker">Reference</p>
+        <h2 class="sec">Feature catalogue</h2>
+
+        <p>
+          Feature extraction produces a single flat dictionary per circuit. Two extractors run over a
+          shared memoisation cache and merge their output; a third, for SQL, runs later in the
+          simulation path; dynamic features are derived from simulation results rather than from the
+          circuit. Every individual feature computation is wrapped so that a failure writes a null
+          instead of aborting the circuit.
+        </p>
+
+        <h3>Static features</h3>
+
+        <p>Eleven measurements taken directly from the circuit.</p>
+
+        <div class="tw">
+          <table>
+            <thead><tr><th>Feature</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>num_qubits</code>, <code>width</code>, <code>depth</code></td><td>The basic dimensions</td></tr>
+              <tr><td><code>gate_counts</code></td><td>Per-gate-type histogram</td></tr>
+              <tr><td><code>pauli_gate_count</code></td><td>Count of Pauli operations</td></tr>
+              <tr><td><code>two_qubit_gate_count</code>, <code>two_qubit_gate_percentage</code></td><td>Entangling-gate load, absolute and relative</td></tr>
+              <tr><td><code>density_score</code></td><td>Gate density in the sense of Bandic et&nbsp;al.</td></tr>
+              <tr><td><code>idling_score</code></td><td>Proportion of the circuit's qubit-time spent idle</td></tr>
+              <tr><td><code>locality_ratio</code></td><td>How local the entangling structure is</td></tr>
+              <tr><td><code>name</code></td><td>The circuit's own label, carrying its composition</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="note warn">
+          <span class="note-label">One definition to be aware of</span>
+          <p>
+            Inside the density score, the term standing in for the single-qubit gate count is actually
+            the number of <em>distinct gate types</em> in the circuit, not the number of single-qubit
+            gate instances. The value is stable and comparable across circuits, but it is not the
+            quantity the name suggests.
+          </p>
+        </div>
+
+        <h3>Interaction-graph features</h3>
+
+        <p>
+          Fifteen graph measurements, all computed with rustworkx. The graph has one node per qubit
+          and one edge per pair of qubits touched by the same multi-qubit gate; repeated interactions
+          become edge weight rather than parallel edges. All-pairs distances are precomputed once with
+          a weighted shortest-path pass and reused across the distance-derived measures.
+        </p>
+
+        <div class="tw">
+          <table>
+            <thead><tr><th>Group</th><th>Features</th></tr></thead>
+            <tbody>
+              <tr><td>Size</td><td><code>node_count</code>, <code>edge_count</code>, <code>igdepth</code></td></tr>
+              <tr><td>Distance</td><td><code>diameter</code>, <code>radius</code>, <code>average_shortest_path_length</code>, <code>central_point_of_dominance</code></td></tr>
+              <tr><td>Degree</td><td><code>max_degree</code>, <code>average_degree</code>, <code>std_dev_adjacency_matrix</code></td></tr>
+              <tr><td>Cohesion</td><td><code>connected_components</code>, <code>min_cut_upper</code>, <code>core_number</code>, <code>average_clustering_coefficient</code></td></tr>
+              <tr><td>Centrality</td><td><code>pagerank</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          Two naming notes: the minimum-cut figure is an upper bound obtained from a global
+          minimum-cut algorithm, and the clustering coefficient is the graph's transitivity rather
+          than the average of per-node clustering coefficients. PageRank is computed on a directed
+          copy with the conventional damping factor.
+        </p>
+
+        <div class="note drift">
+          <span class="note-label">Disabled in the current tree</span>
+          <p>
+            A gate-dependency-graph extractor exists and would produce a critical-path length and the
+            share of gates lying on it, but its invocation is commented out, so neither feature
+            appears in the output today.
+          </p>
+        </div>
+
+        <h3>SQL features</h3>
+
+        <p>
+          The lowered query is parsed with sqlglot and reduced to a counter plus a set of join edges.
+          The first pass walks the syntax tree counting statement types, clause types, set operations,
+          aggregate functions, boolean connectives and predicate shapes. The classification list is
+          ordered and stops at the first match, so a specific predicate shape is not also counted as
+          the generic one it specialises.
+        </p>
+
+        <p>
+          The second pass recovers the join graph: explicit joins from their on-clauses, and implicit
+          joins from where-clause predicates that span two relations, recursing into subqueries in the
+          from-clause. Two summary counts — distinct join edges and total join occurrences — are always
+          emitted, even when both are zero, so the feature vector keeps a stable shape.
+        </p>
+
+        <p>
+          Each resulting key is prefixed with the simulation method it describes, so the lowering
+          engine's features are namespaced apart from anything else that might later be measured the
+          same way.
+        </p>
+
+        <h3>Dynamic features</h3>
+
+        <p>
+          These are not computed in the feature package at all: they come out of the simulation path,
+          from the measured properties of the resulting state. The simulator class inherits from the
+          dynamic-feature extractor directly, which is how entropy and sparsity measurements ride
+          along with the simulation that produced them.
+        </p>
+      </section>
+
+      <!-- ── simulation ────────────────────────────────────────────────── -->
+      <section id="simulation">
+        <p class="sec-kicker">Reference</p>
+        <h2 class="sec">Simulation methods</h2>
+
+        <p>
+          Eight methods are enumerated; a ninth pseudo-method is appended during a full sweep. Seven
+          of the eight are Aer backends reached through the same transpile-run-collect path. The
+          eighth is the lowering engine, which takes a completely different route.
+        </p>
+
+        <div class="tw">
+          <table>
+            <thead><tr><th>Method</th><th>Route</th><th>GPU</th></tr></thead>
+            <tbody>
+              <tr><td><code>statevector</code></td><td>Aer</td><td><span class="pill on">yes</span></td></tr>
+              <tr><td><code>matrix_product_state</code></td><td>Aer</td><td><span class="pill off">no</span></td></tr>
+              <tr><td><code>unitary</code></td><td>Aer</td><td><span class="pill on">yes</span></td></tr>
+              <tr><td><code>density_matrix</code></td><td>Aer</td><td><span class="pill on">yes</span></td></tr>
+              <tr><td><code>stabilizer</code></td><td>Aer</td><td><span class="pill off">no</span></td></tr>
+              <tr><td><code>extended_stabilizer</code></td><td>Aer</td><td><span class="pill off">no</span></td></tr>
+              <tr><td><code>automatic</code></td><td>Aer chooses</td><td><span class="pill on">yes</span></td></tr>
+              <tr><td><code>infiniquantum</code></td><td>Tensor-network lowering to SQL</td><td><span class="pill off">no</span></td></tr>
+              <tr><td><code>statevector_saved</code></td><td>Aer, with an explicit state save instruction</td><td><span class="pill on">yes</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          Each run produces a metrics record: the method requested and the method actually used, a
+          success flag, wall time, memory, the circuit's depth, size and width, three state-derived
+          measures (Shannon entropy, von Neumann entropy, sparsity), and an error string when it
+          failed.
+        </p>
+
+        <h3>Engines under the lowering path</h3>
+
+        <p>
+          Within the lowering method, seven execution backends are tracked. Each is timed over a
+          configurable number of repetitions with memory traced; after three consecutive timeouts a
+          backend is abandoned for that circuit, and the per-run series is reduced to an average time
+          and an average memory figure with the raw series retained.
+        </p>
+
+        <div class="tw">
+          <table>
+            <thead><tr><th>Key</th><th>What it is</th></tr></thead>
+            <tbody>
+              <tr><td><code>psql</code></td><td>PostgreSQL over the network</td></tr>
+              <tr><td><code>ducksql</code></td><td>DuckDB in process</td></tr>
+              <tr><td><code>sqlite</code></td><td>SQLite in process</td></tr>
+              <tr><td><code>umbra</code></td><td>Umbra over the network</td></tr>
+              <tr><td><code>np-one-shot</code></td><td>NumPy, contract in one pass</td></tr>
+              <tr><td><code>np-mps</code></td><td>NumPy, matrix-product-state style</td></tr>
+              <tr><td><code>eqc</code></td><td>In query-mode runs, not executed — records only the mode and statement count</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>The omission list is resolved in three stages</h3>
+
+        <p>
+          Which backends run is decided by an omission list that passes through three transformations,
+          and knowing this saves confusion when a backend you excluded still appears, or one you did
+          not exclude does not.
+        </p>
+
+        <ol class="body">
+          <li>The configuration default omits PostgreSQL, EQC, DuckDB and Umbra — the network engines plus the one that is not executed.</li>
+          <li>That list is injected into the lowering engine under a differently-named keyword argument than the one the configuration key suggests.</li>
+          <li>The engine normalises aliases (underscored spellings, and DuckDB's two names) and then unconditionally appends two further backends that require servers this project never runs.</li>
+        </ol>
+      </section>
+
+      <!-- ── storage ───────────────────────────────────────────────────── -->
+      <section id="storage">
+        <p class="sec-kicker">Reference</p>
+        <h2 class="sec">Storage and Azure</h2>
+
+        <p>
+          Storage is content-addressed: a circuit's identity is a digest, and that digest is the
+          directory name. Creating the directory is the atomic claim — the write asks for a directory
+          that must not already exist, and the resulting collision is the deduplication signal. No
+          lock, no check-then-write race.
+        </p>
+
+        <h3>On-disk layout</h3>
+
+        <div class="code">
+          <div class="code-head">One circuit</div>
+<pre><code>&lt;circuits root&gt;/&lt;full hex digest&gt;/
+├── circuit.qpy        <span class="cm"># preferred serialization</span>
+├── circuit.pkl        <span class="cm"># fallback if QPY refuses the circuit</span>
+├── circuit.qasm       <span class="cm"># or circuit_info.txt, last resort</span>
+├── circuit.sql        <span class="cm"># the lowered query, kept separate</span>
+└── meta.json          <span class="cm"># digest, method, dimensions, mode, all features</span></code></pre>
+        </div>
+
+        <p>
+          The query lives in its own file rather than inside the metadata because split-mode output
+          runs to tens of kilobytes and would dominate every metadata read. The metadata file carries
+          the digest, which serialization method succeeded, the circuit's dimensions, the query mode
+          used, and the complete feature dictionary flattened in.
+        </p>
+
+        <p>
+          Locally the layout is flat — one directory per circuit, named with the full digest. In blob
+          storage it is different: a two-character fan-out prefix, then the digest with a file
+          extension. The path resolver knows all the layouts and probes them in order, which is what
+          lets the same manifest drive both.
+        </p>
+
+        <div class="note drift">
+          <span class="note-label">What the digest is actually over</span>
+          <p>
+            The identity is documented, and the metadata key is named, as the digest of the circuit's
+            canonical QPY serialization. It is in fact the digest of the circuit's <em>text
+            rendering</em>. The serialization ladder runs and its result is stored, but the hash is
+            taken from the drawing. This is stable and collision-resistant in practice, and changing
+            it now would re-key the entire corpus — but it is not what the name says.
+          </p>
+        </div>
+
+        <h3>Duplicate detection</h3>
+
+        <p>
+          Three sets are tracked and their union is what counts as known: hashes confirmed present in
+          the remote table, hashes written locally and awaiting upload, and hashes produced in the
+          current session. A miss is added to the session set immediately, so the same process never
+          asks twice. The cache file is written atomically through a temporary file and a rename, so
+          an interrupted write cannot corrupt it.
+        </p>
+
+        <p>
+          The remote check is deliberately cheap: it enumerates the metadata table selecting only the
+          row key, because the row key <em>is</em> the digest. No entity bodies are transferred.
+        </p>
+
+        <h3>Azure schema</h3>
+
+        <p>
+          Two services are used. Blob storage holds the circuit artifacts under the fan-out layout.
+          Table storage holds one entity per circuit: a single fixed partition, the digest as the row
+          key, and every feature as a column. Feature names are sanitised into valid property names —
+          non-alphanumerics become underscores, a leading digit gets a prefix, everything is
+          lowercased — NumPy scalars are converted to native types, and anything structured is stored
+          as JSON text.
+        </p>
+
+        <p>
+          Metadata updates from the backfill pipelines use a merge write, so a rerun that adds new
+          measurements does not erase the ones already recorded.
+        </p>
+
+        <p>
+          Three credentials are required together, and the credential loader collects all the missing
+          ones before raising, so a misconfigured environment produces one message naming everything
+          absent rather than a sequence of one-at-a-time failures.
+        </p>
+
+        <h3>Backfill</h3>
+
+        <p>
+          The rerun subsystem exists to add measurements to circuits that already exist. It is four
+          layers — an orchestrator over folders, a folder processor, a per-circuit processor, and a
+          checkpoint manager — and it supports three modes: re-running simulations, re-lowering to
+          SQL, and recomputing dynamic features.
+        </p>
+
+        <p>
+          Checkpoints are append-only files of digests, one per folder, flushed immediately. A digest
+          is recorded both when the remote merge succeeds and when the circuit is skipped by a filter,
+          so only genuine failures are retried on the next pass. The folder processor applies memory
+          back-pressure, pausing while system memory is above ninety per cent rather than pushing the
+          machine into swap.
+        </p>
+      </section>
+
+      <!-- ── datasets ──────────────────────────────────────────────────── -->
+      <section id="datasets">
+        <p class="sec-kicker">Reference</p>
+        <h2 class="sec">Benchmark datasets</h2>
+
+        <p>
+          Alongside generated circuits, InferQ ingests three published benchmark suites. Two are
+          ordinary Python dependencies; the third is a file tree that must be fetched and verified.
+        </p>
+
+        <div class="tw">
+          <table>
+            <thead><tr><th>Suite</th><th>Reached via</th><th>Selection</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>MQT Bench</td>
+                <td>Python package</td>
+                <td>A curated allowlist of twenty algorithms; Shor, HHL, the nine-qubit code and most adders are excluded. Qubit filtering is re-applied to what the builder actually returns, not just to what was requested.</td>
+              </tr>
+              <tr>
+                <td>SupermarQ</td>
+                <td>Python package</td>
+                <td>Eight builders. Circuits are converted through the library's own Cirq-to-Qiskit converter rather than a round trip through QASM, which preserves structure the text format would lose.</td>
+              </tr>
+              <tr>
+                <td>QASMBench</td>
+                <td>Fetched file tree</td>
+                <td>The small and medium subdirectories, fetched on demand. Parsed with the legacy custom-instruction set so that non-standard gates become opaque instructions instead of parse errors.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          The committed suite catalogue lists 109 suite-specific entries, which deduplicate to 85
+          distinct circuit families across the three sources. The per-source counts are not additive:
+          the same family often appears in more than one suite.
+        </p>
+
+        <h3>The dataset registry</h3>
+
+        <p>
+          Fetched datasets are described by a manifest that pins far more than a URL. Each entry
+          carries a description, homepage, licence, an upstream location, an exact commit, optional
+          mirrors, which subdirectories to keep, how many leading path components to strip, a maximum
+          per-file size, and a digest and byte size for <em>every</em> file. The single registered
+          dataset today is QASMBench, pinned to one commit with 92 verified file entries.
+        </p>
+
+        <h3>Fetching never damages what you already have</h3>
+
+        <p>
+          The fetch procedure stages into a temporary directory, downloads with the standard library
+          only, unpacks with the safe extraction filter explicitly enabled, and verifies the staged
+          tree against the manifest. Only after verification passes is the existing copy removed and
+          the staged tree moved into place. A failed or interrupted fetch leaves the previous copy
+          intact.
+        </p>
+
+        <div class="code">
+          <div class="code-head">Dataset commands</div>
+<pre><code>inferq data list
+inferq data fetch qasmbench
+inferq data fetch qasmbench --force   <span class="cm"># re-fetch even if present</span>
+inferq data verify qasmbench          <span class="cm"># full per-file digest check</span>
+inferq data verify qasmbench --quick  <span class="cm"># sizes only</span></code></pre>
+        </div>
+
+        <p>
+          Verification reports missing and corrupt files separately, so a partially damaged tree tells
+          you which files to worry about.
+        </p>
+      </section>
+
+      <!-- ── ooc ───────────────────────────────────────────────────────── -->
+      <section id="ooc">
+        <p class="sec-kicker">Experiments</p>
+        <h2 class="sec">Out-of-core harness</h2>
+
+        <p>
+          The out-of-core experiments test the project's central claim: that running a quantum
+          simulation as a SQL query lets a database engine's spill machinery carry circuits that a
+          dense state vector cannot hold. The method is to cap memory hard, at the container level,
+          and observe what happens.
+        </p>
+
+        <h3>The three hypotheses</h3>
+
+        <div class="dgrid">
+          <div>
+            <dt>C1 &mdash; capability gap</dt>
+            <dd>At 31 qubits and above, a dense state vector needs more memory than the cap allows, and the Aer path fails where the relational path does not.</dd>
+          </div>
+          <div>
+            <dt>C2 &mdash; graceful degradation</dt>
+            <dd>As the cap shrinks, the relational path keeps completing rather than falling over.</dd>
+          </div>
+          <div>
+            <dt>C3 &mdash; paid in time</dt>
+            <dd>That degradation shows up as longer wall time, not as failure.</dd>
+          </div>
+        </div>
+
+        <div class="note warn">
+          <span class="note-label">The report has no results yet</span>
+          <p>
+            The results and interpretation sections of the experiment report are explicit
+            placeholders. Anything results-facing must be read from the generated result tables and
+            figures, not from that document.
+          </p>
+        </div>
+
+        <h3>Container topology</h3>
+
+        <p>
+          Two images are built. A PostgreSQL image adds a configuration template rendered from the
+          memory cap at container start; a worker image pins an exact scientific stack so that
+          measurements taken weeks apart are comparable.
+        </p>
+
+        <p>
+          The crucial detail is <em>which</em> container gets capped, and it differs by engine. For
+          PostgreSQL the query executes inside the server, so the server container carries the cap and
+          the worker gets a generous allowance over host networking. For DuckDB, SQLite and Aer the
+          query executes inside the worker, so a single worker container carries the cap.
+        </p>
+
+        <figure>
+          <svg viewBox="0 0 700 250" role="img" aria-label="Two container topologies. For PostgreSQL the memory cap is applied to the server container while the worker runs uncapped and connects over host networking. For DuckDB, SQLite and Aer a single worker container carries the cap and executes in process.">
+            <defs>
+              <marker id="ta" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+              </marker>
+            </defs>
+
+            <text x="14" y="20" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" letter-spacing="0.09em" fill="currentColor" opacity="0.6">POSTGRESQL</text>
+
+            <rect x="14" y="32" width="150" height="72" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="89" y="56" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" text-anchor="middle">worker container</text>
+            <text x="89" y="73" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.62" text-anchor="middle">generous allowance</text>
+            <text x="89" y="88" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.62" text-anchor="middle">sends the query</text>
+
+            <line x1="164" y1="68" x2="216" y2="68" stroke="currentColor" stroke-width="1.2" marker-end="url(#ta)"/>
+            <text x="190" y="60" font-family="IBM Plex Sans, sans-serif" font-size="9.5" fill="currentColor" opacity="0.62" text-anchor="middle">host net</text>
+
+            <rect x="218" y="32" width="164" height="72" rx="3" fill="none" stroke="var(--im)" stroke-width="1.7"/>
+            <text x="300" y="56" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="var(--im)" text-anchor="middle">server container</text>
+            <text x="300" y="73" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--im)" text-anchor="middle">--memory = cap</text>
+            <text x="300" y="88" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.62" text-anchor="middle">the query runs here</text>
+
+            <line x1="382" y1="68" x2="424" y2="68" stroke="currentColor" stroke-width="1.2" marker-end="url(#ta)"/>
+            <rect x="426" y="40" width="260" height="56" rx="3" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3"/>
+            <text x="440" y="60" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor">peak read from the server's cgroup</text>
+            <text x="440" y="78" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.62">host side only — the worker cannot see it</text>
+
+            <line x1="14" y1="124" x2="686" y2="124" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+
+            <text x="14" y="150" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" letter-spacing="0.09em" fill="currentColor" opacity="0.6">DUCKDB &middot; SQLITE &middot; AER</text>
+
+            <rect x="14" y="162" width="368" height="72" rx="3" fill="none" stroke="var(--im)" stroke-width="1.7"/>
+            <text x="198" y="186" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="var(--im)" text-anchor="middle">single worker container</text>
+            <text x="198" y="203" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--im)" text-anchor="middle">--memory = cap</text>
+            <text x="198" y="218" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.62" text-anchor="middle">engine runs in process, inside the cap</text>
+
+            <line x1="382" y1="198" x2="424" y2="198" stroke="currentColor" stroke-width="1.2" marker-end="url(#ta)"/>
+            <rect x="426" y="164" width="260" height="68" rx="3" fill="none" stroke="var(--re)" stroke-width="1.3"/>
+            <text x="440" y="183" font-family="IBM Plex Sans, sans-serif" font-size="11" fill="var(--re)">peak = max of three readings</text>
+            <text x="440" y="200" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.62">worker self-report &middot; in-worker 100 ms sampler</text>
+            <text x="440" y="214" font-family="IBM Plex Sans, sans-serif" font-size="10" fill="currentColor" opacity="0.62">host-side cgroup read</text>
+          </svg>
+          <figcaption>
+            <b>The cap follows the execution, not the process you launched.</b> Getting this wrong is
+            the classic way to produce a benchmark that measures nothing: capping the client while the
+            server runs unconstrained.
+          </figcaption>
+        </figure>
+
+        <h3>Making the cap real</h3>
+
+        <p>
+          A memory limit is only a limit if the process cannot escape it. Three settings together
+          close the escape routes: the swap allowance is set equal to the memory allowance so swap
+          adds nothing, swappiness is set to zero, and the temporary directory is required to be a
+          real block device rather than a memory-backed filesystem — otherwise spilled data would
+          count against the very cap it was meant to relieve.
+        </p>
+
+        <p>
+          The worker container runs on the host cgroup namespace with the cgroup filesystem
+          bind-mounted read-only, and is deliberately <em>not</em> auto-removed on exit, so that its
+          accounting directory survives long enough for the host-side peak to be read.
+        </p>
+
+        <p>
+          The reader handles both cgroup generations, falling back between layouts and searching for
+          the accounting directory when the expected path is absent, with privilege escalation
+          attempted non-interactively. The reported peak for the in-process engines is the maximum of
+          three independent readings, which guards against any single one under-reporting.
+        </p>
+
+        <h3>Deriving the PostgreSQL configuration from the cap</h3>
+
+        <div class="tw">
+          <table>
+            <thead><tr><th>Setting</th><th>Derived as</th></tr></thead>
+            <tbody>
+              <tr><td>Shared buffers</td><td class="num">cap ÷ 4</td></tr>
+              <tr><td>Effective cache size</td><td class="num">cap ÷ 2</td></tr>
+              <tr><td>Work memory</td><td class="num">64 MB</td></tr>
+              <tr><td>Maintenance work memory</td><td class="num">256 MB</td></tr>
+              <tr><td>Temporary file limit</td><td class="num">cap × 512 KB</td></tr>
+              <tr><td>Parallelism</td><td>disabled — one worker process, no parallel gather</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          Parallelism is switched off deliberately: parallel workers would make the memory accounting
+          ambiguous and the wall-time comparison across engines unfair.
+        </p>
+
+        <h3>Circuit selection</h3>
+
+        <p>
+          Circuits are drawn from the corpus and stratified into five bins by qubit count — under 25,
+          25 to 27, 28 to 29, exactly 30, and 31 or more — with a fixed number per bin. From roughly
+          two hundred thousand candidates the main sweep uses 73 circuits, with a 25-circuit pilot for
+          shakeout. Several purpose-built manifest builders exist alongside the stratified selector
+          for targeted studies: QFT-only, deliberately spill-inducing, and sparse-affine families.
+        </p>
+
+        <p>
+          The manifest is line-delimited JSON. Each row carries the digest, a path, the circuit's
+          dimensions, the peak memory previously observed and which methods produced it, and the bin
+          assignment. The path is advisory; the digest is authoritative.
+        </p>
+
+        <h3>What each run records</h3>
+
+        <p>
+          Roughly thirty columns per run, keyed for resumption on the combination of circuit, cap,
+          engine, method and mode — so an interrupted sweep restarts exactly where it stopped, and
+          specific statuses can be selectively re-run.
+        </p>
+
+        <div class="tw">
+          <table>
+            <thead><tr><th>Group</th><th>Columns</th></tr></thead>
+            <tbody>
+              <tr><td>Identity</td><td>circuit digest, bin, sparsity, qubits, gates</td></tr>
+              <tr><td>Condition</td><td>cap, engine, method, query mode, run index</td></tr>
+              <tr><td>Outcome</td><td>status, wall time, error text</td></tr>
+              <tr><td>Memory</td><td>cgroup peak, cgroup swap peak, traced Python peak, process peak</td></tr>
+              <tr><td>Spill</td><td>engine-reported temporary bytes, process and cgroup read/write bytes, a spill proxy</td></tr>
+              <tr><td>Query shape</td><td>contraction CTE count, helper CTE count, largest and total CTE size</td></tr>
+              <tr><td>Engine knobs</td><td>container CPUs, DuckDB memory limit and threads, SQLite cache size</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Per-engine instrumentation</h3>
+
+        <p>
+          Each engine is measured in whatever way gives the most honest number for it, which means
+          they are not instrumented identically.
+        </p>
+
+        <ul>
+          <li><strong>PostgreSQL</strong> — the query runs under a full analysing explain, and temporary block counts from that plan are converted to exact spill bytes. A background sampler also lists the temporary file directory several times a second, so spill that the plan does not attribute is still observed.</li>
+          <li><strong>DuckDB</strong> — its own memory limit is set below the container cap with a pad and a floor, insertion-order preservation is switched off, profiling is captured as JSON, and a watchdog interrupts the connection after the timeout plus a grace period rather than letting the container be killed.</li>
+          <li><strong>SQLite</strong> — the temporary directory, file-backed temporary storage, a negative cache size on both the main and temporary databases, and durability settings are all configured explicitly; in split mode it is given plain tables rather than temporary ones, for the reason described in the query-modes section.</li>
+          <li><strong>Aer</strong> — given a memory ceiling derived from the cap minus a pad, so it reports its own refusal rather than being killed by the kernel.</li>
+        </ul>
+
+        <h3>Running it</h3>
+
+        <div class="code">
+          <div class="code-head">A sweep</div>
+<pre><code>python -m experiments.ooc.run_experiment \
+  --manifest   out/ooc/manifest.jsonl \
+  --results-csv out/ooc/results.csv \
+  --caps-gb    16 8 4 \
+  --engines    postgres duckdb sqlite \
+  --mode       split \
+  --resume
+
+<span class="cm"># plan only, no containers</span>
+python -m experiments.ooc.run_experiment --manifest … --dry-run --runner none</code></pre>
+        </div>
+
+        <p>
+          Default caps are 16, 8 and 4 gigabytes across PostgreSQL, DuckDB and SQLite — Aer is
+          excluded from the default engine list and opted into explicitly, since it is the baseline
+          being contrasted against rather than a subject. One timed run per condition with one warm-up,
+          a thirty-minute timeout, and the page cache dropped between runs.
+        </p>
+
+        <p>
+          The reference machine is documented in the experiment report: a 64&nbsp;GB desktop with a
+          sixteen-core processor, an NVMe drive, Ubuntu 22.04 on a 5.15 kernel with both cgroup
+          generations mounted, and Docker 24 or newer using the cgroupfs driver.
+        </p>
+      </section>
+
+      <!-- ── tuning ────────────────────────────────────────────────────── -->
+      <section id="tuning">
+        <p class="sec-kicker">Experiments</p>
+        <h2 class="sec">Engine tuning</h2>
+
+        <p>
+          A second experiment family asks whether the relational path improves when the engine is
+          tuned for it rather than left at defaults. Two things are compared: fixed hand-written
+          profiles, and settings found by automatic search.
+        </p>
+
+        <h3>Profiles</h3>
+
+        <p>
+          Three static profiles — <code>balanced</code>, <code>fast</code> and
+          <code>spill_safe</code> — cover the obvious trade-off between throughput and surviving a
+          tight memory budget. A second, size-conditioned pair splits by circuit size instead; its
+          numbers are not round because they are baked-in output from the automatic search rather
+          than hand-chosen.
+        </p>
+
+        <h3>The search</h3>
+
+        <p>
+          Each engine gets its own search space over the settings that plausibly matter for this
+          workload.
+        </p>
+
+        <div class="tw">
+          <table>
+            <thead><tr><th>Engine</th><th>Searched over</th></tr></thead>
+            <tbody>
+              <tr><td>DuckDB</td><td>memory limit (log scale), thread count, maximum temporary directory size, insertion-order preservation</td></tr>
+              <tr><td>SQLite</td><td>cache size (log scale), temporary storage location, memory-map size, thread count</td></tr>
+              <tr><td>PostgreSQL</td><td>work memory, temporary buffers, effective cache size and hash-memory multiplier (log scales), parallel gather workers, JIT, and both collapse limits</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          The objective is median wall time, with a design choice worth noting: a failed configuration
+          scores a very large constant, and every additional failure adds a further large penalty on
+          top. Reliability is therefore bought before speed — the search will not trade a working
+          configuration for a faster one that sometimes falls over.
+        </p>
+
+        <p>
+          Result tables record the query generation cost and byte size alongside the execution
+          measurements, so the cost of producing the query is never silently folded into the cost of
+          running it. The schema is asserted rather than assumed, so a change to the columns fails
+          loudly instead of producing a table that silently no longer aligns with earlier runs.
+        </p>
+
+        <h3>Figures</h3>
+
+        <p>
+          Plotting shares a small amount of infrastructure deliberately and no more: a serif font
+          fallback chain, the target venue's exact column widths and font sizes, one fixed colour and
+          marker per engine, byte-axis formatters, a save helper, and a correlation helper. The
+          per-script style blocks are <em>not</em> shared, because the scripts target different
+          papers and unifying them would silently change figures that have already been published.
+          Those scripts are also excluded from the import-integrity test for the same reason — they
+          are frozen.
+        </p>
+      </section>
+
+      <!-- ── dev ───────────────────────────────────────────────────────── -->
+      <section id="dev">
+        <p class="sec-kicker">Project</p>
+        <h2 class="sec">Development and CI</h2>
+
+        <h3>Tests</h3>
+
+        <p>
+          Fourteen test files, around 1,100 lines, focused on the properties that are easy to break
+          and expensive to discover late.
+        </p>
+
+        <div class="tw">
+          <table>
+            <thead><tr><th>Test</th><th>Guards</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>Import integrity</td>
+                <td>Imports every module in the library and the experiments package, skipping only known-optional distributions, and asserts that every package directory is resolvable. Catches circular imports and mis-declared packages.</td>
+              </tr>
+              <tr>
+                <td>Query modes</td>
+                <td>Parametrised over all 17 committed SQL fixtures: re-derives the materialised and split forms from the monolithic one and requires byte equality, plus statement counts, the non-temporary variant, idempotence and mode-name normalisation.</td>
+              </tr>
+              <tr>
+                <td>Feature extractor imports</td>
+                <td>Imports the extractors first in a fresh subprocess — the specific ordering that used to expose a cycle between the static and graph feature modules.</td>
+              </tr>
+              <tr>
+                <td>Storage and QPY</td>
+                <td>The content-addressed write path, deduplication, and serialization round trips.</td>
+              </tr>
+              <tr>
+                <td>Lowering behaviour</td>
+                <td>Omission-list resolution, statement execution, the SQL artifact, and the SQL analyser.</td>
+              </tr>
+              <tr>
+                <td>Composition</td>
+                <td>Synergy weighting and the interactive composer's parsing.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="code">
+          <div class="code-head">Local loop</div>
+<pre><code>uv run pytest -q
+uv run ruff check src experiments tests tools</code></pre>
+        </div>
+
+        <h3>Continuous integration</h3>
+
+        <p>Three jobs, each defending something different.</p>
+
+        <ol class="body">
+          <li>
+            <strong>Test</strong>, on Python 3.12 and 3.13. Syncs the whole workspace with every extra
+            but <em>without</em> the lowering engine's dependency group, then lints and runs the
+            suite. Passing this proves the library degrades gracefully when the git dependency is
+            absent.
+          </li>
+          <li>
+            <strong>Package.</strong> Builds the distribution, runs the hygiene guard against the
+            built wheel, then installs that wheel into a bare virtual environment with no repository
+            in sight and exercises the CLI there — including asserting that repository detection
+            correctly finds nothing.
+          </li>
+          <li>
+            <strong>Query docs.</strong> Runs only when the generators, the SQL modules, the doc
+            generator or the committed SQL tree change. Installs the lowering engine, regenerates
+            everything, and byte-compares against what is committed.
+          </li>
+        </ol>
+
+        <h3>The hygiene guard</h3>
+
+        <p>Six rules, run in CI against both the repository and the built wheel.</p>
+
+        <div class="tw">
+          <table>
+            <thead><tr><th>#</th><th>Rule</th><th>Why</th></tr></thead>
+            <tbody>
+              <tr><td class="num">1</td><td>No tracked file is also ignored</td><td>Catches files committed before a rule was added</td></tr>
+              <tr><td class="num">2</td><td>No negation lines in the ignore file</td><td>Negations make rule 1 unverifiable</td></tr>
+              <tr><td class="num">3</td><td>No tracked file over 1&nbsp;MB</td><td>Keeps data artifacts out of history</td></tr>
+              <tr><td class="num">4</td><td>Every tracked notebook has empty outputs</td><td>Outputs are large, noisy in diffs, and often contain data</td></tr>
+              <tr><td class="num">5</td><td>Inside the library, no upward path walking outside the paths module, and no hard-coded project name anywhere</td><td>Enforces the path-resolution invariant mechanically</td></tr>
+              <tr><td class="num">6</td><td>The wheel is under 2&nbsp;MB, contains no data file types, and contains nothing from the experiments or tools trees</td><td>Keeps the published artifact a library</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Lint and style</h3>
+
+        <p>
+          Ruff, targeting Python 3.12, with pycodestyle errors, pyflakes, import sorting, pyupgrade
+          and bugbear enabled. Line length is set but the length error itself is disabled — the
+          formatter's judgement is preferred over a hard cut. Two deliberate exemptions: the lazy
+          package initialisers, whose re-exports would otherwise read as unused, and the frozen
+          figure scripts.
+        </p>
+
+        <h3>Provenance of removed data</h3>
+
+        <p>
+          Preparing the release branch removed large artifacts from the working tree. Their digests are
+          committed under <code>docs/provenance/</code>, so anything that referenced them can still be
+          identified and recovered from history or from the frozen main branch.
+        </p>
+      </section>
+
+      <!-- ── drift ─────────────────────────────────────────────────────── -->
+      <section id="drift">
+        <p class="sec-kicker">Project</p>
+        <h2 class="sec">Known drift</h2>
+
+        <p>
+          Places where the tree's own documentation, naming or comments no longer match the code. None
+          of these is a crash; all of them will mislead someone reading the repository. Listed
+          roughly in descending order of how likely they are to cost someone time.
+        </p>
+
+        <div class="tw">
+          <table>
+            <thead><tr><th>Where</th><th>Says</th><th>Actually</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><code>docs/interactive.md</code></td>
+                <td>Refers to a top-level entry script and three module paths</td>
+                <td>None of them exist after the source-layout reorganisation. Interactive mode is now a subcommand of the runner.</td>
+              </tr>
+              <tr>
+                <td>Out-of-core experiment README</td>
+                <td>Instructs users to run a fine-tuned-experiment module with three named profiles</td>
+                <td>No such module. The real profiles are <code>balanced</code>, <code>fast</code>, <code>spill_safe</code>, plus a size-conditioned pair.</td>
+              </tr>
+              <tr>
+                <td>Out-of-core report, environment section</td>
+                <td>PostgreSQL 16</td>
+                <td>Every image reference and pin in the tree is PostgreSQL 12.22.</td>
+              </tr>
+              <tr>
+                <td>Hashing docstrings and the metadata key name</td>
+                <td>Digest of the canonical QPY serialization</td>
+                <td>Digest of the circuit's text rendering. Stable, but not what the name says.</td>
+              </tr>
+              <tr>
+                <td>Azure batch upload docstring</td>
+                <td>Uploads in parallel</td>
+                <td>A sequential loop.</td>
+              </tr>
+              <tr>
+                <td>README module list</td>
+                <td>A registry module under the generators package</td>
+                <td>The registry is an ordered list and a derived map inside the composer.</td>
+              </tr>
+              <tr>
+                <td>README layout description</td>
+                <td>Configuration is a package</td>
+                <td>A single module.</td>
+              </tr>
+              <tr>
+                <td>Pipeline cleanup</td>
+                <td>A cleanup step exists in the batch loop</td>
+                <td>Its call site is commented out, so the cleanup helpers are unreachable from the parallel path.</td>
+              </tr>
+              <tr>
+                <td>Graph feature extractor</td>
+                <td>Gate-dependency-graph features are implemented</td>
+                <td>Implemented but commented out; the two critical-path features never appear.</td>
+              </tr>
+              <tr>
+                <td>Backfill SQL feature path</td>
+                <td>Implied to share the mode-aware lowering path</td>
+                <td>Calls the lowering engine directly, bypassing the query-mode module the simulation path goes through.</td>
+              </tr>
+              <tr>
+                <td>Composition stopping rule</td>
+                <td>Comment says the stopping probability increases each step</td>
+                <td>Written as a clamp that never raises it; the rate is constant.</td>
+              </tr>
+              <tr>
+                <td>Parameter sampling helpers</td>
+                <td>Each takes a seed</td>
+                <td>Every one ignores it; seeding happens once in the composer's constructor.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="note">
+          <span class="note-label">If you fix one of these</span>
+          <p>
+            The hashing discrepancy is the only one that cannot be fixed cheaply — changing the digest
+            re-keys every circuit on disk, in blob storage and in the metadata table. The honest fix
+            there is to correct the documentation and the key name's description, not the hash. The
+            rest are ordinary corrections.
+          </p>
+        </div>
+      </section>
+
+      <footer class="foot">
+        Documentation of the InferQ repository as it stands on the <code>release-v1</code> branch.
+        Figures are drawn from the source; counts are measured from the tree. Where the repository's
+        own documents disagree with its code, the code is described and the disagreement is recorded
+        under Known drift.
+      </footer>
+
+    </article>
+
+    <!-- ══ on this page ══════════════════════════════════════════════════ -->
+    <aside class="toc" id="toc">
+      <h2>On this page</h2>
+      <div id="toclist"></div>
+    </aside>
+  </div>
+</div>
+
+<script>
+  (function () {
+    // ── narrow-width nav disclosure ───────────────────────────────────────
+    var toggle = document.getElementById('navtoggle');
+    var nav = document.getElementById('nav');
+    toggle.addEventListener('click', function () {
+      var open = nav.classList.toggle('open');
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    nav.addEventListener('click', function (e) {
+      if (e.target.tagName === 'A' && window.innerWidth <= 940) {
+        nav.classList.remove('open');
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+    });
+
+    // ── build the right-hand contents from section headings ───────────────
+    var sections = Array.prototype.slice.call(document.querySelectorAll('section[id]'));
+    var toclist = document.getElementById('toclist');
+    sections.forEach(function (s) {
+      var h = s.querySelector('h2.sec');
+      if (!h) return;
+      var a = document.createElement('a');
+      a.href = '#' + s.id;
+      a.textContent = h.textContent;
+      a.dataset.for = s.id;
+      toclist.appendChild(a);
+    });
+
+    // ── scrollspy across both navs ────────────────────────────────────────
+    var railLinks = {};
+    Array.prototype.forEach.call(document.querySelectorAll('nav a'), function (a) {
+      railLinks[a.getAttribute('href').slice(1)] = a;
+    });
+    var tocLinks = {};
+    Array.prototype.forEach.call(toclist.querySelectorAll('a'), function (a) {
+      tocLinks[a.dataset.for] = a;
+    });
+
+    var visible = {};
+    function repaint() {
+      var best = null;
+      sections.forEach(function (s) {
+        if (visible[s.id] && best === null) best = s.id;
+      });
+      if (best === null) return;
+      Object.keys(railLinks).forEach(function (k) {
+        railLinks[k].classList.toggle('active', k === best);
+      });
+      Object.keys(tocLinks).forEach(function (k) {
+        tocLinks[k].classList.toggle('active', k === best);
+      });
+    }
+
+    if ('IntersectionObserver' in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { visible[e.target.id] = e.isIntersecting; });
+        repaint();
+      }, { rootMargin: '-10% 0px -70% 0px', threshold: 0 });
+      sections.forEach(function (s) { io.observe(s); });
+    }
+
+    // first section active at rest
+    visible[sections[0].id] = true;
+    repaint();
+  })();
+</script>
