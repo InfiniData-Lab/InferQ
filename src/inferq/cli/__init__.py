@@ -3,7 +3,7 @@
 One entry point replaces the ``python <path>`` invocations the repository used to
 rely on. Sub-commands are dispatched by name to the module that owns them and the
 module is imported only once its command is selected, so ``inferq --help`` does not
-pay for Qiskit, Aer or the Azure SDK.
+pay for Qiskit, Aer or a cloud SDK.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ _COMMANDS: dict[str, tuple[str, str, bool]] = {
     "ingest": ("inferq.cli.ingest", "main", True),
     "rerun": ("inferq.rerun.rerun_cli", "main", True),
     "download": ("inferq.transfer.download_circuits", "main", True),
-    "upload": ("inferq.transfer.upload_circuits_to_azure", "main", False),
-    "catalog": ("inferq.transfer.list_azure_circuits", "main", False),
+    "upload": ("inferq.transfer.upload_circuits", "main", False),
+    "catalog": ("inferq.transfer.list_circuits", "main", False),
     "paths": ("inferq.cli.paths_cmd", "main", True),
     "data": ("inferq.cli.data_cmd", "main", True),
 }
@@ -29,9 +29,9 @@ _SUMMARY = {
     "smoke": "end-to-end check of the local install",
     "ingest": "ingest circuits from an external benchmark suite",
     "rerun": "reprocess stored circuits (simulations, SQL or dynamic features)",
-    "download": "download circuits from Azure Blob Storage",
-    "upload": "upload local circuits to Azure Blob Storage",
-    "catalog": "list circuits recorded in Azure Table Storage",
+    "download": "download circuits from cloud object storage",
+    "upload": "upload local circuits to cloud object storage",
+    "catalog": "list circuits recorded in the cloud metadata store",
     "paths": "show the resolved data, cache, state and output directories",
     "data": "list, fetch and verify the registered benchmark datasets",
 }

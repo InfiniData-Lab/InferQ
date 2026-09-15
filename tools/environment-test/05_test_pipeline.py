@@ -240,12 +240,12 @@ def test_pipeline_integration():
         
         print("   ✅ Pipeline components initialized")
         
-        # Run pipeline (without Azure for testing)
+        # Run pipeline (without cloud upload for testing)
         start_time = time.time()
         run_extraction_pipeline(
             circuitMerger=circuit_merger,
             quantumSimulator=quantum_simulator,
-            azure_conn=None  # Local only for testing
+            cloud_conn=None  # Local only for testing
         )
         pipeline_time = time.time() - start_time
         

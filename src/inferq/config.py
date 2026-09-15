@@ -30,7 +30,7 @@ class PipelineConfig:
         """Available CPU cores."""
         return mp.cpu_count()
 
-    # Upper bound on worker processes. Beyond this the Azure upload path and the
+    # Upper bound on worker processes. Beyond this the cloud upload path and the
     # per-worker Aer memory footprint, not the CPU, are the bottleneck.
     MAX_WORKERS = 22
 
@@ -43,7 +43,7 @@ class PipelineConfig:
     PIPELINE_DEFAULTS = {
         "workers": 1,  # Auto-detect
         "batch_size": 10,
-        "azure_upload_interval": 10,
+        "cloud_upload_interval": 10,
         "max_iterations": None,  # Infinite
         "batch_timeout_seconds": 200,  # 5 minutes timeout per worker task
     }
@@ -249,10 +249,10 @@ class PipelineConfig:
             "batch_size": self.get_env_or_default(
                 "BATCH_SIZE", self.PIPELINE_DEFAULTS["batch_size"], int
             ),
-            "azure_upload_interval": self.get_first_env(
+            "cloud_upload_interval": self.get_first_env(
                 "CLOUD_UPLOAD_INTERVAL",
                 "AZURE_INTERVAL",
-                default=self.PIPELINE_DEFAULTS["azure_upload_interval"],
+                default=self.PIPELINE_DEFAULTS["cloud_upload_interval"],
                 type_cast=int,
             ),
             "max_iterations": self.get_env_or_default(
@@ -493,7 +493,7 @@ class PipelineConfig:
             "upload_interval": self.get_first_env(
                 "CLOUD_UPLOAD_INTERVAL",
                 "AZURE_INTERVAL",
-                default=self.PIPELINE_DEFAULTS["azure_upload_interval"],
+                default=self.PIPELINE_DEFAULTS["cloud_upload_interval"],
                 type_cast=int,
             ),
             "azure": {
@@ -534,7 +534,7 @@ class PipelineConfig:
         print("=" * 50)
         print(f"Workers: {pipeline_config['workers']}")
         print(f"Batch size: {pipeline_config['batch_size']}")
-        print(f"Cloud upload interval: {pipeline_config['azure_upload_interval']}")
+        print(f"Cloud upload interval: {pipeline_config['cloud_upload_interval']}")
         print(f"Max iterations: {pipeline_config['max_iterations'] or 'Infinite'}")
         print(f"Batch timeout: {pipeline_config['batch_timeout_seconds']}s")
         print()

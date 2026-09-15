@@ -18,14 +18,14 @@ would configure them, and excluded so the run does not block on a connection
 that will never open. A missing engine is reported, never fatal -- the point of
 the report is to tell you what this machine can and cannot do.
 
-Azure upload is forced off unless ``--azure`` is passed, so a smoke test never
+Cloud upload is forced off unless ``--cloud`` is passed, so a smoke test never
 writes throwaway circuits into shared storage by accident.
 
 Usage:
     inferq smoke                 # 3 circuits, local only
     inferq smoke --circuits 5
     inferq smoke --query-mode split
-    inferq smoke --azure         # include the upload step
+    inferq smoke --cloud         # include the upload step
 """
 
 from __future__ import annotations
@@ -211,7 +211,7 @@ def report_cloud(enabled: bool) -> None:
         line(
             SKIP,
             "object and metadata upload",
-            "disabled for this run so smoke circuits stay local (pass --azure to include it)",
+            "disabled for this run so smoke circuits stay local (pass --cloud to include it)",
         )
         return
 
@@ -321,7 +321,7 @@ def run_pipeline(
             num_workers=args.workers,
             max_iterations=1,
             batch_size=args.circuits,
-            azure_upload_interval=args.circuits + 1,
+            cloud_upload_interval=args.circuits + 1,
             batch_timeout_seconds=args.batch_timeout,
         )
         if "error" in stats:
@@ -551,9 +551,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Seconds to wait when probing a database server (default: 3)",
     )
     parser.add_argument(
+        "--cloud",
         "--azure",
+        dest="cloud",
         action="store_true",
-        help="Include the Azure upload step. Off by default so smoke circuits stay local.",
+        help="Include the cloud upload step. Off by default so smoke circuits stay local.",
     )
     return parser.parse_args(argv)
 
@@ -574,7 +576,10 @@ def apply_environment(args: argparse.Namespace, engines: list[EngineStatus]) -> 
             "ITERATIONS": "1",
             "IQ_QUERY_MODE": args.query_mode,
             "IQ_OMIT_METHODS": ",".join(omit_methods_for(engines)),
-            "AZURE_ENABLED": "True" if args.azure else "False",
+            # Both spellings are written: the neutral one the config now
+            # prefers, and the alias, so a subprocess reading either agrees.
+            "CLOUD_ENABLED": "True" if args.cloud else "False",
+            "AZURE_ENABLED": "True" if args.cloud else "False",
             **SMOKE_CIRCUIT_LIMITS,
             "MAX_QUBITS": str(args.max_qubits),
         }
@@ -597,7 +602,7 @@ def main(argv: list[str] | None = None) -> int:
 
     heading("Run configuration")
     apply_environment(args, engines)
-    report_cloud(args.azure)
+    report_cloud(args.cloud)
 
     import logging
 

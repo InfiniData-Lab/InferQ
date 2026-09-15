@@ -161,7 +161,7 @@ main() {
     declare -a tests=(
         "Python Environment:01_test_python.py"
         "Package Installation:02_test_packages.py"
-        "Azure Connectivity:03_test_azure.py"
+        "Cloud Connectivity:03_test_cloud.py"
         "System Resources:04_test_system.py"
         "Pipeline Integration:05_test_pipeline.py"
     )
@@ -223,7 +223,7 @@ main() {
         echo ""
         echo "Common fixes:"
         echo "1. Install missing packages: pip install -r requirements_delftblue_py38.txt"
-        echo "2. Set Azure credentials: export AZURE_STORAGE_CONNECTION_STRING=..."
+        echo "2. Set cloud credentials (see .env.example)"
         echo "3. Check system resources and permissions"
         return 1
     fi

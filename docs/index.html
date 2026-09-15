@@ -638,7 +638,7 @@
           <li><a href="#generators">Generators</a></li>
           <li><a href="#features">Feature catalogue</a></li>
           <li><a href="#simulation">Simulation methods</a></li>
-          <li><a href="#storage">Storage and Azure</a></li>
+          <li><a href="#storage">Storage and the cloud</a></li>
           <li><a href="#datasets">Benchmark datasets</a></li>
         </ol>
       </div>
@@ -767,10 +767,12 @@ uv run inferq --help</code></pre>
               <tr><th>Extra</th><th>Pulls in</th><th>Needed for</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>azure</code></td><td>azure-storage-blob, azure-data-tables, azure-identity, pandas, pyarrow</td><td>Blob and Table upload, metadata consolidation, the transfer commands</td></tr>
+              <tr><td><code>cloud</code></td><td>pandas, pyarrow</td><td>The provider-neutral transfer paths; pulled in by both storage backends</td></tr>
+              <tr><td><code>azure</code></td><td>azure-storage-blob, azure-data-tables, azure-identity</td><td>The Azure Blob + Table backend</td></tr>
+              <tr><td><code>aws</code></td><td>boto3, botocore</td><td>The Amazon S3 + DynamoDB backend</td></tr>
               <tr><td><code>datasets</code></td><td>mqt-bench, supermarq</td><td>Ingesting the MQT Bench and SupermarQ suites</td></tr>
               <tr><td><code>sql</code></td><td>duckdb, psycopg2-binary, opt-einsum</td><td>Executing lowered SQL against DuckDB and PostgreSQL</td></tr>
-              <tr><td><code>all</code></td><td>all three</td><td>Everything</td></tr>
+              <tr><td><code>all</code></td><td>all of the above</td><td>Everything</td></tr>
             </tbody>
           </table>
         </div>
@@ -815,8 +817,8 @@ uv run inferq --help</code></pre>
           <div class="code-head">Smoke test</div>
 <pre><code>uv run inferq smoke
 
-<span class="cm"># include the Azure upload leg (off by default)</span>
-uv run inferq smoke --azure</code></pre>
+<span class="cm"># include the cloud upload leg (off by default)</span>
+uv run inferq smoke --cloud</code></pre>
         </div>
 
         <p>Then generate circuits. The parallel mode is the production path.</p>
@@ -1078,7 +1080,7 @@ uv run inferq ingest --suites qasmbench --max-qubits 20 --limit 50</code></pre>
             <!-- L6 -->
             <rect x="54" y="76" width="274" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.1"/>
             <text x="70" y="95" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="currentColor">pipeline</text>
-            <text x="70" y="110" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">batch loop, worker pool, Azure buffer</text>
+            <text x="70" y="110" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">batch loop, worker pool, upload buffer</text>
             <rect x="340" y="76" width="274" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.1"/>
             <text x="356" y="95" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="currentColor">rerun</text>
             <text x="356" y="110" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">backfill over an existing corpus</text>
@@ -1087,7 +1089,7 @@ uv run inferq ingest --suites qasmbench --max-qubits 20 --limit 50</code></pre>
             <!-- L5 -->
             <rect x="54" y="128" width="178" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.1"/>
             <text x="70" y="147" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="currentColor">remote</text>
-            <text x="70" y="162" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">Blob + Table clients</text>
+            <text x="70" y="162" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">object + metadata stores</text>
             <rect x="244" y="128" width="178" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.1"/>
             <text x="260" y="147" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="currentColor">transfer</text>
             <text x="260" y="162" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="currentColor" opacity="0.65">bulk up/down, metadata</text>
@@ -1187,7 +1189,7 @@ uv run inferq ingest --suites qasmbench --max-qubits 20 --limit 50</code></pre>
         </p>
 
         <figure>
-          <svg viewBox="0 0 700 486" role="img" aria-label="Parallel pipeline topology: a parent process runs a batch loop that submits tasks to a persistent worker pool, collects results under a batch-wide timeout, unions session hashes for cross-worker deduplication, and flushes an upload buffer to Azure; each worker runs a six-step sequence ending in the only disk write.">
+          <svg viewBox="0 0 700 486" role="img" aria-label="Parallel pipeline topology: a parent process runs a batch loop that submits tasks to a persistent worker pool, collects results under a batch-wide timeout, unions session hashes for cross-worker deduplication, and flushes an upload buffer to cloud storage; each worker runs a six-step sequence ending in the only disk write.">
             <defs>
               <marker id="fa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                 <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
@@ -1325,7 +1327,7 @@ uv run inferq ingest --suites qasmbench --max-qubits 20 --limit 50</code></pre>
         <div class="note warn">
           <span class="note-label">Two things to know before tuning</span>
           <p>
-            The worker ceiling is 22, and the reason is not CPU count — beyond that, the Azure upload
+            The worker ceiling is 22, and the reason is not CPU count — beyond that, the cloud upload
             path and the per-worker Aer memory footprint become the bottleneck. And the resource
             monitor blocks for a full second per call while sampling CPU, and measures disk usage on
             the current working directory rather than on the configured store.
@@ -1534,12 +1536,12 @@ WITH t1 AS (…) SELECT …</pre>
               <tr>
                 <td><code>inferq run</code></td>
                 <td>Generate circuits in <code>parallel</code>, <code>single</code> or <code>interactive</code> mode</td>
-                <td><code>--workers</code> <code>--iterations</code> <code>--batch-size</code> <code>--azure-interval</code> <code>--batch-timeout</code> <code>--generate-only</code> <code>--profile</code> <code>--log-file</code></td>
+                <td><code>--workers</code> <code>--iterations</code> <code>--batch-size</code> <code>--cloud-interval</code> <code>--batch-timeout</code> <code>--generate-only</code> <code>--profile</code> <code>--log-file</code></td>
               </tr>
               <tr>
                 <td><code>inferq smoke</code></td>
                 <td>End-to-end environment check: probe engines, generate, simulate, store, verify</td>
-                <td><code>--azure</code></td>
+                <td><code>--cloud</code></td>
               </tr>
               <tr>
                 <td><code>inferq ingest</code></td>
@@ -1551,8 +1553,8 @@ WITH t1 AS (…) SELECT …</pre>
                 <td>Backfill over an existing corpus: re-simulate, re-lower, or recompute dynamic features</td>
                 <td><code>--mode</code> (simulations, sql, dynamic) &middot; <code>--sim-mode</code> (auto, all, rdbms)</td>
               </tr>
-              <tr><td><code>inferq download</code></td><td>Fetch circuits from Azure by hash list, CSV, metadata table or public container</td><td>mode-dependent</td></tr>
-              <tr><td><code>inferq upload</code></td><td>Push a local store to Azure Blob and Table</td><td>mode-dependent</td></tr>
+              <tr><td><code>inferq download</code></td><td>Fetch circuits from the object store by hash list, CSV, metadata table, or from a public Azure container</td><td>mode-dependent</td></tr>
+              <tr><td><code>inferq upload</code></td><td>Push a local store to the object and metadata stores</td><td>mode-dependent</td></tr>
               <tr><td><code>inferq catalog</code></td><td>List and consolidate remote metadata</td><td>mode-dependent</td></tr>
               <tr><td><code>inferq paths</code></td><td>Print every resolved location and where each one came from</td><td>—</td></tr>
               <tr><td><code>inferq data</code></td><td>Manage registered external datasets: <code>list</code>, <code>fetch</code>, <code>verify</code></td><td><code>--force</code> <code>--quick</code></td></tr>
@@ -1568,7 +1570,7 @@ WITH t1 AS (…) SELECT …</pre>
           DuckDB always run in-process; PostgreSQL and Umbra are contacted over their configured host
           and port — and builds the omission list from what it finds, so an absent engine is skipped
           rather than failed. It then runs the full pipeline and verifies the resulting directory on
-          disk. Azure is excluded unless explicitly requested.
+          disk. Cloud upload is excluded unless explicitly requested.
         </p>
 
         <p>
@@ -1611,7 +1613,7 @@ WITH t1 AS (…) SELECT …</pre>
             <tbody>
               <tr>
                 <td><code>PIPELINE</code></td>
-                <td class="num">workers 1 &middot; batch_size 10 &middot; azure_upload_interval 10 &middot; max_iterations unbounded &middot; batch_timeout 200&nbsp;s</td>
+                <td class="num">workers 1 &middot; batch_size 10 &middot; cloud_upload_interval 10 &middot; max_iterations unbounded &middot; batch_timeout 200&nbsp;s</td>
               </tr>
               <tr>
                 <td><code>CIRCUIT_GENERATION</code></td>
@@ -1630,8 +1632,8 @@ WITH t1 AS (…) SELECT …</pre>
                 <td class="num">circuits directory <code>circuits</code> &middot; duplicate cache <code>circuit_hashes_cache.json</code> &middot; local cap 50&nbsp;GB</td>
               </tr>
               <tr>
-                <td><code>AZURE</code></td>
-                <td>container <code>circuits</code> &middot; table <code>circuits</code> &middot; disabled by default</td>
+                <td><code>CLOUD</code></td>
+                <td>provider <code>azure</code> &middot; bucket <code>circuits</code> &middot; table <code>circuits</code> &middot; disabled by default</td>
               </tr>
               <tr>
                 <td><code>SYNERGY_RULES</code></td>
@@ -1649,7 +1651,7 @@ WITH t1 AS (…) SELECT …</pre>
 
         <p>
           The recommended worker count is two fewer than the machine's cores, clamped to 22. The
-          ceiling is not a CPU limit: past that point the Azure upload path and the per-worker Aer
+          ceiling is not a CPU limit: past that point the cloud upload path and the per-worker Aer
           memory footprint dominate, and adding processes makes throughput worse rather than better.
         </p>
 
@@ -1679,7 +1681,7 @@ WITH t1 AS (…) SELECT …</pre>
         <p>
           Roughly ninety overrides exist. They fall into predictable families:
           pipeline sizing, circuit-generation bounds, simulation limits, lowering-engine control,
-          storage locations, Azure credentials, and the out-of-core harness. Two families are worth
+          storage locations, cloud credentials, and the out-of-core harness. Two families are worth
           calling out because they are used routinely.
         </p>
 
@@ -1701,8 +1703,10 @@ WITH t1 AS (…) SELECT …</pre>
 
         <p>
           Credentials come from a <code>.env</code> file; <code>.env.example</code> in the repository
-          root lists every recognised key. The account key is the preferred Azure credential, because
-          it is the only method that reliably authorises Table operations as well as Blob operations.
+          root lists every recognised key. On Azure the account key is the preferred credential,
+          because it is the only method that reliably authorises Table operations as well as Blob
+          operations. On AWS the default credential chain — instance profile, SSO, or a shared
+          profile — is preferred, and explicit keys are read only when they are set.
         </p>
       </section>
 
@@ -2055,7 +2059,7 @@ WITH t1 AS (…) SELECT …</pre>
       <!-- ── storage ───────────────────────────────────────────────────── -->
       <section id="storage">
         <p class="sec-kicker">Reference</p>
-        <h2 class="sec">Storage and Azure</h2>
+        <h2 class="sec">Storage and the cloud</h2>
 
         <p>
           Storage is content-addressed: a circuit's identity is a digest, and that digest is the
@@ -2116,15 +2120,37 @@ WITH t1 AS (…) SELECT …</pre>
           row key, because the row key <em>is</em> the digest. No entity bodies are transferred.
         </p>
 
-        <h3>Azure schema</h3>
+        <h3>Remote schema</h3>
 
         <p>
-          Two services are used. Blob storage holds the circuit artifacts under the fan-out layout.
-          Table storage holds one entity per circuit: a single fixed partition, the digest as the row
-          key, and every feature as a column. Feature names are sanitised into valid property names —
+          Two services are used on either provider: an object store for the circuit artifacts, laid
+          out with the same fan-out, and a metadata store holding one record per circuit — a single
+          fixed partition, the digest as the row key, and every feature as an attribute. Feature
+          names are sanitised into valid attribute names by one shared helper —
           non-alphanumerics become underscores, a leading digit gets a prefix, everything is
           lowercased — NumPy scalars are converted to native types, and anything structured is stored
-          as JSON text.
+          as JSON text. Because the sanitiser is shared rather than reimplemented per backend, a
+          record written on one cloud carries byte-identical attribute names on the other.
+        </p>
+
+        <div class="tw">
+          <table>
+            <thead>
+              <tr><th>Provider</th><th>Objects</th><th>Metadata</th><th>Addressing</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>azure</code></td><td>Blob Storage container</td><td>Table Storage table</td><td><code>PartitionKey</code> / <code>RowKey</code></td></tr>
+              <tr><td><code>aws</code></td><td>S3 bucket</td><td>DynamoDB table</td><td><code>pk</code> (HASH) / <code>sk</code> (RANGE)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          Which backend is built is a configuration question answered once, by a registry that maps
+          a provider name to a dotted import path. Selecting one never imports the other's SDK, and
+          importing <code>inferq.remote</code> imports neither. Paging is opaque on both: an Azure
+          continuation token and a DynamoDB <code>LastEvaluatedKey</code> are wrapped in the same
+          base64 cursor, so a caller resuming a scan does not know or care which cloud produced it.
         </p>
 
         <p>
@@ -2133,9 +2159,9 @@ WITH t1 AS (…) SELECT …</pre>
         </p>
 
         <p>
-          Three credentials are required together, and the credential loader collects all the missing
-          ones before raising, so a misconfigured environment produces one message naming everything
-          absent rather than a sequence of one-at-a-time failures.
+          Each provider's credentials are required together, and the credential loader collects all
+          the missing ones before raising, so a misconfigured environment produces one message naming
+          everything absent rather than a sequence of one-at-a-time failures.
         </p>
 
         <h3>Backfill</h3>
@@ -2673,7 +2699,7 @@ uv run ruff check src experiments tests tools</code></pre>
                 <td>Digest of the circuit's text rendering. Stable, but not what the name says.</td>
               </tr>
               <tr>
-                <td>Azure batch upload docstring</td>
+                <td>Cloud batch upload docstring</td>
                 <td>Uploads in parallel</td>
                 <td>A sequential loop.</td>
               </tr>

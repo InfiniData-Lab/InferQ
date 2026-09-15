@@ -76,7 +76,7 @@ def configure_logging(*, log_file: str | None = None) -> None:
 def run_extraction_pipeline(
     circuitMerger: CircuitMerger,
     quantumSimulator: QuantumSimulator,
-    azure_conn: CloudConnection | None = None,
+    cloud_conn: CloudConnection | None = None,
     circuit=None,
 ) -> None:
     """Run one generate/extract/simulate/store pipeline iteration."""
@@ -179,19 +179,19 @@ def run_extraction_pipeline(
         logger.error("Local storage failed: %s", exc)
         raise
 
-    if written and azure_conn:
+    if written and cloud_conn:
         logger.info("STEP 6: Cloud Storage")
         logger.info("-" * 30)
         try:
             serialization_method = features.get("serialization_method", "qpy")
             features["blob_path"] = upload_circuit_blob(
-                azure_conn.objects,
+                cloud_conn.objects,
                 circuit,
                 qpy_hash,
                 serialization_method,
             )
 
-            if save_circuit_metadata(azure_conn.metadata, features):
+            if save_circuit_metadata(cloud_conn.metadata, features):
                 logger.info("Circuit metadata saved to the cloud metadata store")
             else:
                 logger.error("Failed to save metadata to the cloud metadata store")
@@ -200,7 +200,7 @@ def run_extraction_pipeline(
             logger.info("Circuit is still available locally")
     elif written:
         logger.info("Cloud connection not provided; skipping cloud storage")
-    elif azure_conn:
+    elif cloud_conn:
         logger.info("Circuit already exists; skipping cloud storage")
 
     logger.info("Pipeline completed successfully")
@@ -221,11 +221,11 @@ def run_single_pipeline() -> None:
     logger.info("Starting single-circuit InferQ pipeline")
     logger.info("Using random seed: %s", seed)
 
-    azure_conn = None
+    cloud_conn = None
     if cloud_config["enabled"]:
         provider = cloud_config["provider"]
         try:
-            azure_conn = get_connection(config=cloud_config)
+            cloud_conn = get_connection(config=cloud_config)
             logger.warning("Cloud connection established (%s) for remote storage", provider)
         except Exception as exc:
             logger.warning("Cloud connection failed (%s): %s", provider, exc)
@@ -248,7 +248,7 @@ def run_single_pipeline() -> None:
         timeout_seconds=simulation_config["timeout_seconds"],
         infiniquantum_config=simulation_config.get("infiniquantum"),
     )
-    run_extraction_pipeline(circuit_merger, quantum_simulator, azure_conn)
+    run_extraction_pipeline(circuit_merger, quantum_simulator, cloud_conn)
 
 
 def run_interactive_pipeline(generate_only: bool = False) -> None:
@@ -298,11 +298,11 @@ def run_interactive_pipeline(generate_only: bool = False) -> None:
     if not prompt_yes_no("Run feature extraction, simulation, and storage now?", default=True):
         return
 
-    azure_conn = None
+    cloud_conn = None
     if cloud_config["enabled"]:
         provider = cloud_config["provider"]
         try:
-            azure_conn = get_connection(config=cloud_config)
+            cloud_conn = get_connection(config=cloud_config)
             logger.warning("Cloud connection established (%s) for remote storage", provider)
         except Exception as exc:
             logger.warning("Cloud connection failed (%s): %s", provider, exc)
@@ -316,7 +316,7 @@ def run_interactive_pipeline(generate_only: bool = False) -> None:
         timeout_seconds=simulation_config["timeout_seconds"],
         infiniquantum_config=simulation_config.get("infiniquantum"),
     )
-    run_extraction_pipeline(circuit_merger, quantum_simulator, azure_conn, circuit=circuit)
+    run_extraction_pipeline(circuit_merger, quantum_simulator, cloud_conn, circuit=circuit)
 
 
 def run_parallel_from_args(args: argparse.Namespace) -> dict:
@@ -331,7 +331,7 @@ def run_parallel_from_args(args: argparse.Namespace) -> dict:
                 num_workers=args.workers,
                 max_iterations=args.iterations,
                 batch_size=args.batch_size,
-                azure_upload_interval=args.azure_interval,
+                cloud_upload_interval=args.cloud_interval,
                 batch_timeout_seconds=args.batch_timeout,
             )
         finally:
@@ -344,7 +344,7 @@ def run_parallel_from_args(args: argparse.Namespace) -> dict:
         num_workers=args.workers,
         max_iterations=args.iterations,
         batch_size=args.batch_size,
-        azure_upload_interval=args.azure_interval,
+        cloud_upload_interval=args.cloud_interval,
         batch_timeout_seconds=args.batch_timeout,
     )
 
@@ -362,10 +362,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--iterations", type=int, default=None, help="Maximum batch iterations")
     parser.add_argument("--batch-size", type=int, default=None, help="Circuits per batch")
     parser.add_argument(
+        "--cloud-interval",
         "--azure-interval",
+        dest="cloud_interval",
         type=int,
         default=None,
-        help="Upload to Azure after this many buffered circuits",
+        # --azure-interval is the pre-migration spelling. It stays accepted, and
+        # undocumented, so existing scripts and cron entries keep working.
+        help="Upload to cloud storage after this many buffered circuits",
     )
     parser.add_argument(
         "--batch-timeout",

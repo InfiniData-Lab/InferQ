@@ -1,7 +1,7 @@
 """Tests for the local storage layer and Azure Table name sanitisation.
 
 These run fully offline. Azure connectivity is exercised by the manual probe in
-``src/inferq/transfer/test_azure_upload_connection.py``, not here.
+``src/inferq/transfer/test_cloud_connection.py``, not here.
 """
 
 import tempfile

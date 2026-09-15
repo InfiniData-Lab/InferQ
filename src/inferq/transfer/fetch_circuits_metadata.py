@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = str(paths.data_dir() / "fetched_circuit_metadata")
 CHECKPOINT_FILE = os.path.join(OUTPUT_DIR, "checkpoint.json")
-PAGE_SIZE = 1000  # Azure Table Storage caps a page at 1000 rows
+PAGE_SIZE = 1000  # The smallest page cap across providers (Azure Tables)
 
 
 def ensure_output_dir():
@@ -166,7 +166,8 @@ def fetch_data(export_csv: bool = False):
             # Ensure we handle potential data type issues for Parquet
             # Convert object columns that might contain mixed types to string if needed,
             # but pandas usually handles it.
-            # Azure Table entities can have different schemas per row, so we might have sparse columns.
+            # Records can have different schemas per row on either provider,
+            # so the frame may have sparse columns.
             # Parquet handles sparse data well.
 
             df.to_parquet(output_file, index=False)
@@ -204,7 +205,7 @@ def fetch_data(export_csv: bool = False):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Fetch circuit data from Azure Table Storage.")
+    parser = argparse.ArgumentParser(description="Fetch circuit data from the cloud metadata store.")
     parser.add_argument(
         "--id",
         type=str,

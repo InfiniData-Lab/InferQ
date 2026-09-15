@@ -1,14 +1,14 @@
 #!/bin/bash
-# Upload circuits to Azure Blob Storage and Table Storage
-# This is a convenience wrapper around upload_circuits_to_azure.py
+# Upload circuits to the configured cloud object and metadata stores
+# This is a convenience wrapper around upload_circuits.py
 
 set -e  # Exit on error
 
 # Get directory of this script
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_ROOT="$SCRIPT_DIR/../.."
-UPLOAD_SCRIPT="$SCRIPT_DIR/upload_circuits_to_azure.py"
-TEST_SCRIPT="$SCRIPT_DIR/test_azure_upload_connection.py"
+UPLOAD_SCRIPT="$SCRIPT_DIR/upload_circuits.py"
+TEST_SCRIPT="$SCRIPT_DIR/test_cloud_connection.py"
 
 # Colors for output
 RED='\033[0;31m'
@@ -18,7 +18,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  Circuit Upload to Azure${NC}"
+echo -e "${BLUE}  Circuit upload to cloud storage${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
@@ -31,24 +31,24 @@ elif [ -f ".env" ]; then
     echo -e "${YELLOW}Using .env from current directory${NC}"
 else
     echo -e "${RED}✗ Error: .env file not found${NC}"
-    echo "Please create a .env file with your Azure credentials."
+    echo "Please create a .env file with your cloud credentials."
     echo "See .env.example or UPLOAD_CIRCUITS_README.md for details."
     exit 1
 fi
 
-# Source the .env file to load Azure credentials
-echo -e "${BLUE}Loading Azure credentials from $ENV_FILE...${NC}"
+# Source the .env file to load the cloud credentials
+echo -e "${BLUE}Loading cloud credentials from $ENV_FILE...${NC}"
 source "$ENV_FILE"
 echo -e "${GREEN}✓ Credentials loaded${NC}"
 echo ""
 
-# Test Azure connection first
-echo -e "${BLUE}Testing Azure connection...${NC}"
+# Test the cloud connection first
+echo -e "${BLUE}Testing cloud connection...${NC}"
 if python "$TEST_SCRIPT"; then
-    echo -e "${GREEN}✓ Azure connection successful${NC}"
+    echo -e "${GREEN}✓ Cloud connection successful${NC}"
     echo ""
 else
-    echo -e "${RED}✗ Azure connection failed${NC}"
+    echo -e "${RED}✗ Cloud connection failed${NC}"
     echo "Please fix the connection issues before proceeding."
     exit 1
 fi
@@ -76,7 +76,7 @@ case $choice in
         ;;
     3)
         echo ""
-        echo -e "${YELLOW}⚠ WARNING: This will overwrite existing circuits in Azure${NC}"
+        echo -e "${YELLOW}⚠ WARNING: This will overwrite existing circuits in the cloud${NC}"
         read -p "Are you sure? (yes/no): " confirm
         if [ "$confirm" = "yes" ]; then
             echo ""
@@ -117,4 +117,4 @@ echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}  Upload Complete!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
-echo "Check upload_circuits_to_azure.log for detailed logs."
+echo "Check upload_circuits.log for detailed logs."

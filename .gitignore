@@ -37,6 +37,9 @@ dist/
 /test_circuits/
 /logs/
 /pgdata/
+# Ad-hoc scripts still log to the working directory rather than to
+# `inferq paths --print state`; those land at the repository root.
+/*.log
 
 # --- Research artifacts too large for git ---
 # Paper numbers are pinned to these exact files, so they are archived rather

@@ -142,7 +142,7 @@ def _process_one(
         stats.skipped_too_large += 1
         return
 
-    if dedupe_scope == "azure":
+    if dedupe_scope == "cloud":
         is_dup, circuit_hash = is_circuit_duplicate(qc)
     else:
         circuit_hash = compute_circuit_hash_simple(qc)
@@ -233,7 +233,7 @@ def run(
     known_hashes = load_local_hashes(storage_path) if dedupe_scope == "local" else set()
     if dedupe_scope == "local":
         logger.info(f"loaded {len(known_hashes)} existing local hashes from {storage_path}")
-    if dedupe_scope == "azure" and not dry_run:
+    if dedupe_scope == "cloud" and not dry_run:
         # Loads the prior-circuit hash cache so duplicate detection works
         # against the historical 200k corpus, not just this session's writes.
         initialize_duplicate_detection()
@@ -353,11 +353,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--dedupe-scope",
-        choices=["session", "local", "azure"],
+        # "azure" is the pre-migration spelling of "cloud"; it stays accepted,
+        # and undocumented, so existing invocations keep working.
+        choices=["session", "local", "cloud", "azure"],
         default="session",
+        type=lambda value: "cloud" if value == "azure" else value,
         help="Duplicate detection scope. 'session' only checks circuits generated "
-        "in this run; 'local' also checks --storage-dir; 'azure' uses the global "
-        "Azure/cache duplicate detector.",
+        "in this run; 'local' also checks --storage-dir; 'cloud' uses the global "
+        "cloud/cache duplicate detector.",
     )
     parser.add_argument(
         "--iq-omit-methods",

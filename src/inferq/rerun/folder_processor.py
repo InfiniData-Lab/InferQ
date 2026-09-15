@@ -124,9 +124,9 @@ class FolderProcessor:
                     checkpoint_f.write(f"{circuit_hash}\n")
                     checkpoint_f.flush()
             except Exception as e:
-                logger.error(f"Azure update error for {circuit_hash}: {e}")
+                logger.error(f"Metadata update error for {circuit_hash}: {e}")
                 result["table_updated"] = False
-                result["error"] = f"Azure update failed: {e}"
+                result["error"] = f"Metadata update failed: {e}"
         
         # Handle skipped circuits
         elif result.get("skipped"):

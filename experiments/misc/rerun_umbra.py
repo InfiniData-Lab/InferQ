@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Rerun circuits with umbra backend and update Azure Table Storage
+Rerun circuits with umbra backend and update the cloud metadata store
 
 This script reads circuits from the rdbms_training_data.parquet file,
-runs them with the umbra backend, and updates Azure Table Storage.
+runs them with the umbra backend, and updates whichever cloud metadata
+store is configured.
 """
 
 import argparse
@@ -24,7 +25,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("rerun_umbra_to_azure.log"),
+        logging.FileHandler("rerun_umbra.log"),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -85,7 +86,7 @@ def run_umbra_simulation(circuit: QuantumCircuit, timeout: int, n_runs: int = 5)
 def process_circuit(circuit_hash: str, circuits_dir: Path, metadata_store,
                    timeout: int, n_runs: int) -> dict:
     """
-    Process a single circuit: load, simulate with umbra, and update Azure.
+    Process a single circuit: load, simulate with umbra, and record the result.
 
     Args:
         circuit_hash: The circuit hash (RowKey)
@@ -105,7 +106,7 @@ def process_circuit(circuit_hash: str, circuits_dir: Path, metadata_store,
         # Run umbra simulation
         result = run_umbra_simulation(circuit, timeout, n_runs)
 
-        # Prepare updates for Azure
+        # Prepare the metadata updates
         updates = {}
         success = False
 
@@ -127,7 +128,7 @@ def process_circuit(circuit_hash: str, circuits_dir: Path, metadata_store,
             logger.warning(f"✗ {circuit_hash}: {error_msg}")
             updates['rdbms_umbra_error'] = error_msg
 
-        # Update Azure if we have updates
+        # Write the metadata updates, if there are any
         table_updated = False
         if updates:
             try:
@@ -137,11 +138,11 @@ def process_circuit(circuit_hash: str, circuits_dir: Path, metadata_store,
                     updates
                 )
                 if table_updated:
-                    logger.debug(f"Azure updated for {circuit_hash}")
+                    logger.debug(f"Metadata updated for {circuit_hash}")
                 else:
-                    logger.warning(f"Failed to update Azure for {circuit_hash}")
+                    logger.warning(f"Failed to update metadata for {circuit_hash}")
             except Exception as e:
-                logger.error(f"Azure update error for {circuit_hash}: {e}")
+                logger.error(f"Metadata update error for {circuit_hash}: {e}")
 
         return {
             'circuit_hash': circuit_hash,
@@ -174,7 +175,7 @@ def process_circuit(circuit_hash: str, circuits_dir: Path, metadata_store,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Rerun circuits with umbra backend and update Azure Table Storage"
+        description="Rerun circuits with umbra backend and update the cloud metadata store"
     )
     parser.add_argument(
         "--parquet-file",
@@ -284,7 +285,7 @@ def main():
     logger.info(f"Total circuits processed: {total}")
     logger.info(f"Successful simulations: {successful} ({successful/total*100:.1f}%)")
     logger.info(f"Failed simulations: {failed} ({failed/total*100:.1f}%)")
-    logger.info(f"Azure Table updated: {table_updated_count} ({table_updated_count/total*100:.1f}%)")
+    logger.info(f"Metadata records updated: {table_updated_count} ({table_updated_count/total*100:.1f}%)")
     logger.info("=" * 60)
 
     # Print failed circuits

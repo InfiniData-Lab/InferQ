@@ -5,7 +5,7 @@ description = "Research runners and analysis behind the InferQ paper. Never publ
 requires-python = ">=3.12,<3.14"
 
 dependencies = [
-    "inferq[azure,datasets,sql]",
+    "inferq[azure,aws,datasets,sql]",
     "matplotlib>=3.10",
     "pandas>=2.2",
     "pyarrow>=20",

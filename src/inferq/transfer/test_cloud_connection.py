@@ -66,8 +66,8 @@ def test_cloud_connection():
             print("  4. The default credential chain resolves (IAM role, SSO, or keys)")
             print("  5. The bucket and table exist and are reachable")
         else:
-            print("  3. AZURE_STORAGE_ACCOUNT is set correctly")
-            print("  4. AZURE_STORAGE_ACCOUNT_KEY or AZURE_STORAGE_SAS_TOKEN is valid")
+            print("  3. the provider's credentials are set (see .env.example)")
+            print("  4. the configured bucket/container and table exist")
             print("  5. The storage account and container exist")
         print("  6. Your network connection is working")
         print("=" * 80)

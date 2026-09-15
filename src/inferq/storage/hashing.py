@@ -6,7 +6,7 @@ This module provides consistent SHA-256 hashing for quantum circuits across the 
 All circuit hashing should use these functions to ensure consistency between:
 - Duplicate detection
 - Local storage
-- Azure storage
+- Cloud storage
 - Database storage
 
 Author: InferQ Pipeline System

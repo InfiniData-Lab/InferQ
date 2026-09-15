@@ -836,7 +836,7 @@ name = "inferq-experiments"
 version = "0.1.0"
 source = { virtual = "experiments" }
 dependencies = [
-    { name = "inferq", extra = ["azure", "datasets", "sql"] },
+    { name = "inferq", extra = ["aws", "azure", "datasets", "sql"] },
     { name = "matplotlib" },
     { name = "pandas" },
     { name = "pyarrow" },
@@ -855,7 +855,7 @@ tuning = [
 [package.metadata]
 requires-dist = [
     { name = "configspace", marker = "extra == 'tuning'", specifier = ">=1.2" },
-    { name = "inferq", extras = ["azure", "datasets", "sql"], editable = "." },
+    { name = "inferq", extras = ["azure", "aws", "datasets", "sql"], editable = "." },
     { name = "matplotlib", specifier = ">=3.10" },
     { name = "mlos-core", extras = ["flaml", "smac"], marker = "extra == 'tuning'", specifier = ">=0.6.2" },
     { name = "pandas", specifier = ">=2.2" },

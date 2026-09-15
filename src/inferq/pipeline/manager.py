@@ -3,7 +3,7 @@
 Pipeline Manager Module
 
 Orchestrates the high-performance parallel quantum circuit processing pipeline.
-Manages worker processes, Azure uploads, system monitoring, and overall
+Manages worker processes, cloud uploads, system monitoring, and overall
 pipeline coordination.
 """
 
@@ -15,11 +15,11 @@ from pathlib import Path
 from typing import Any
 
 from inferq.config import get_pipeline_config, get_storage_config
-from inferq.pipeline.azure_manager import (
+from inferq.pipeline.cloud_manager import (
     log_final_upload,
     log_upload_trigger,
     should_trigger_upload,
-    upload_batch_to_azure,
+    upload_batch_to_cloud,
 )
 from inferq.pipeline.system_utils import (
     cleanup_old_circuits,
@@ -37,7 +37,7 @@ from inferq.storage.duplicates import (
     initialize_duplicate_detection,
     mark_circuits_pending_upload,
     mark_circuits_upload_failed,
-    mark_circuits_uploaded_to_azure,
+    mark_circuits_uploaded_to_cloud,
 )
 
 # Configure logging
@@ -47,17 +47,17 @@ class PipelineManager:
     """
     High-performance parallel quantum circuit processing pipeline manager.
     
-    Coordinates worker processes, Azure uploads, system monitoring,
+    Coordinates worker processes, cloud uploads, system monitoring,
     and overall pipeline execution.
     """
     
-    def __init__(self, num_workers: int | None = None, azure_upload_interval: int = 100, batch_timeout_seconds: int | None = None):
+    def __init__(self, num_workers: int | None = None, cloud_upload_interval: int = 100, batch_timeout_seconds: int | None = None):
         """
         Initialize the pipeline manager.
         
         Args:
             num_workers: Number of parallel workers (default: from config)
-            azure_upload_interval: Upload to Azure every N circuits
+            cloud_upload_interval: Upload to cloud storage every N circuits
             batch_timeout_seconds: Timeout for individual worker tasks (default: from config)
         """
         # Both defaults come from the same config call so that the WORKERS
@@ -70,10 +70,10 @@ class PipelineManager:
                 batch_timeout_seconds = pipeline_config['batch_timeout_seconds']
 
         self.num_workers = num_workers
-        self.azure_upload_interval = azure_upload_interval
+        self.cloud_upload_interval = cloud_upload_interval
         self.batch_timeout_seconds = batch_timeout_seconds
         
-        self.azure_conn: CloudConnection | None = None
+        self.cloud_conn: CloudConnection | None = None
         self.shutdown_flag = mp.Value('i', 0)
         
         # Statistics tracking
@@ -82,10 +82,10 @@ class PipelineManager:
             'successful': 0,
             'failed': 0,
             'timed_out': 0,  # Track timeouts
-            'uploaded_to_azure': 0,
+            'uploaded_to_cloud': 0,
             'upload_failures': 0,
             'start_time': time.time(),
-            'last_azure_upload': 0
+            'last_cloud_upload': 0
         }
         
         # Upload buffer
@@ -113,7 +113,7 @@ class PipelineManager:
             
             if cloud_config['enabled']:
                 try:
-                    self.azure_conn = get_connection(config=cloud_config)
+                    self.cloud_conn = get_connection(config=cloud_config)
                     logger.warning(f"✓ Cloud connection established ({provider}) for remote storage")
                 except Exception as e:
                     logger.warning(f"⚠️  Cloud connection failed ({provider}): {e}")
@@ -121,13 +121,13 @@ class PipelineManager:
             else:
                 logger.warning("⚠️  Cloud storage disabled in configuration - LOCAL ONLY mode")
             
-            # Initialize duplicate detection system with shared Azure connection
+            # Initialize duplicate detection system with the shared cloud connection
             logger.warning("🔍 Initializing duplicate detection system...")
-            duplicate_init_success = initialize_duplicate_detection(azure_conn=self.azure_conn)
+            duplicate_init_success = initialize_duplicate_detection(cloud_conn=self.cloud_conn)
             if duplicate_init_success:
                 detector_stats = get_duplicate_detector().get_stats()
                 logger.warning(f"✅ Duplicate detection ready: {detector_stats['known_hashes_count']} known circuits")
-                logger.warning(f"   📊 Azure: {detector_stats['azure_hashes_count']}, Pending: {detector_stats['pending_hashes_count']}, Session: {detector_stats['session_hashes_count']}")
+                logger.warning(f"   📊 Cloud: {detector_stats['remote_hashes_count']}, Pending: {detector_stats['pending_hashes_count']}, Session: {detector_stats['session_hashes_count']}")
             else:
                 logger.warning("⚠️  Duplicate detection initialization failed - will check locally only")
             
@@ -171,7 +171,7 @@ class PipelineManager:
                         
                         # Update statistics and handle uploads
                         self._update_stats(batch_results)
-                        self._handle_azure_uploads()
+                        self._handle_cloud_uploads()
                         # self._handle_cleanup()
                         
                         # Log batch status
@@ -291,8 +291,8 @@ class PipelineManager:
                 if result.get('duplicate', False):
                     logger.debug(f"Worker-{result['worker_id']}: Duplicate circuit skipped")
                 
-                # Add to upload buffer if Azure is available and circuit was written (not duplicate)
-                if self.azure_conn and result.get('written'):
+                # Add to upload buffer if cloud storage is available and the circuit was written
+                if self.cloud_conn and result.get('written'):
                     self.upload_buffer.append(result)
                     # Mark circuit as pending upload in duplicate detector
                     circuit_hash = result.get('circuit_hash')
@@ -314,26 +314,26 @@ class PipelineManager:
             self.current_session_hashes = get_current_session_hashes()
             logger.debug(f"🔄 Updated session hashes: {len(self.current_session_hashes)} total")
     
-    def _handle_azure_uploads(self) -> None:
-        """Handle Azure uploads when buffer reaches threshold."""
-        if self.azure_conn and should_trigger_upload(self.upload_buffer, self.azure_upload_interval):
-            log_upload_trigger(len(self.upload_buffer), self.azure_upload_interval)
+    def _handle_cloud_uploads(self) -> None:
+        """Handle cloud uploads when buffer reaches threshold."""
+        if self.cloud_conn and should_trigger_upload(self.upload_buffer, self.cloud_upload_interval):
+            log_upload_trigger(len(self.upload_buffer), self.cloud_upload_interval)
             
-            upload_stats = upload_batch_to_azure(self.upload_buffer, self.azure_conn)
-            self.stats['uploaded_to_azure'] += upload_stats['uploaded']
+            upload_stats = upload_batch_to_cloud(self.upload_buffer, self.cloud_conn)
+            self.stats['uploaded_to_cloud'] += upload_stats['uploaded']
             self.stats['upload_failures'] += upload_stats['failed']
             
             # Update duplicate detector with upload results
             if upload_stats.get('successful_hashes'):
-                mark_circuits_uploaded_to_azure(upload_stats['successful_hashes'])
-                logger.debug(f"☁️  Marked {len(upload_stats['successful_hashes'])} circuits as uploaded to Azure")
+                mark_circuits_uploaded_to_cloud(upload_stats['successful_hashes'])
+                logger.debug(f"☁️  Marked {len(upload_stats['successful_hashes'])} circuits as uploaded to the cloud")
             if upload_stats.get('failed_hashes'):
                 mark_circuits_upload_failed(upload_stats['failed_hashes'])
                 logger.debug(f"❌ Marked {len(upload_stats['failed_hashes'])} circuits as upload failed")
             
             # Clear buffer
             self.upload_buffer = []
-            self.stats['last_azure_upload'] = self.stats['total_processed']
+            self.stats['last_cloud_upload'] = self.stats['total_processed']
     
     def _handle_cleanup(self) -> None:
         """Handle periodic cleanup of old circuit files."""
@@ -361,10 +361,10 @@ class PipelineManager:
         # Monitor system resources
         resources = monitor_system_resources()
         
-        # Enhanced status with Azure upload info
-        azure_status = ""
-        if self.azure_conn:
-            azure_status = f" | Azure: {self.stats['uploaded_to_azure']}↑ | Buffer: {len(self.upload_buffer)}"
+        # Enhanced status with cloud upload info
+        cloud_status = ""
+        if self.cloud_conn:
+            cloud_status = f" | {self.cloud_conn.provider.title()}: {self.stats['uploaded_to_cloud']}↑ | Buffer: {len(self.upload_buffer)}"
         
         logger.warning(
             f"Batch {batch_num}: {batch_successful}✓/{batch_failed}✗ | "
@@ -372,22 +372,22 @@ class PipelineManager:
             f"Rate: {rate:.1f}/min | "
             f"CPU: {resources['cpu_percent']:.1f}% | "
             f"RAM: {resources['memory_percent']:.1f}% | "
-            f"Disk: {resources['disk_free_gb']:.1f}GB{azure_status}"
+            f"Disk: {resources['disk_free_gb']:.1f}GB{cloud_status}"
         )
     
     def _finalize_pipeline(self) -> None:
         """Finalize pipeline execution with cleanup and final uploads."""
         # Upload remaining circuits in buffer
-        if self.azure_conn and self.upload_buffer:
+        if self.cloud_conn and self.upload_buffer:
             log_final_upload(len(self.upload_buffer))
             
-            upload_stats = upload_batch_to_azure(self.upload_buffer, self.azure_conn)
-            self.stats['uploaded_to_azure'] += upload_stats['uploaded']
+            upload_stats = upload_batch_to_cloud(self.upload_buffer, self.cloud_conn)
+            self.stats['uploaded_to_cloud'] += upload_stats['uploaded']
             self.stats['upload_failures'] += upload_stats['failed']
             
             # Update duplicate detector with upload results
             if upload_stats.get('successful_hashes'):
-                mark_circuits_uploaded_to_azure(upload_stats['successful_hashes'])
+                mark_circuits_uploaded_to_cloud(upload_stats['successful_hashes'])
             if upload_stats.get('failed_hashes'):
                 mark_circuits_upload_failed(upload_stats['failed_hashes'])
     
@@ -410,12 +410,12 @@ class PipelineManager:
         logger.warning(f"Timed out: {self.stats['timed_out']}")
         if self.stats['total_processed'] > 0:
             logger.warning(f"Success rate: {self.stats['successful']/self.stats['total_processed']*100:.1f}%")
-        if self.azure_conn:
-            logger.warning(f"Uploaded to Azure: {self.stats['uploaded_to_azure']}")
+        if self.cloud_conn:
+            logger.warning(f"Uploaded to the cloud: {self.stats['uploaded_to_cloud']}")
             logger.warning(f"Upload failures: {self.stats['upload_failures']}")
-            total_uploads = self.stats['uploaded_to_azure'] + self.stats['upload_failures']
+            total_uploads = self.stats['uploaded_to_cloud'] + self.stats['upload_failures']
             if total_uploads > 0:
-                logger.warning(f"Upload success rate: {self.stats['uploaded_to_azure']/total_uploads*100:.1f}%")
+                logger.warning(f"Upload success rate: {self.stats['uploaded_to_cloud']/total_uploads*100:.1f}%")
         logger.warning(f"Average rate: {rate:.1f} circuits/minute")
         logger.warning(f"Total runtime: {elapsed/3600:.1f} hours")
         logger.warning("=" * 80)
@@ -433,7 +433,7 @@ class PipelineManager:
 
 
 def run_parallel_pipeline(num_workers: int | None = None, max_iterations: int | None = None, 
-                         batch_size: int | None = None, azure_upload_interval: int | None = None,
+                         batch_size: int | None = None, cloud_upload_interval: int | None = None,
                          batch_timeout_seconds: int | None = None) -> dict[str, Any]:
     """
     Run the parallel pipeline with the specified parameters.
@@ -442,7 +442,7 @@ def run_parallel_pipeline(num_workers: int | None = None, max_iterations: int | 
         num_workers: Number of parallel workers (default: from config)
         max_iterations: Maximum iterations (default: from config)
         batch_size: Circuits per batch before status update (default: from config)
-        azure_upload_interval: Upload to Azure every N circuits (default: from config)
+        cloud_upload_interval: Upload to cloud storage every N circuits (default: from config)
         batch_timeout_seconds: Timeout for individual worker tasks (default: from config)
         
     Returns:
@@ -455,13 +455,13 @@ def run_parallel_pipeline(num_workers: int | None = None, max_iterations: int | 
     num_workers = num_workers or pipeline_config['workers']
     max_iterations = max_iterations or pipeline_config['max_iterations']
     batch_size = batch_size or pipeline_config['batch_size']
-    azure_upload_interval = azure_upload_interval or pipeline_config['azure_upload_interval']
+    cloud_upload_interval = cloud_upload_interval or pipeline_config['cloud_upload_interval']
     batch_timeout_seconds = batch_timeout_seconds or pipeline_config['batch_timeout_seconds']
     
     # Create and initialize pipeline manager
     manager = PipelineManager(
         num_workers=num_workers, 
-        azure_upload_interval=azure_upload_interval,
+        cloud_upload_interval=cloud_upload_interval,
         batch_timeout_seconds=batch_timeout_seconds
     )
     
