@@ -1,9 +1,10 @@
-"""Tests for the consolidated Azure circuit downloader.
+"""Tests for the consolidated circuit downloader.
 
 The five downloader entry points were collapsed onto one download loop, so the
 pieces that used to differ per script — blob-path derivation, output layout,
-cache reuse and how `--limit` counts — are pinned here. Azure itself is never
-contacted: a fake container client stands in for it.
+cache reuse and how `--limit` counts — are pinned here. No cloud is ever
+contacted: a fake :class:`~inferq.remote.base.ObjectStore` stands in, which is
+also why these tests say nothing about which provider is configured.
 """
 
 from __future__ import annotations
@@ -23,10 +24,10 @@ from inferq.transfer.download_circuits import (  # noqa: E402
 )
 
 
-class FakeContainer:
-    """Stands in for an Azure container client. Records what was asked for."""
+class FakeStore:
+    """Stands in for an ObjectStore. Records what was asked for."""
 
-    container_name = "circuits"
+    name = "circuits"
 
     def __init__(self, missing: set[str] | None = None):
         self.requested: list[str] = []
@@ -35,13 +36,13 @@ class FakeContainer:
 
 @pytest.fixture(autouse=True)
 def fake_download(monkeypatch):
-    """Replace the Azure round-trip with a recorder that writes a stub file."""
+    """Replace the cloud round-trip with a recorder that writes a stub file."""
     import inferq.transfer.download_circuits as module
 
-    def fake_download_circuit_blob(container_client, blob_path, method="qpy"):
-        container_client.requested.append(blob_path)
-        if blob_path in container_client.missing:
-            raise RuntimeError(f"blob not found: {blob_path}")
+    def fake_download_circuit_blob(store, blob_path, method="qpy"):
+        store.requested.append(blob_path)
+        if blob_path in store.missing:
+            raise RuntimeError(f"object not found: {blob_path}")
         return blob_path
 
     def fake_dump(circuit, handle):
@@ -59,7 +60,7 @@ def test_blob_path_from_url_strips_container_prefix():
 
 
 def test_blob_path_from_url_leaves_foreign_container_alone():
-    """A URL from another container keeps its full path rather than losing a segment."""
+    """A URL from another bucket keeps its full path rather than losing a segment."""
     url = "https://acct.blob.core.windows.net/other/ab/abcdef.qpy"
     assert blob_path_from_url(url, "circuits") == "other/ab/abcdef.qpy"
 
@@ -68,9 +69,9 @@ def test_blob_path_from_url_leaves_foreign_container_alone():
 
 def test_fetch_writes_file_and_counts(tmp_path):
     downloader = Downloader(output_dir=tmp_path)
-    container = FakeContainer()
+    store = FakeStore()
 
-    assert downloader.fetch(container, BlobRequest("ab/x.qpy", Path("ab/x.qpy")))
+    assert downloader.fetch(store, BlobRequest("ab/x.qpy", Path("ab/x.qpy")))
     assert (tmp_path / "ab" / "x.qpy").read_bytes() == b"ab/x.qpy"
     assert downloader.count == 1
 
@@ -79,10 +80,10 @@ def test_existing_file_is_not_refetched(tmp_path):
     (tmp_path / "ab").mkdir()
     (tmp_path / "ab" / "x.qpy").write_bytes(b"already here")
     downloader = Downloader(output_dir=tmp_path)
-    container = FakeContainer()
+    store = FakeStore()
 
-    assert downloader.fetch(container, BlobRequest("ab/x.qpy", Path("ab/x.qpy")))
-    assert container.requested == []
+    assert downloader.fetch(store, BlobRequest("ab/x.qpy", Path("ab/x.qpy")))
+    assert store.requested == []
     assert (tmp_path / "ab" / "x.qpy").read_bytes() == b"already here"
     # A skip still counts: --limit bounds circuits obtained, not bytes moved.
     assert downloader.count == 1
@@ -93,28 +94,28 @@ def test_cache_hit_copies_instead_of_downloading(tmp_path):
     (cache / "ab").mkdir(parents=True)
     (cache / "ab" / "x.qpy").write_bytes(b"cached")
     downloader = Downloader(output_dir=out, cache_dir=cache)
-    container = FakeContainer()
+    store = FakeStore()
 
-    assert downloader.fetch(container, BlobRequest("ab/x.qpy", Path("ab/x.qpy")))
-    assert container.requested == []
+    assert downloader.fetch(store, BlobRequest("ab/x.qpy", Path("ab/x.qpy")))
+    assert store.requested == []
     assert (out / "ab" / "x.qpy").read_bytes() == b"cached"
 
 
 def test_failed_download_does_not_count(tmp_path):
     downloader = Downloader(output_dir=tmp_path)
-    container = FakeContainer(missing={"ab/x.qpy"})
+    store = FakeStore(missing={"ab/x.qpy"})
 
-    assert not downloader.fetch(container, BlobRequest("ab/x.qpy", Path("ab/x.qpy")))
+    assert not downloader.fetch(store, BlobRequest("ab/x.qpy", Path("ab/x.qpy")))
     assert downloader.count == 0
     assert not (tmp_path / "ab" / "x.qpy").exists()
 
 
 def test_exhausted_tracks_the_limit(tmp_path):
     downloader = Downloader(output_dir=tmp_path, limit=2)
-    container = FakeContainer()
+    store = FakeStore()
 
     for name in ("a", "b"):
-        downloader.fetch(container, BlobRequest(f"ab/{name}.qpy", Path(f"{name}.qpy")))
+        downloader.fetch(store, BlobRequest(f"ab/{name}.qpy", Path(f"{name}.qpy")))
     assert downloader.exhausted
 
 
@@ -125,15 +126,15 @@ def test_no_limit_is_never_exhausted(tmp_path):
 # ── Hash mode ─────────────────────────────────────────────────────────────────
 
 def test_run_hashes_shards_blob_path_and_flattens_output(tmp_path, monkeypatch):
-    """Blobs are sharded by the hash's first two characters; output is flat."""
+    """Objects are sharded by the hash's first two characters; output is flat."""
     import inferq.transfer.download_circuits as module
 
-    container = FakeContainer()
-    monkeypatch.setattr(module, "connect", lambda: (container, "circuits"))
+    store = FakeStore()
+    monkeypatch.setattr(module, "connect", lambda: (store, "circuits"))
 
     run_hashes(["abcdef", "123456"], tmp_path)
 
-    assert container.requested == ["ab/abcdef.qpy", "12/123456.qpy"]
+    assert store.requested == ["ab/abcdef.qpy", "12/123456.qpy"]
     assert sorted(p.name for p in tmp_path.iterdir()) == ["123456.qpy", "abcdef.qpy"]
 
 

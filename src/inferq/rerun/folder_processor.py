@@ -19,17 +19,17 @@ MEMORY_CHECK_INTERVAL = 5
 class FolderProcessor:
     """Processes all circuits in a folder"""
     
-    def __init__(self, circuit_processor, azure_table_client, checkpoint_manager):
+    def __init__(self, circuit_processor, metadata_store, checkpoint_manager):
         """
         Initialize folder processor.
         
         Args:
             circuit_processor: Instance of CircuitProcessor (Simulation or SQL)
-            azure_table_client: Azure table client for updates
+            metadata_store: Cloud metadata store for updates
             checkpoint_manager: CheckpointManager instance
         """
         self.circuit_processor = circuit_processor
-        self.azure_table_client = azure_table_client
+        self.metadata_store = metadata_store
         self.checkpoint_manager = checkpoint_manager
     
     def process_folder(self, folder_path: str, processed_hashes: set) -> list:
@@ -43,7 +43,7 @@ class FolderProcessor:
         Returns:
             List of result dictionaries
         """
-        from inferq.remote.table import update_circuit_metadata_in_table
+        from inferq.remote import update_circuit_metadata
         
         logger.info(f"Processing folder: {folder_path}")
         results = []
@@ -77,7 +77,7 @@ class FolderProcessor:
                         file_path, 
                         circuit_hash,
                         checkpoint_f,
-                        update_circuit_metadata_in_table
+                        update_circuit_metadata
                     )
                     results.append(result)
             
@@ -95,7 +95,7 @@ class FolderProcessor:
             file_path: Path to circuit file
             circuit_hash: Hash of the circuit
             checkpoint_f: Open checkpoint file handle
-            update_func: Function to update Azure table
+            update_func: Function that writes the metadata update
             
         Returns:
             Result dictionary
@@ -115,7 +115,7 @@ class FolderProcessor:
         if result["success"]:
             try:
                 table_success = update_func(
-                    self.azure_table_client, 
+                    self.metadata_store, 
                     circuit_hash, 
                     result["updates"]
                 )

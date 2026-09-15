@@ -191,12 +191,23 @@ class PipelineConfig:
         "max_local_storage_gb": 50,
     }
 
-    # Azure Configuration
-    AZURE = {
-        "container_name": "circuits",
-        "table_name": "circuits",
-        "enabled": False,  # Disable Azure by default for local-only operation
+    # Cloud Configuration
+    #
+    # Bucket and table names are provider-neutral: Azure calls them a container
+    # and a table, AWS calls them a bucket and a table, and InferQ uses the same
+    # two names for both.
+    CLOUD = {
+        "provider": "azure",
+        "bucket": "circuits",
+        "table": "circuits",
+        "enabled": False,  # Local-only operation by default
     }
+
+    #: Environment variables that, on their own, mean "this deployment stores
+    #: circuits on AWS". Region and credential variables deliberately do not
+    #: appear here: they are ambient on any AWS host and would flip an
+    #: Azure-backed deployment that merely happens to run on EC2.
+    AWS_PROVIDER_HINTS = ("AWS_S3_BUCKET", "AWS_DYNAMODB_TABLE")
 
     # Logging Configuration
     LOGGING = {
@@ -219,6 +230,18 @@ class PipelineConfig:
                 return default
         return value
 
+    def get_first_env(self, *keys, default=None, type_cast=None):
+        """Read the first variable among ``keys`` that is set.
+
+        Cloud settings have a neutral name and one or more provider-specific
+        names kept for compatibility; the neutral name is listed first and
+        wins.
+        """
+        for key in keys:
+            if os.getenv(key) is not None:
+                return self.get_env_or_default(key, default, type_cast)
+        return default
+
     def get_pipeline_config(self):
         """Get pipeline configuration with environment variable overrides."""
         return {
@@ -226,8 +249,11 @@ class PipelineConfig:
             "batch_size": self.get_env_or_default(
                 "BATCH_SIZE", self.PIPELINE_DEFAULTS["batch_size"], int
             ),
-            "azure_upload_interval": self.get_env_or_default(
-                "AZURE_INTERVAL", self.PIPELINE_DEFAULTS["azure_upload_interval"], int
+            "azure_upload_interval": self.get_first_env(
+                "CLOUD_UPLOAD_INTERVAL",
+                "AZURE_INTERVAL",
+                default=self.PIPELINE_DEFAULTS["azure_upload_interval"],
+                type_cast=int,
             ),
             "max_iterations": self.get_env_or_default(
                 "ITERATIONS", self.PIPELINE_DEFAULTS["max_iterations"], int
@@ -426,24 +452,75 @@ class PipelineConfig:
         cfg["aer_threads"] = self.get_env_or_default("OOC_AER_THREADS", cfg["aer_threads"], int)
         return cfg
 
-    def get_azure_config(self):
-        """Get Azure configuration."""
+    def resolve_cloud_provider(self):
+        """Decide which cloud backend this deployment uses.
+
+        ``INFERQ_CLOUD_PROVIDER`` is authoritative. When it is unset the
+        provider is inferred from the environment: if any variable in
+        :attr:`AWS_PROVIDER_HINTS` is set the deployment is on AWS, otherwise
+        it is on Azure -- which keeps every existing Azure ``.env`` working
+        untouched.
+        """
+        explicit = self.get_env_or_default("INFERQ_CLOUD_PROVIDER")
+        if explicit:
+            return explicit.strip().lower()
+        if any(os.getenv(var) for var in self.AWS_PROVIDER_HINTS):
+            return "aws"
+        return self.CLOUD["provider"]
+
+    def get_cloud_config(self):
+        """Get cloud storage configuration, provider-neutral.
+
+        The top level carries the settings every provider shares; the
+        ``azure`` and ``aws`` keys carry the provider-specific views that the
+        corresponding backend consumes.
+        """
+        provider = self.resolve_cloud_provider()
+        enabled = self.get_first_env(
+            "CLOUD_ENABLED", "AZURE_ENABLED", default=self.CLOUD["enabled"], type_cast=bool
+        )
+        bucket = self.get_first_env(
+            "CLOUD_BUCKET", "AZURE_CONTAINER", "AWS_S3_BUCKET", default=self.CLOUD["bucket"]
+        )
+        table = self.get_first_env(
+            "CLOUD_TABLE", "AZURE_TABLE", "AWS_DYNAMODB_TABLE", default=self.CLOUD["table"]
+        )
         return {
-            "enabled": self.get_env_or_default(
-                "AZURE_ENABLED", self.AZURE["enabled"], bool
+            "provider": provider,
+            "enabled": enabled,
+            "bucket": bucket,
+            "table": table,
+            "upload_interval": self.get_first_env(
+                "CLOUD_UPLOAD_INTERVAL",
+                "AZURE_INTERVAL",
+                default=self.PIPELINE_DEFAULTS["azure_upload_interval"],
+                type_cast=int,
             ),
-            "connection_string": self.get_env_or_default(
-                "AZURE_STORAGE_CONNECTION_STRING"
-            ),
-            "account_name": self.get_env_or_default("AZURE_STORAGE_ACCOUNT_NAME"),
-            "account_key": self.get_env_or_default("AZURE_STORAGE_ACCOUNT_KEY"),
-            "container_name": self.get_env_or_default(
-                "AZURE_CONTAINER", self.AZURE["container_name"]
-            ),
-            "table_name": self.get_env_or_default(
-                "AZURE_TABLE", self.AZURE["table_name"]
-            ),
+            "azure": {
+                "enabled": enabled,
+                "connection_string": self.get_env_or_default("AZURE_STORAGE_CONNECTION_STRING"),
+                "account_name": self.get_env_or_default("AZURE_STORAGE_ACCOUNT_NAME"),
+                "account_key": self.get_env_or_default("AZURE_STORAGE_ACCOUNT_KEY"),
+                "container_name": bucket,
+                "table_name": table,
+            },
+            "aws": {
+                "enabled": enabled,
+                "region": self.get_first_env("AWS_REGION", "AWS_DEFAULT_REGION"),
+                "bucket": bucket,
+                "table": table,
+                "endpoint_url": self.get_env_or_default("AWS_ENDPOINT_URL"),
+                "profile": self.get_env_or_default("AWS_PROFILE"),
+            },
         }
+
+    def get_azure_config(self):
+        """Get the Azure view of the cloud configuration."""
+        return self.get_cloud_config()["azure"]
+
+    def get_aws_config(self):
+        """Get the AWS view of the cloud configuration."""
+        return self.get_cloud_config()["aws"]
 
     def print_config_summary(self):
         """Print a summary of current configuration."""
@@ -451,13 +528,13 @@ class PipelineConfig:
         circuit_config = self.get_circuit_config()
         simulation_config = self.get_simulation_config()
         storage_config = self.get_storage_config()
-        azure_config = self.get_azure_config()
+        cloud_config = self.get_cloud_config()
 
         print("Pipeline Configuration Summary")
         print("=" * 50)
         print(f"Workers: {pipeline_config['workers']}")
         print(f"Batch size: {pipeline_config['batch_size']}")
-        print(f"Azure interval: {pipeline_config['azure_upload_interval']}")
+        print(f"Cloud upload interval: {pipeline_config['azure_upload_interval']}")
         print(f"Max iterations: {pipeline_config['max_iterations'] or 'Infinite'}")
         print(f"Batch timeout: {pipeline_config['batch_timeout_seconds']}s")
         print()
@@ -483,9 +560,10 @@ class PipelineConfig:
         print(f"Cache file: {storage_config['cache_file']}")
         print(f"Max storage: {storage_config['max_local_storage_gb']}GB")
         print()
-        print(f"Azure enabled: {azure_config['enabled']}")
-        print(f"Azure container: {azure_config['container_name']}")
-        print(f"Azure table: {azure_config['table_name']}")
+        print(f"Cloud provider: {cloud_config['provider']}")
+        print(f"Cloud enabled: {cloud_config['enabled']}")
+        print(f"Cloud bucket: {cloud_config['bucket']}")
+        print(f"Cloud table: {cloud_config['table']}")
         print("=" * 50)
 
 
@@ -519,9 +597,19 @@ def get_storage_config():
     return config.get_storage_config()
 
 
+def get_cloud_config():
+    """Get provider-neutral cloud storage configuration."""
+    return config.get_cloud_config()
+
+
 def get_azure_config():
-    """Get Azure configuration."""
+    """Get the Azure view of the cloud configuration."""
     return config.get_azure_config()
+
+
+def get_aws_config():
+    """Get the AWS view of the cloud configuration."""
+    return config.get_aws_config()
 
 
 def get_ooc_config():

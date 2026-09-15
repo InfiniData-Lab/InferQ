@@ -29,7 +29,7 @@ from inferq.pipeline.system_utils import (
     should_cleanup,
 )
 from inferq.pipeline.worker import run_single_pipeline, setup_worker_signal_handling
-from inferq.remote.connection import AzureConnection
+from inferq.remote import CloudConnection, get_connection
 from inferq.storage.duplicates import (
     coordinate_batch_session_hashes,
     get_current_session_hashes,
@@ -73,7 +73,7 @@ class PipelineManager:
         self.azure_upload_interval = azure_upload_interval
         self.batch_timeout_seconds = batch_timeout_seconds
         
-        self.azure_conn: AzureConnection | None = None
+        self.azure_conn: CloudConnection | None = None
         self.shutdown_flag = mp.Value('i', 0)
         
         # Statistics tracking
@@ -106,19 +106,20 @@ class PipelineManager:
             log_system_startup(self.num_workers)
             logger.warning(f"⏱️  Batch timeout: {self.batch_timeout_seconds}s")
             
-            # Initialize Azure connection ONCE for both duplicate detection and uploads (if enabled)
-            from inferq.config import get_azure_config
-            azure_config = get_azure_config()
+            # Initialize the cloud connection ONCE for both duplicate detection and uploads
+            from inferq.config import get_cloud_config
+            cloud_config = get_cloud_config()
+            provider = cloud_config['provider']
             
-            if azure_config['enabled']:
+            if cloud_config['enabled']:
                 try:
-                    self.azure_conn = AzureConnection()
-                    logger.warning("✓ Azure connection established for remote storage")
+                    self.azure_conn = get_connection(config=cloud_config)
+                    logger.warning(f"✓ Cloud connection established ({provider}) for remote storage")
                 except Exception as e:
-                    logger.warning(f"⚠️  Azure connection failed: {e}")
+                    logger.warning(f"⚠️  Cloud connection failed ({provider}): {e}")
                     logger.warning("⚠️  Remote storage disabled - LOCAL ONLY mode")
             else:
-                logger.warning("⚠️  Azure disabled in configuration - LOCAL ONLY mode")
+                logger.warning("⚠️  Cloud storage disabled in configuration - LOCAL ONLY mode")
             
             # Initialize duplicate detection system with shared Azure connection
             logger.warning("🔍 Initializing duplicate detection system...")

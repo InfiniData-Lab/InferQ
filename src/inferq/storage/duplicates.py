@@ -3,22 +3,33 @@
 Duplicate Circuit Detection System
 
 This module provides efficient duplicate detection for quantum circuits by:
-1. Fetching all existing circuit hashes from Azure Table Storage at startup
+1. Fetching all existing circuit hashes from the cloud metadata store at startup
 2. Caching them locally for fast lookup during pipeline execution
 3. Providing fast O(1) duplicate checking without expensive operations
 
 Author: InferQ Pipeline System
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from qiskit import QuantumCircuit
 
-from inferq.remote.connection import AzureConnection
 from inferq.storage.hashing import compute_circuit_hash_simple
+
+if TYPE_CHECKING:
+    from inferq.remote import CloudConnection
+
+# ``inferq.remote`` imports ``inferq.storage.qpy`` for circuit deserialization,
+# so importing it here at module scope would close a cycle through this
+# package's ``__init__``. Local storage is the lower layer and must stay
+# importable without the cloud layer, so the two names this module actually
+# calls are resolved at call time instead.
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -53,7 +64,7 @@ class DuplicateDetector:
         self.pending_hashes: set[str] = set()    # In upload buffer
         self.session_hashes: set[str] = set()    # Processed this session
         
-        self.azure_conn: AzureConnection | None = None
+        self.azure_conn: CloudConnection | None = None
         self.last_sync: datetime | None = None
         
         logger.info("Initializing DuplicateDetector...")
@@ -63,7 +74,7 @@ class DuplicateDetector:
         """Get all known hashes (union of all states)."""
         return self.azure_hashes | self.pending_hashes | self.session_hashes
         
-    def initialize(self, azure_conn: AzureConnection | None = None, force_refresh: bool = False) -> bool:
+    def initialize(self, azure_conn: CloudConnection | None = None, force_refresh: bool = False) -> bool:
         """
         Initialize the duplicate detector by loading existing hashes.
         
@@ -81,8 +92,10 @@ class DuplicateDetector:
                 logger.info("✓ Using shared Azure connection for duplicate detection")
             else:
                 try:
-                    self.azure_conn = AzureConnection()
-                    logger.info("✓ Azure connection established for duplicate detection")
+                    from inferq.remote import get_connection
+
+                    self.azure_conn = get_connection()
+                    logger.info("✓ Cloud connection established for duplicate detection")
                 except Exception as e:
                     logger.warning(f"⚠️  Azure connection failed: {e}")
                     logger.warning("⚠️  Duplicate detection will use local cache only")
@@ -220,16 +233,17 @@ class DuplicateDetector:
             return False
             
         try:
-            logger.info("🔄 Fetching existing circuit hashes from Azure Table Storage...")
+            from inferq.remote import CIRCUITS_PARTITION
+
+            logger.info("🔄 Fetching existing circuit hashes from the cloud metadata store...")
             
-            table_client = self.azure_conn.get_circuits_table_client()
-            
-            # Query all entities, but only fetch the RowKey (which is the circuit hash)
-            entities = table_client.list_entities(select=["RowKey"])
+            # Project away every attribute: only the record key, which is the
+            # circuit hash, is needed, and the catalogue is large.
+            records = self.azure_conn.metadata.list_records(CIRCUITS_PARTITION, select=())
             
             hash_count = 0
-            for entity in entities:
-                circuit_hash = entity.get("RowKey")
+            for record in records:
+                circuit_hash = record.key
                 if circuit_hash:
                     self.azure_hashes.add(circuit_hash)
                     hash_count += 1
@@ -379,7 +393,7 @@ def get_duplicate_detector() -> DuplicateDetector:
         _global_detector = DuplicateDetector()
     return _global_detector
 
-def initialize_duplicate_detection(azure_conn: AzureConnection | None = None, force_refresh: bool = False) -> bool:
+def initialize_duplicate_detection(azure_conn: CloudConnection | None = None, force_refresh: bool = False) -> bool:
     """
     Initialize the global duplicate detection system.
     

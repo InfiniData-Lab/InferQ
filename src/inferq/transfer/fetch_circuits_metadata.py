@@ -9,7 +9,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from inferq import paths
-from inferq.remote.connection import AzureConnection
+from inferq.remote import CIRCUITS_PARTITION, encode_cursor, get_circuit_metadata, get_connection
 
 logging.basicConfig(
     level=logging.INFO,
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = str(paths.data_dir() / "fetched_circuit_metadata")
 CHECKPOINT_FILE = os.path.join(OUTPUT_DIR, "checkpoint.json")
-PAGE_SIZE = 1000  # Azure Table Storage limit is 1000
+PAGE_SIZE = 1000  # Azure Table Storage caps a page at 1000 rows
 
 
 def ensure_output_dir():
@@ -40,11 +40,11 @@ def load_checkpoint():
     return None
 
 
-def save_checkpoint(continuation_token, file_counter, total_rows):
+def save_checkpoint(cursor, file_counter, total_rows):
     with open(CHECKPOINT_FILE, "w") as f:
         json.dump(
             {
-                "continuation_token": continuation_token,
+                "cursor": cursor,
                 "file_counter": file_counter,
                 "total_rows": total_rows,
                 "last_updated": datetime.now().isoformat(),
@@ -53,19 +53,38 @@ def save_checkpoint(continuation_token, file_counter, total_rows):
         )
 
 
+def checkpoint_cursor(checkpoint):
+    """Read the resume cursor out of a checkpoint, old format included.
+
+    Checkpoints written before the provider split stored a raw Azure
+    continuation token under ``continuation_token``; wrap one of those into
+    the neutral cursor format rather than making an operator restart a
+    multi-hour export.
+    """
+    cursor = checkpoint.get("cursor")
+    if cursor:
+        return cursor
+    legacy_token = checkpoint.get("continuation_token")
+    if legacy_token:
+        return encode_cursor({"continuation_token": legacy_token})
+    return None
+
+
 def fetch_circuit_by_id(circuit_id):
     """
     Fetches a single circuit entity by its RowKey (circuit_id).
     """
     try:
-        azure_conn = AzureConnection()
-        table_client = azure_conn.get_circuits_table_client()
+        conn = get_connection()
 
         logger.info(f"Fetching circuit with ID: {circuit_id}")
-        entity = table_client.get_entity(partition_key="circuits", row_key=circuit_id)
+        metadata = get_circuit_metadata(conn.metadata, circuit_id)
+        if metadata is None:
+            logger.warning(f"Circuit not found: {circuit_id}")
+            return None
 
-        print(json.dumps(dict(entity), indent=4, default=str))
-        return entity
+        print(json.dumps(metadata, indent=4, default=str))
+        return metadata
 
     except Exception as e:
         logger.error(f"Failed to fetch circuit {circuit_id}: {e}")
@@ -88,12 +107,12 @@ def fetch_data(export_csv: bool = False):
         # Logic below handles checking checkpoint.
 
     checkpoint = load_checkpoint()
-    continuation_token = None
+    cursor = None
     file_counter = 0
     total_rows = 0
 
     if checkpoint:
-        continuation_token = checkpoint.get("continuation_token")
+        cursor = checkpoint_cursor(checkpoint)
         file_counter = checkpoint.get("file_counter", 0)
         total_rows = checkpoint.get("total_rows", 0)
         resume_msg = f"Resuming from checkpoint. File counter: {file_counter}, Rows fetched so far: {total_rows}"
@@ -108,23 +127,25 @@ def fetch_data(export_csv: bool = False):
             logger.info(f"Removed old CSV file: {csv_output_path}")
 
     try:
-        azure_conn = AzureConnection()
-        table_client = azure_conn.get_circuits_table_client()
+        conn = get_connection()
 
-        logger.info(f"Querying Azure Table 'circuits' with page size {PAGE_SIZE}...")
+        logger.info(f"Scanning the '{CIRCUITS_PARTITION}' partition with page size {PAGE_SIZE}...")
 
-        # query_entities returns an ItemPaged object
-        query = table_client.query_entities(
-            query_filter="PartitionKey eq 'circuits'", results_per_page=PAGE_SIZE
+        pages = conn.metadata.scan_records(
+            CIRCUITS_PARTITION, page_size=PAGE_SIZE, cursor=cursor
         )
-
-        # Get iterator with continuation token if available
-        pages = query.by_page(continuation_token=continuation_token)
 
         # Iterate over pages
         for page in tqdm(pages, desc="Fetching pages", unit="page"):
-            # Convert page to list of dicts
-            rows = [dict(item) for item in page]
+            rows = [
+                {
+                    "PartitionKey": record.partition,
+                    "RowKey": record.key,
+                    "Timestamp": record.timestamp,
+                    **record.fields,
+                }
+                for record in page.records
+            ]
 
             if not rows:
                 logger.info("Empty page received. Stopping.")
@@ -160,15 +181,13 @@ def fetch_data(export_csv: bool = False):
             total_rows += len(rows)
             file_counter += 1
 
-            # Get the continuation token for the NEXT page
-            next_token = pages.continuation_token
-
-            if next_token:
-                save_checkpoint(next_token, file_counter, total_rows)
+            # The cursor that resumes after this page
+            if page.cursor:
+                save_checkpoint(page.cursor, file_counter, total_rows)
             else:
                 # No more pages
-                logger.info("Fetching complete. No more continuation token.")
-                print("Fetching complete. No more continuation token.")
+                logger.info("Fetching complete. No more pages.")
+                print("Fetching complete. No more pages.")
                 if os.path.exists(CHECKPOINT_FILE):
                     os.remove(CHECKPOINT_FILE)
                 break

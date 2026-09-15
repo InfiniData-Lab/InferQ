@@ -14,8 +14,7 @@ import pandas as pd
 from qiskit import QuantumCircuit
 from tqdm import tqdm
 
-from inferq.remote.connection import AzureConnection
-from inferq.remote.table import update_circuit_metadata_in_table
+from inferq.remote import get_connection, update_circuit_metadata
 from inferq.simulation.infiniquantum import _execute_infiniquantum_simulation
 from inferq.storage.qpy import load_circuit
 
@@ -83,7 +82,7 @@ def run_umbra_simulation(circuit: QuantumCircuit, timeout: int, n_runs: int = 5)
             "method": "infiniquantum"
         }
 
-def process_circuit(circuit_hash: str, circuits_dir: Path, azure_client,
+def process_circuit(circuit_hash: str, circuits_dir: Path, metadata_store,
                    timeout: int, n_runs: int) -> dict:
     """
     Process a single circuit: load, simulate with umbra, and update Azure.
@@ -91,7 +90,7 @@ def process_circuit(circuit_hash: str, circuits_dir: Path, azure_client,
     Args:
         circuit_hash: The circuit hash (RowKey)
         circuits_dir: Directory containing circuits
-        azure_client: Azure Table Storage client
+        metadata_store: Cloud metadata store
         timeout: Timeout in seconds
         n_runs: Number of runs to average
 
@@ -132,8 +131,8 @@ def process_circuit(circuit_hash: str, circuits_dir: Path, azure_client,
         table_updated = False
         if updates:
             try:
-                table_updated = update_circuit_metadata_in_table(
-                    azure_client,
+                table_updated = update_circuit_metadata(
+                    metadata_store,
                     circuit_hash,
                     updates
                 )
@@ -237,14 +236,14 @@ def main():
             logger.error("Could not find circuits directory. Please specify with --circuits-dir")
             return
 
-    # Connect to Azure
-    logger.info("Connecting to Azure Table Storage...")
+    # Connect to the cloud metadata store
+    logger.info("Connecting to the cloud metadata store...")
     try:
-        azure_conn = AzureConnection()
-        table_client = azure_conn.circuits_table_client
-        logger.info("✓ Connected to Azure Table Storage")
+        conn = get_connection()
+        metadata_store = conn.metadata
+        logger.info(f"✓ Connected to the {conn.provider} metadata store")
     except Exception as e:
-        logger.error(f"Failed to connect to Azure: {e}")
+        logger.error(f"Failed to connect to cloud storage: {e}")
         return
 
     # Load parquet file
@@ -267,7 +266,7 @@ def main():
         result = process_circuit(
             circuit_hash,
             circuits_dir,
-            table_client,
+            metadata_store,
             args.timeout,
             args.n_runs
         )

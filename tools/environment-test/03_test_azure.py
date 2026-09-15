@@ -95,7 +95,7 @@ def test_azure_connection():
             print("   ⚠️  dotenv not available, using system environment variables")
         
         # Import Azure utilities from the project
-        from inferq.remote.connection import AzureConnection
+        from inferq.remote import AzureConnection
         
         print("   ✅ Azure connection module imported")
         
@@ -159,7 +159,7 @@ def test_azure_write_permissions():
         import json
         from datetime import datetime
 
-        from inferq.remote.connection import AzureConnection
+        from inferq.remote import AzureConnection
         
         azure_conn = AzureConnection()
         

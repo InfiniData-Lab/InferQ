@@ -10,14 +10,12 @@ status reporting.
 import logging
 from typing import Any
 
-from inferq.remote.blob import upload_circuit_blob
-from inferq.remote.connection import AzureConnection
-from inferq.remote.table import save_circuit_metadata_to_table
+from inferq.remote import CloudConnection, save_circuit_metadata, upload_circuit_blob
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-def upload_batch_to_azure(circuit_batch: list[dict[str, Any]], azure_conn: AzureConnection) -> dict[str, Any]:
+def upload_batch_to_azure(circuit_batch: list[dict[str, Any]], azure_conn: CloudConnection) -> dict[str, Any]:
     """
     Upload a batch of circuits to Azure storage in parallel.
     
@@ -40,8 +38,8 @@ def upload_batch_to_azure(circuit_batch: list[dict[str, Any]], azure_conn: Azure
     logger.warning(f"🔄 AZURE UPLOAD STARTING: Processing {len(circuit_batch)} circuits for cloud storage")
     
     try:
-        container_client = azure_conn.get_container_client()
-        table_client = azure_conn.get_circuits_table_client()
+        object_store = azure_conn.objects
+        metadata_store = azure_conn.metadata
         
         for i, result in enumerate(circuit_batch, 1):
             if not result.get('success') or not result.get('written'):
@@ -58,13 +56,12 @@ def upload_batch_to_azure(circuit_batch: list[dict[str, Any]], azure_conn: Azure
                 logger.debug(f"☁️  UPLOADING [{i}/{len(circuit_batch)}]: Circuit {qpy_hash[:8]}... from Worker-{worker_id} ({circuit.num_qubits}q, depth={circuit.depth()})")
                 
                 # Upload to blob storage
-                blob_path = upload_circuit_blob(
-                    container_client, circuit, qpy_hash, serialization_method
+                features["blob_path"] = upload_circuit_blob(
+                    object_store, circuit, qpy_hash, serialization_method
                 )
-                features["blob_path"] = blob_path.split("circuits/")[1] if "circuits/" in blob_path else blob_path
                 
-                # Save metadata to table storage
-                table_success = save_circuit_metadata_to_table(table_client, features)
+                # Save metadata to the metadata store
+                table_success = save_circuit_metadata(metadata_store, features)
                 
                 if table_success:
                     uploaded += 1

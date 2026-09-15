@@ -11,7 +11,7 @@ check_azure_connection() {
     
     python3 -c "
 try:
-    from inferq.remote.connection import AzureConnection
+    from inferq.remote import AzureConnection
     conn = AzureConnection()
     print('✓ Azure connection successful')
     

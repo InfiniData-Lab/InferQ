@@ -201,28 +201,32 @@ def report_environment() -> bool:
     return ok
 
 
-def report_azure(enabled: bool) -> None:
-    heading("Azure storage")
+def report_cloud(enabled: bool) -> None:
+    from inferq.config import get_cloud_config
+
+    cloud_config = get_cloud_config()
+    provider = cloud_config["provider"]
+    heading(f"Cloud storage ({provider})")
     if not enabled:
         line(
             SKIP,
-            "blob and table upload",
+            "object and metadata upload",
             "disabled for this run so smoke circuits stay local (pass --azure to include it)",
         )
         return
 
     try:
-        from inferq.remote.connection import AzureConnection
+        from inferq.remote import get_connection
 
-        AzureConnection()
-        line(PASS, "blob and table upload", "credentials resolved")
+        get_connection(config=cloud_config)
+        line(PASS, "object and metadata upload", f"{provider} credentials resolved")
     except Exception as exc:
-        line(
-            FAIL,
-            "blob and table upload",
-            f"{exc} -- set AZURE_STORAGE_ACCOUNT / AZURE_CONTAINER_SAS_URL "
-            "(see .env.example)",
+        hint = (
+            "set AWS_REGION / AWS_S3_BUCKET / AWS_DYNAMODB_TABLE"
+            if provider == "aws"
+            else "set AZURE_STORAGE_ACCOUNT / AZURE_CONTAINER_SAS_URL"
         )
+        line(FAIL, "object and metadata upload", f"{exc} -- {hint} (see .env.example)")
 
 
 def report_engines(engines: list[EngineStatus]) -> None:
@@ -593,7 +597,7 @@ def main(argv: list[str] | None = None) -> int:
 
     heading("Run configuration")
     apply_environment(args, engines)
-    report_azure(args.azure)
+    report_cloud(args.azure)
 
     import logging
 
