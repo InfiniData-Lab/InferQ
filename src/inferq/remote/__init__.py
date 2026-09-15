@@ -52,6 +52,9 @@ from .metadata import (
 #: first access so that the SDK behind them is never a cost of importing
 #: ``inferq.remote``.
 _LAZY_EXPORTS = {
+    "AwsConnection": "inferq.remote.providers.aws",
+    "AwsCredentials": "inferq.remote.providers.aws",
+    "AwsCredentialsError": "inferq.remote.providers.aws",
     "AzureConnection": "inferq.remote.providers.azure",
     "AzureCredentials": "inferq.remote.providers.azure",
     "AzureCredentialsError": "inferq.remote.providers.azure",
@@ -73,6 +76,9 @@ def __dir__() -> list[str]:
 
 __all__ = [
     "CIRCUITS_PARTITION",
+    "AwsConnection",
+    "AwsCredentials",
+    "AwsCredentialsError",
     "AzureConnection",
     "AzureCredentials",
     "AzureCredentialsError",

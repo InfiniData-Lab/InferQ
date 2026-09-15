@@ -22,12 +22,14 @@ logger = logging.getLogger(__name__)
 #: Provider name -> ``"module:attribute"`` naming its ``CloudConnection``.
 _REGISTRY: dict[str, str] = {
     "azure": "inferq.remote.providers.azure:AzureConnection",
+    "aws": "inferq.remote.providers.aws:AwsConnection",
 }
 
 #: Extra to install for each provider, quoted back at an operator who is
 #: missing one.
 _EXTRAS: dict[str, str] = {
     "azure": "azure",
+    "aws": "aws",
 }
 
 
