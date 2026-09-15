@@ -17,18 +17,18 @@ logger = logging.getLogger(__name__)
 class PipelineOrchestrator:
     """Orchestrates the entire rerun pipeline"""
     
-    def __init__(self, circuits_dir: str, checkpoint_manager, azure_table_client):
+    def __init__(self, circuits_dir: str, checkpoint_manager, metadata_store):
         """
         Initialize orchestrator.
         
         Args:
             circuits_dir: Directory containing circuit folders
             checkpoint_manager: CheckpointManager instance
-            azure_table_client: Azure table client
+            metadata_store: Cloud metadata store
         """
         self.circuits_dir = circuits_dir
         self.checkpoint_manager = checkpoint_manager
-        self.azure_table_client = azure_table_client
+        self.metadata_store = metadata_store
     
     def get_folders_to_process(self) -> list:
         """

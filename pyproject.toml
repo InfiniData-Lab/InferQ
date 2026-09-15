@@ -39,13 +39,25 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Azure Blob + Table storage: the `inferq.remote` and `inferq.transfer` packages.
+# Bulk metadata transfer: the parquet export and import paths in
+# `inferq.transfer`, which are provider-neutral and therefore shared by every
+# cloud backend rather than owned by one of them.
+cloud = [
+    "pandas>=2.2",
+    "pyarrow>=20",
+]
+# Azure Blob + Table storage backend for `inferq.remote`.
 azure = [
+    "inferq[cloud]",
     "azure-data-tables>=12.7",
     "azure-identity>=1.23",
     "azure-storage-blob>=12.25",
-    "pandas>=2.2",
-    "pyarrow>=20",
+]
+# AWS S3 + DynamoDB storage backend for `inferq.remote`.
+aws = [
+    "inferq[cloud]",
+    "boto3>=1.35",
+    "botocore>=1.35",
 ]
 # Third-party circuit corpora loaded by `inferq.datasets`.
 datasets = [
@@ -61,7 +73,7 @@ sql = [
     "psycopg2-binary>=2.9",
 ]
 all = [
-    "inferq[azure,datasets,sql]",
+    "inferq[aws,azure,cloud,datasets,sql]",
 ]
 
 [project.scripts]

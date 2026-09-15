@@ -2,10 +2,10 @@
 
 The pipeline generates quantum circuits, simulates them with Qiskit Aer and (when
 installed) with InfiniQuantumSim's tensor-network-to-SQL lowering, extracts static,
-graph and SQL features, and stores circuits content-addressed locally or in Azure.
+graph and SQL features, and stores circuits content-addressed locally or in the cloud.
 
 Attribute access is lazy (PEP 562), so ``import inferq`` costs almost nothing:
-Qiskit, Aer and the Azure SDK are imported only when a name that needs them is first
+Qiskit, Aer and the cloud SDKs are imported only when a name that needs them is first
 touched.
 
 API tiers

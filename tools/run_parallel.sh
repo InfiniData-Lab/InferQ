@@ -10,7 +10,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Source utility scripts
 source "$SCRIPT_DIR/system_info.sh"
-source "$SCRIPT_DIR/azure_check.sh"
+source "$SCRIPT_DIR/cloud_check.sh"
 source "$SCRIPT_DIR/pipeline_monitor.sh"
 
 # Configuration. The pipeline is invoked through the console script; the process
@@ -35,8 +35,9 @@ while [[ $# -gt 0 ]]; do
             BATCH_SIZE="$2"
             shift 2
             ;;
-        --azure-interval)
-            AZURE_INTERVAL="$2"
+        --cloud-interval|--azure-interval)
+            # --azure-interval is the pre-migration spelling, kept working.
+            CLOUD_INTERVAL="$2"
             shift 2
             ;;
         --iterations)
@@ -48,7 +49,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --workers N          Number of parallel workers"
             echo "  --batch-size N       Circuits per batch"
-            echo "  --azure-interval N   Azure upload interval"
+            echo "  --cloud-interval N   Cloud upload interval"
             echo "  --iterations N       Maximum iterations"
             echo "  --help, -h           Show this help message"
             exit 0
@@ -66,7 +67,8 @@ done
 WORKERS=${WORKERS:-}  # Auto-detect if not set
 ITERATIONS=${ITERATIONS:-}  # Infinite by default  
 BATCH_SIZE=${BATCH_SIZE:-}  # Use config default if not set
-AZURE_INTERVAL=${AZURE_INTERVAL:-}  # Use config default if not set
+# Honour AZURE_INTERVAL too: it is the pre-migration environment spelling.
+CLOUD_INTERVAL=${CLOUD_INTERVAL:-${AZURE_INTERVAL:-}}  # Use config default if not set
 
 # Create necessary directories
 mkdir -p "$LOG_DIR"
@@ -100,28 +102,28 @@ show_system_info
 # Auto-detect workers if not set
 WORKERS=$(get_optimal_workers "$WORKERS")
 
-# Check Azure connection
-check_azure_connection
+# Check the cloud connection
+check_cloud_connection
 
 
 # Get config values for display when not overridden
-if [ -z "$WORKERS" ] || [ -z "$BATCH_SIZE" ] || [ -z "$AZURE_INTERVAL" ]; then
+if [ -z "$WORKERS" ] || [ -z "$BATCH_SIZE" ] || [ -z "$CLOUD_INTERVAL" ]; then
     CONFIG_VALUES=$(python3 -c "
 from inferq.config import get_pipeline_config
 config = get_pipeline_config()
-print(f\"{config['workers']}|{config['batch_size']}|{config['azure_upload_interval']}\")
+print(f\"{config['workers']}|{config['batch_size']}|{config['cloud_upload_interval']}\")
 " 2>/dev/null || echo "10|100|1000")
-    IFS='|' read -r CONFIG_WORKERS CONFIG_BATCH_SIZE CONFIG_AZURE_INTERVAL <<< "$CONFIG_VALUES"
+    IFS='|' read -r CONFIG_WORKERS CONFIG_BATCH_SIZE CONFIG_CLOUD_INTERVAL <<< "$CONFIG_VALUES"
 else
     CONFIG_WORKERS=$WORKERS
     CONFIG_BATCH_SIZE=$BATCH_SIZE
-    CONFIG_AZURE_INTERVAL=$AZURE_INTERVAL
+    CONFIG_CLOUD_INTERVAL=$CLOUD_INTERVAL
 fi
 
 print_status "Configuration:"
 echo "  Workers: ${WORKERS:-$CONFIG_WORKERS}"
 echo "  Batch size: ${BATCH_SIZE:-$CONFIG_BATCH_SIZE}"
-echo "  Azure upload interval: ${AZURE_INTERVAL:-$CONFIG_AZURE_INTERVAL}"
+echo "  Cloud upload interval: ${CLOUD_INTERVAL:-$CONFIG_CLOUD_INTERVAL}"
 echo "  Log file: $LOG_FILE"
 echo "  PID file: $PID_FILE"
 echo ""
@@ -141,7 +143,7 @@ cd "$PROJECT_DIR"
     ${WORKERS:+--workers "$WORKERS"} \
     ${ITERATIONS:+--iterations "$ITERATIONS"} \
     ${BATCH_SIZE:+--batch-size "$BATCH_SIZE"} \
-    ${AZURE_INTERVAL:+--azure-interval "$AZURE_INTERVAL"} \
+    ${CLOUD_INTERVAL:+--cloud-interval "$CLOUD_INTERVAL"} \
     2>&1 | tee "$LOG_FILE" 
 
 PIPELINE_PID=$!

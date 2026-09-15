@@ -54,6 +54,14 @@ OPTIONAL_PACKAGES = {
         'exact_version': '1.34.0',
         'description': 'Azure Core'
     },
+    'boto3': {
+        'min_version': '1.35.0',
+        'description': 'AWS SDK (S3 + DynamoDB)'
+    },
+    'botocore': {
+        'min_version': '1.35.0',
+        'description': 'AWS SDK core'
+    },
     'psutil': {
         'exact_version': '7.0.0',
         'description': 'System monitoring'

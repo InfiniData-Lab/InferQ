@@ -20,7 +20,7 @@ from inferq.transfer.download_circuits import (
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Download circuits from Azure Blob Storage based on fetched metadata."
+        description="Download circuits from cloud object storage using fetched metadata."
     )
     parser.add_argument(
         "--output-dir", type=str, default=None,

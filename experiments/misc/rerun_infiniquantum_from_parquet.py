@@ -14,7 +14,10 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from inferq.remote.connection import AzureConnection
+# Research code: this drives Azure Table entities directly (get_entity /
+# update_entity with merge semantics), so it stays on AzureConnection's
+# documented escape hatches rather than the provider-neutral MetadataStore.
+from inferq.remote import AzureConnection
 from inferq.simulation.infiniquantum import _execute_infiniquantum_simulation
 from inferq.storage.qpy import load_circuit
 

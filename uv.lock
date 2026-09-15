@@ -129,6 +129,34 @@ wheels = [
 ]
 
 [[package]]
+name = "boto3"
+version = "1.43.94"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "botocore" },
+    { name = "jmespath" },
+    { name = "s3transfer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d5/0f/a1d691e9c51ae5dce5a7394e550d7e36a995494e1c2795ce210d3520b257/boto3-1.43.94.tar.gz", hash = "sha256:aa832d88e85035cebb83f04700c65623328b88fe828ff7ed9539483bd9d608c5", size = 112663, upload-time = "2026-09-14T20:10:05.902Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ab/7a/046ba99f6bac067e73272930ba806f2860c50495b8f271f5fb2363f69d2b/boto3-1.43.94-py3-none-any.whl", hash = "sha256:2534bf331acd2f448b9cf8317f4eed453c65d9e0b7de254e77c99d390ac57aec", size = 140023, upload-time = "2026-09-14T20:10:03.395Z" },
+]
+
+[[package]]
+name = "botocore"
+version = "1.43.94"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jmespath" },
+    { name = "python-dateutil" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fa/5b/5a7cc096db8ddb5f6c221112d5a4a46888d9e38c1f5d5a06ae7e3e0755f2/botocore-1.43.94.tar.gz", hash = "sha256:cb97cedec5fceee3261f7fff75d0b0aa2cf68b32eeb2e8c2649e4657419773a6", size = 16104907, upload-time = "2026-09-14T20:10:00.315Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/6b/d5b5c06677fec26378197a7c37c2fc6afd1fe640c55512d8e96c87c4dd42/botocore-1.43.94-py3-none-any.whl", hash = "sha256:1dfb86603a87fdaebda2540db56aef5b226ec58ab72c13ca56737e4d66dea9ab", size = 15797479, upload-time = "2026-09-14T20:09:56.837Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2025.4.26"
 source = { registry = "https://pypi.org/simple" }
@@ -721,6 +749,8 @@ all = [
     { name = "azure-data-tables" },
     { name = "azure-identity" },
     { name = "azure-storage-blob" },
+    { name = "boto3" },
+    { name = "botocore" },
     { name = "duckdb" },
     { name = "mqt-bench" },
     { name = "opt-einsum" },
@@ -729,10 +759,20 @@ all = [
     { name = "pyarrow" },
     { name = "supermarq" },
 ]
+aws = [
+    { name = "boto3" },
+    { name = "botocore" },
+    { name = "pandas" },
+    { name = "pyarrow" },
+]
 azure = [
     { name = "azure-data-tables" },
     { name = "azure-identity" },
     { name = "azure-storage-blob" },
+    { name = "pandas" },
+    { name = "pyarrow" },
+]
+cloud = [
     { name = "pandas" },
     { name = "pyarrow" },
 ]
@@ -760,16 +800,20 @@ requires-dist = [
     { name = "azure-data-tables", marker = "extra == 'azure'", specifier = ">=12.7" },
     { name = "azure-identity", marker = "extra == 'azure'", specifier = ">=1.23" },
     { name = "azure-storage-blob", marker = "extra == 'azure'", specifier = ">=12.25" },
+    { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.35" },
+    { name = "botocore", marker = "extra == 'aws'", specifier = ">=1.35" },
     { name = "duckdb", marker = "extra == 'sql'", specifier = ">=1.1" },
-    { name = "inferq", extras = ["azure", "datasets", "sql"], marker = "extra == 'all'", editable = "." },
+    { name = "inferq", extras = ["aws", "azure", "cloud", "datasets", "sql"], marker = "extra == 'all'", editable = "." },
+    { name = "inferq", extras = ["cloud"], marker = "extra == 'aws'", editable = "." },
+    { name = "inferq", extras = ["cloud"], marker = "extra == 'azure'", editable = "." },
     { name = "mqt-bench", marker = "extra == 'datasets'", specifier = ">=2.2" },
     { name = "networkx", specifier = ">=3.4" },
     { name = "numpy", specifier = ">=2.2,<3" },
     { name = "opt-einsum", marker = "extra == 'sql'", specifier = ">=3.3" },
-    { name = "pandas", marker = "extra == 'azure'", specifier = ">=2.2" },
+    { name = "pandas", marker = "extra == 'cloud'", specifier = ">=2.2" },
     { name = "psutil", specifier = ">=7" },
     { name = "psycopg2-binary", marker = "extra == 'sql'", specifier = ">=2.9" },
-    { name = "pyarrow", marker = "extra == 'azure'", specifier = ">=20" },
+    { name = "pyarrow", marker = "extra == 'cloud'", specifier = ">=20" },
     { name = "python-dotenv", specifier = ">=1.1" },
     { name = "qiskit", specifier = ">=2.0,<3" },
     { name = "qiskit-aer", specifier = ">=0.17" },
@@ -778,7 +822,7 @@ requires-dist = [
     { name = "supermarq", marker = "extra == 'datasets'", specifier = ">=0.5" },
     { name = "tqdm", specifier = ">=4.67" },
 ]
-provides-extras = ["azure", "datasets", "sql", "all"]
+provides-extras = ["cloud", "azure", "aws", "datasets", "sql", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -792,7 +836,7 @@ name = "inferq-experiments"
 version = "0.1.0"
 source = { virtual = "experiments" }
 dependencies = [
-    { name = "inferq", extra = ["azure", "datasets", "sql"] },
+    { name = "inferq", extra = ["aws", "azure", "datasets", "sql"] },
     { name = "matplotlib" },
     { name = "pandas" },
     { name = "pyarrow" },
@@ -811,7 +855,7 @@ tuning = [
 [package.metadata]
 requires-dist = [
     { name = "configspace", marker = "extra == 'tuning'", specifier = ">=1.2" },
-    { name = "inferq", extras = ["azure", "datasets", "sql"], editable = "." },
+    { name = "inferq", extras = ["azure", "aws", "datasets", "sql"], editable = "." },
     { name = "matplotlib", specifier = ">=3.10" },
     { name = "mlos-core", extras = ["flaml", "smac"], marker = "extra == 'tuning'", specifier = ">=0.6.2" },
     { name = "pandas", specifier = ">=2.2" },
@@ -873,6 +917,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/df/bf/f7da0350254c0ed7c72f3e33cef02e048281fec7ecec5f032d4aac52226b/jinja2-3.1.6.tar.gz", hash = "sha256:0137fb05990d35f1275a587e9aee6d56da821fc83491a0fb838183be43f66d6d", size = 245115, upload-time = "2025-03-05T20:05:02.478Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl", hash = "sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67", size = 134899, upload-time = "2025-03-05T20:05:00.369Z" },
+]
+
+[[package]]
+name = "jmespath"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d3/59/322338183ecda247fb5d1763a6cbe46eff7222eaeebafd9fa65d4bf5cb11/jmespath-1.1.0.tar.gz", hash = "sha256:472c87d80f36026ae83c6ddd0f1d05d4e510134ed462851fd5f754c8c3cbb88d", size = 27377, upload-time = "2026-01-22T16:35:26.279Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/14/2f/967ba146e6d58cf6a652da73885f52fc68001525b4197effc174321d70b4/jmespath-1.1.0-py3-none-any.whl", hash = "sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64", size = 20419, upload-time = "2026-01-22T16:35:24.919Z" },
 ]
 
 [[package]]
@@ -2121,6 +2174,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/67/04/741ed09c2b0dc0f360f85270c1179ed433785372ac9ab6ab26d3dd3ae02d/rustworkx-0.16.0-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:293180b83509ee9bff4c3af7ccc1024f6528d61b65d0cb7320bd31924f10cb71", size = 2172787, upload-time = "2025-01-24T01:22:01.282Z" },
     { url = "https://files.pythonhosted.org/packages/6d/fd/9c71e90f8cde76fed95dbc1e7d019977b89a29492f49ded232c6fad3055f/rustworkx-0.16.0-cp39-abi3-win32.whl", hash = "sha256:040c4368729cf502f756a3b0ff5f1c6915fc389f74dcc6afc6c3833688c97c01", size = 1840183, upload-time = "2025-01-24T01:22:03.643Z" },
     { url = "https://files.pythonhosted.org/packages/3e/79/9bdd52d2a33d468c81c1827de1b588080cb055d1d3561b194ab7bf2635b5/rustworkx-0.16.0-cp39-abi3-win_amd64.whl", hash = "sha256:905df608843c32fa45ac023687769fe13056edf7584474c801d5c50705d76e9b", size = 1953559, upload-time = "2025-01-24T01:22:06.136Z" },
+]
+
+[[package]]
+name = "s3transfer"
+version = "0.19.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "botocore" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/76/43/35e4d8aa320bffe8287fe8f65f578fa2d2db0a64212f0e710dce58267854/s3transfer-0.19.2.tar.gz", hash = "sha256:ba0309fd86be3c27dbf78cdd813c13c5e1df16e5874b99d2535ebbdfb9892993", size = 165592, upload-time = "2026-07-22T19:30:44.432Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bc/e7/5c595c75e9f41a44f30e526eda465ea0b4eec93470e074e4a111b253f13a/s3transfer-0.19.2-py3-none-any.whl", hash = "sha256:d8168eccca828cbb2cd573675333f3bddd254313a9c42494b84c76b539e8ba25", size = 90216, upload-time = "2026-07-22T19:30:43.251Z" },
 ]
 
 [[package]]

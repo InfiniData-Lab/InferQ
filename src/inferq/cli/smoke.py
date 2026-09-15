@@ -18,14 +18,14 @@ would configure them, and excluded so the run does not block on a connection
 that will never open. A missing engine is reported, never fatal -- the point of
 the report is to tell you what this machine can and cannot do.
 
-Azure upload is forced off unless ``--azure`` is passed, so a smoke test never
+Cloud upload is forced off unless ``--cloud`` is passed, so a smoke test never
 writes throwaway circuits into shared storage by accident.
 
 Usage:
     inferq smoke                 # 3 circuits, local only
     inferq smoke --circuits 5
     inferq smoke --query-mode split
-    inferq smoke --azure         # include the upload step
+    inferq smoke --cloud         # include the upload step
 """
 
 from __future__ import annotations
@@ -201,28 +201,32 @@ def report_environment() -> bool:
     return ok
 
 
-def report_azure(enabled: bool) -> None:
-    heading("Azure storage")
+def report_cloud(enabled: bool) -> None:
+    from inferq.config import get_cloud_config
+
+    cloud_config = get_cloud_config()
+    provider = cloud_config["provider"]
+    heading(f"Cloud storage ({provider})")
     if not enabled:
         line(
             SKIP,
-            "blob and table upload",
-            "disabled for this run so smoke circuits stay local (pass --azure to include it)",
+            "object and metadata upload",
+            "disabled for this run so smoke circuits stay local (pass --cloud to include it)",
         )
         return
 
     try:
-        from inferq.remote.connection import AzureConnection
+        from inferq.remote import get_connection
 
-        AzureConnection()
-        line(PASS, "blob and table upload", "credentials resolved")
+        get_connection(config=cloud_config)
+        line(PASS, "object and metadata upload", f"{provider} credentials resolved")
     except Exception as exc:
-        line(
-            FAIL,
-            "blob and table upload",
-            f"{exc} -- set AZURE_STORAGE_ACCOUNT / AZURE_CONTAINER_SAS_URL "
-            "(see .env.example)",
+        hint = (
+            "set AWS_REGION / AWS_S3_BUCKET / AWS_DYNAMODB_TABLE"
+            if provider == "aws"
+            else "set AZURE_STORAGE_ACCOUNT / AZURE_CONTAINER_SAS_URL"
         )
+        line(FAIL, "object and metadata upload", f"{exc} -- {hint} (see .env.example)")
 
 
 def report_engines(engines: list[EngineStatus]) -> None:
@@ -317,7 +321,7 @@ def run_pipeline(
             num_workers=args.workers,
             max_iterations=1,
             batch_size=args.circuits,
-            azure_upload_interval=args.circuits + 1,
+            cloud_upload_interval=args.circuits + 1,
             batch_timeout_seconds=args.batch_timeout,
         )
         if "error" in stats:
@@ -547,9 +551,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Seconds to wait when probing a database server (default: 3)",
     )
     parser.add_argument(
+        "--cloud",
         "--azure",
+        dest="cloud",
         action="store_true",
-        help="Include the Azure upload step. Off by default so smoke circuits stay local.",
+        help="Include the cloud upload step. Off by default so smoke circuits stay local.",
     )
     return parser.parse_args(argv)
 
@@ -570,7 +576,10 @@ def apply_environment(args: argparse.Namespace, engines: list[EngineStatus]) -> 
             "ITERATIONS": "1",
             "IQ_QUERY_MODE": args.query_mode,
             "IQ_OMIT_METHODS": ",".join(omit_methods_for(engines)),
-            "AZURE_ENABLED": "True" if args.azure else "False",
+            # Both spellings are written: the neutral one the config now
+            # prefers, and the alias, so a subprocess reading either agrees.
+            "CLOUD_ENABLED": "True" if args.cloud else "False",
+            "AZURE_ENABLED": "True" if args.cloud else "False",
             **SMOKE_CIRCUIT_LIMITS,
             "MAX_QUBITS": str(args.max_qubits),
         }
@@ -593,7 +602,7 @@ def main(argv: list[str] | None = None) -> int:
 
     heading("Run configuration")
     apply_environment(args, engines)
-    report_azure(args.azure)
+    report_cloud(args.cloud)
 
     import logging
 

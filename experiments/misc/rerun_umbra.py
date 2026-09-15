@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Rerun circuits with umbra backend and update Azure Table Storage
+Rerun circuits with umbra backend and update the cloud metadata store
 
 This script reads circuits from the rdbms_training_data.parquet file,
-runs them with the umbra backend, and updates Azure Table Storage.
+runs them with the umbra backend, and updates whichever cloud metadata
+store is configured.
 """
 
 import argparse
@@ -14,8 +15,7 @@ import pandas as pd
 from qiskit import QuantumCircuit
 from tqdm import tqdm
 
-from inferq.remote.connection import AzureConnection
-from inferq.remote.table import update_circuit_metadata_in_table
+from inferq.remote import get_connection, update_circuit_metadata
 from inferq.simulation.infiniquantum import _execute_infiniquantum_simulation
 from inferq.storage.qpy import load_circuit
 
@@ -25,7 +25,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("rerun_umbra_to_azure.log"),
+        logging.FileHandler("rerun_umbra.log"),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -83,15 +83,15 @@ def run_umbra_simulation(circuit: QuantumCircuit, timeout: int, n_runs: int = 5)
             "method": "infiniquantum"
         }
 
-def process_circuit(circuit_hash: str, circuits_dir: Path, azure_client,
+def process_circuit(circuit_hash: str, circuits_dir: Path, metadata_store,
                    timeout: int, n_runs: int) -> dict:
     """
-    Process a single circuit: load, simulate with umbra, and update Azure.
+    Process a single circuit: load, simulate with umbra, and record the result.
 
     Args:
         circuit_hash: The circuit hash (RowKey)
         circuits_dir: Directory containing circuits
-        azure_client: Azure Table Storage client
+        metadata_store: Cloud metadata store
         timeout: Timeout in seconds
         n_runs: Number of runs to average
 
@@ -106,7 +106,7 @@ def process_circuit(circuit_hash: str, circuits_dir: Path, azure_client,
         # Run umbra simulation
         result = run_umbra_simulation(circuit, timeout, n_runs)
 
-        # Prepare updates for Azure
+        # Prepare the metadata updates
         updates = {}
         success = False
 
@@ -128,21 +128,21 @@ def process_circuit(circuit_hash: str, circuits_dir: Path, azure_client,
             logger.warning(f"✗ {circuit_hash}: {error_msg}")
             updates['rdbms_umbra_error'] = error_msg
 
-        # Update Azure if we have updates
+        # Write the metadata updates, if there are any
         table_updated = False
         if updates:
             try:
-                table_updated = update_circuit_metadata_in_table(
-                    azure_client,
+                table_updated = update_circuit_metadata(
+                    metadata_store,
                     circuit_hash,
                     updates
                 )
                 if table_updated:
-                    logger.debug(f"Azure updated for {circuit_hash}")
+                    logger.debug(f"Metadata updated for {circuit_hash}")
                 else:
-                    logger.warning(f"Failed to update Azure for {circuit_hash}")
+                    logger.warning(f"Failed to update metadata for {circuit_hash}")
             except Exception as e:
-                logger.error(f"Azure update error for {circuit_hash}: {e}")
+                logger.error(f"Metadata update error for {circuit_hash}: {e}")
 
         return {
             'circuit_hash': circuit_hash,
@@ -175,7 +175,7 @@ def process_circuit(circuit_hash: str, circuits_dir: Path, azure_client,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Rerun circuits with umbra backend and update Azure Table Storage"
+        description="Rerun circuits with umbra backend and update the cloud metadata store"
     )
     parser.add_argument(
         "--parquet-file",
@@ -237,14 +237,14 @@ def main():
             logger.error("Could not find circuits directory. Please specify with --circuits-dir")
             return
 
-    # Connect to Azure
-    logger.info("Connecting to Azure Table Storage...")
+    # Connect to the cloud metadata store
+    logger.info("Connecting to the cloud metadata store...")
     try:
-        azure_conn = AzureConnection()
-        table_client = azure_conn.circuits_table_client
-        logger.info("✓ Connected to Azure Table Storage")
+        conn = get_connection()
+        metadata_store = conn.metadata
+        logger.info(f"✓ Connected to the {conn.provider} metadata store")
     except Exception as e:
-        logger.error(f"Failed to connect to Azure: {e}")
+        logger.error(f"Failed to connect to cloud storage: {e}")
         return
 
     # Load parquet file
@@ -267,7 +267,7 @@ def main():
         result = process_circuit(
             circuit_hash,
             circuits_dir,
-            table_client,
+            metadata_store,
             args.timeout,
             args.n_runs
         )
@@ -285,7 +285,7 @@ def main():
     logger.info(f"Total circuits processed: {total}")
     logger.info(f"Successful simulations: {successful} ({successful/total*100:.1f}%)")
     logger.info(f"Failed simulations: {failed} ({failed/total*100:.1f}%)")
-    logger.info(f"Azure Table updated: {table_updated_count} ({table_updated_count/total*100:.1f}%)")
+    logger.info(f"Metadata records updated: {table_updated_count} ({table_updated_count/total*100:.1f}%)")
     logger.info("=" * 60)
 
     # Print failed circuits

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch every circuit directly from Azure Blob Storage.
+"""Fetch every circuit directly from the configured object store.
 
 The implementation lives in ``download_circuits`` (mode ``all``); this entry
 point pins the mode so the historical flags and interactive prompts are
@@ -19,7 +19,7 @@ from inferq.transfer.download_circuits import (
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Fetch all circuits directly from Azure Blob Storage."
+        description="Fetch all circuits directly from cloud object storage."
     )
     parser.add_argument(
         "--output-dir", type=str, default=None,

@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
-"""Download circuits out of Azure Blob Storage.
+"""Download circuits out of the configured cloud object store.
 
-Four ways of naming *which* blobs to fetch, over one download loop:
+Four ways of naming *which* objects to fetch, over one download loop:
 
-  all       every blob in the configured container
+  all       every object in the configured bucket/container
   metadata  the ``blob_url`` column of the parquet metadata files
   hashes    explicit circuit hashes, or the ``RowKey`` column of a CSV
-  public    every blob in an anonymous public container, byte-for-byte
+  public    every blob in an anonymous public Azure container, byte-for-byte
 
 Everything after the enumeration step — connecting, skipping what is already
 on disk, deserializing, re-serializing as QPY, counting against ``--limit`` —
 is identical, which is why these used to be five scripts that drifted.
 
-The ``public`` mode is the one real exception: it copies raw bytes and never
-deserializes, because an anonymous container is not assumed to hold circuits
-this repo can parse.
+The first three modes run on whichever provider the environment selects. The
+``public`` mode is the one real exception on both counts: it is Azure-specific
+(anonymous container URLs have no provider-neutral analogue) and it copies raw
+bytes without deserializing, because a public container is not assumed to hold
+circuits this repo can parse.
 """
 
 from __future__ import annotations
@@ -33,8 +35,7 @@ from tqdm import tqdm
 
 from inferq import paths
 from inferq.config import PipelineConfig
-from inferq.remote.blob import download_circuit_blob
-from inferq.remote.connection import AzureConnection
+from inferq.remote import blob_path_for, download_circuit_blob, get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ class BlobRequest:
     """One circuit to fetch.
 
     Attributes:
-        blob_path: Path of the blob inside the container.
+        blob_path: Key of the object inside the bucket/container.
         local_path: Where to write it, relative to the output directory.
         serialization_method: Format recorded for the blob, passed to
             `download_circuit_blob`.
@@ -135,7 +136,7 @@ class Downloader:
     def exhausted(self) -> bool:
         return self.limit is not None and self.count >= self.limit
 
-    def fetch(self, container_client, request: BlobRequest) -> bool:
+    def fetch(self, store, request: BlobRequest) -> bool:
         """Obtain one circuit. Returns True if it is now on disk."""
         target = self.output_dir / request.local_path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -156,7 +157,7 @@ class Downloader:
 
         try:
             circuit = download_circuit_blob(
-                container_client, request.blob_path, request.serialization_method
+                store, request.blob_path, request.serialization_method
             )
             with target.open("wb") as f:
                 qiskit.qpy.dump(circuit, f)
@@ -169,48 +170,47 @@ class Downloader:
 
 
 def connect() -> tuple[object, str] | tuple[None, None]:
-    """Open the configured container. Returns (client, container_name)."""
+    """Open the configured object store. Returns (store, bucket name)."""
     try:
-        container_client = AzureConnection().container_client
+        conn = get_connection()
     except Exception as error:  # noqa: BLE001 - credentials are the usual cause
-        logger.error(f"Failed to connect to Azure: {error}")
+        logger.error(f"Failed to connect to cloud storage: {error}")
         return None, None
-    name = container_client.container_name
-    logger.info(f"Connected to Azure Blob Storage container: {name}")
-    return container_client, name
+    store = conn.objects
+    logger.info(f"Connected to {conn.provider} object storage: {store.name}")
+    return store, store.name
 
 
 def _mirrored_path(blob_path: str) -> Path:
-    """Mirror the blob's ``XX/hash.ext`` layout locally, normalised to ``.qpy``."""
+    """Mirror the object's ``XX/hash.ext`` layout locally, normalised to ``.qpy``."""
     return Path(blob_path).with_suffix(".qpy")
 
 
 # ── Mode: all ─────────────────────────────────────────────────────────────────
 
 def run_all(output_dir: str | Path, limit: int | None = None) -> None:
-    """Download every blob in the container, mirroring its ``XX/hash.qpy`` layout."""
-    container_client, _ = connect()
-    if container_client is None:
+    """Download every object in the bucket, mirroring its ``XX/hash.qpy`` layout."""
+    store, _ = connect()
+    if store is None:
         return
 
     downloader = Downloader(output_dir=Path(output_dir), limit=limit)
-    logger.info("Listing blobs...")
+    logger.info("Listing objects...")
     try:
-        blobs = container_client.list_blobs(include=["metadata"])
+        objects = store.list_objects(include_metadata=True)
     except Exception as error:  # noqa: BLE001
-        logger.error(f"Failed to list blobs: {error}")
+        logger.error(f"Failed to list objects: {error}")
         return
 
-    for blob in tqdm(blobs, desc="Downloading blobs"):
+    for info in tqdm(objects, desc="Downloading objects"):
         if downloader.exhausted:
             break
-        metadata = blob.metadata or {}
         downloader.fetch(
-            container_client,
+            store,
             BlobRequest(
-                blob_path=blob.name,
-                local_path=_mirrored_path(blob.name),
-                serialization_method=metadata.get("format", "qpy"),
+                blob_path=info.key,
+                local_path=_mirrored_path(info.key),
+                serialization_method=info.metadata.get("format", "qpy"),
             ),
         )
 
@@ -220,7 +220,12 @@ def run_all(output_dir: str | Path, limit: int | None = None) -> None:
 # ── Mode: metadata ────────────────────────────────────────────────────────────
 
 def blob_path_from_url(blob_url: str, container_name: str) -> str:
-    """Strip scheme, host and container prefix off a full blob URL."""
+    """Strip scheme, host and bucket prefix off a full object URL.
+
+    Azure paths carry the container (``/circuits/ab/hash.qpy``); S3
+    virtual-hosted URLs put the bucket in the host, so their path is already
+    the key. Both land on the same key.
+    """
     path = urlparse(blob_url).path.lstrip("/")
     prefix = container_name + "/"
     return path[len(prefix):] if path.startswith(prefix) else path
@@ -239,8 +244,8 @@ def run_metadata(
     """
     import pandas as pd
 
-    container_client, container_name = connect()
-    if container_client is None:
+    store, container_name = connect()
+    if store is None:
         return
 
     data_dir = Path(data_dir)
@@ -293,7 +298,7 @@ def run_metadata(
                 method = "qpy"
             blob_path = blob_path_from_url(blob_url, container_name)
             downloader.fetch(
-                container_client,
+                store,
                 BlobRequest(blob_path, Path(blob_path), method),
             )
 
@@ -338,8 +343,8 @@ def run_hashes(
     if not hashes:
         raise SystemExit("No hashes given: pass them positionally or via --from-csv.")
 
-    container_client, _ = connect()
-    if container_client is None:
+    store, _ = connect()
+    if store is None:
         return
 
     downloader = Downloader(output_dir=Path(output_dir), limit=limit)
@@ -347,10 +352,9 @@ def run_hashes(
         if downloader.exhausted:
             break
         downloader.fetch(
-            container_client,
+            store,
             BlobRequest(
-                # The store sharded blobs by the hash's first two characters.
-                blob_path=f"{circuit_hash[:2]}/{circuit_hash}.qpy",
+                blob_path=blob_path_for(circuit_hash),
                 local_path=Path(f"{circuit_hash}.qpy"),
             ),
         )
@@ -364,10 +368,15 @@ def run_hashes(
 # ── Mode: public ──────────────────────────────────────────────────────────────
 
 def run_public(container_url: str, output_dir: str | Path, limit: int | None = None) -> None:
-    """Copy every blob out of an anonymous public container, byte-for-byte.
+    """Copy every blob out of an anonymous public Azure container, byte-for-byte.
 
-    No deserialization: a public container is not assumed to hold circuits in a
-    format this repo can parse, so the bytes are written exactly as stored.
+    Azure-specific by design: this reaches straight for ``ContainerClient``
+    because anonymous access to a container URL is not something the neutral
+    :class:`~inferq.remote.base.ObjectStore` interface models — there are no
+    credentials and no configured bucket, only a URL someone handed us.
+
+    No deserialization either: a public container is not assumed to hold
+    circuits in a format this repo can parse, so bytes are written as stored.
     """
     from azure.storage.blob import ContainerClient
 
@@ -404,7 +413,7 @@ def run_public(container_url: str, output_dir: str | Path, limit: int | None = N
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Download circuits from Azure Blob Storage.",
+        description="Download circuits from cloud object storage.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )

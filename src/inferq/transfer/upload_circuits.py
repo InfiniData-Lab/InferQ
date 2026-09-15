@@ -1,10 +1,10 @@
 """
-Upload all local circuits to Azure Blob Storage and Table Storage.
+Upload all local circuits to the configured cloud storage.
 
 This script scans the local circuits directory, reads each circuit and its metadata,
-then uploads both to Azure services:
-- Circuit QPY files → Azure Blob Storage
-- Circuit metadata → Azure Table Storage
+then uploads both through the provider-neutral cloud interfaces:
+- Circuit QPY files → the object store (Azure Blob, S3, ...)
+- Circuit metadata → the metadata store (Azure Table, DynamoDB, ...)
 """
 
 import json
@@ -17,11 +17,13 @@ from tqdm import tqdm
 
 from inferq import paths
 from inferq.config import get_storage_config
-from inferq.remote.blob import upload_circuit_blob
-
-# Import Azure utilities
-from inferq.remote.connection import AzureConnection
-from inferq.remote.table import save_circuit_metadata_to_table
+from inferq.remote import (
+    CloudConnection,
+    get_circuit_metadata,
+    get_connection,
+    save_circuit_metadata,
+    upload_circuit_blob,
+)
 from inferq.storage.qpy import load_circuit
 
 # Configure logging
@@ -30,7 +32,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(paths.log_file('upload_circuits_to_azure.log'))
+        logging.FileHandler(paths.log_file('upload_circuits.log'))
     ]
 )
 logger = logging.getLogger(__name__)
@@ -90,14 +92,14 @@ def discover_circuits(circuits_dir: Path):
     return circuit_dirs
 
 
-def upload_circuit(circuit_dir: Path, circuit_id: str, azure_conn: AzureConnection, dry_run: bool = False, delete_after_upload: bool = False):
+def upload_circuit(circuit_dir: Path, circuit_id: str, cloud_conn: CloudConnection, dry_run: bool = False, delete_after_upload: bool = False):
     """
-    Upload a single circuit to Azure.
+    Upload a single circuit to cloud storage.
     
     Args:
         circuit_dir: Path to the circuit directory
         circuit_id: Circuit hash/ID
-        azure_conn: Azure connection object
+        cloud_conn: Cloud connection object
         dry_run: If True, only simulate the upload
         delete_after_upload: If True, delete local circuit folder after successful upload
         
@@ -127,26 +129,27 @@ def upload_circuit(circuit_dir: Path, circuit_id: str, azure_conn: AzureConnecti
         return True
     
     try:
-        # Upload circuit to Blob Storage
-        logger.info(f"Uploading circuit {circuit_id} to Blob Storage...")
-        blob_url = upload_circuit_blob(
-            azure_conn.get_container_client(),
+        # Upload circuit to the object store
+        logger.info(f"Uploading circuit {circuit_id} to object storage...")
+        object_store = cloud_conn.objects
+        blob_path = upload_circuit_blob(
+            object_store,
             circuit,
             circuit_id,
             serialization_method="qpy"
         )
-        logger.info(f"✓ Circuit uploaded to blob: {blob_url}")
+        logger.info(f"✓ Circuit uploaded to object storage: {blob_path}")
         
-        # Add blob URL to metadata
-        metadata['blob_url'] = blob_url
+        # Record both: the key is provider-portable and matches what the
+        # pipeline writes; the URL is what the parquet export and the
+        # ``download --mode metadata`` path read back.
+        metadata['blob_path'] = blob_path
+        metadata['blob_url'] = object_store.object_url(blob_path)
         metadata['qpy_sha256'] = circuit_id  # Ensure hash is in metadata
         
-        # Upload metadata to Table Storage
-        logger.info(f"Uploading metadata for {circuit_id} to Table Storage...")
-        success = save_circuit_metadata_to_table(
-            azure_conn.get_circuits_table_client(),
-            metadata
-        )
+        # Upload metadata to the metadata store
+        logger.info(f"Uploading metadata for {circuit_id} to the metadata store...")
+        success = save_circuit_metadata(cloud_conn.metadata, metadata)
         
         if success:
             logger.info(f"✓ Circuit {circuit_id} uploaded successfully")
@@ -172,28 +175,28 @@ def upload_circuit(circuit_dir: Path, circuit_id: str, azure_conn: AzureConnecti
 
 def upload_all_circuits(circuits_dir: Path, dry_run: bool = False, skip_existing: bool = True, delete_after_upload: bool = False):
     """
-    Upload all circuits from the local circuits directory to Azure.
+    Upload all circuits from the local circuits directory to cloud storage.
     
     Args:
         circuits_dir: Path to the circuits directory
         dry_run: If True, only simulate the upload
-        skip_existing: If True, skip circuits that already exist in Azure
+        skip_existing: If True, skip circuits that already exist remotely
         delete_after_upload: If True, delete local circuit folders after successful upload
         
     Returns:
         dict: Statistics about the upload process
     """
     logger.info("=" * 80)
-    logger.info("Starting bulk circuit upload to Azure")
+    logger.info("Starting bulk circuit upload to cloud storage")
     logger.info("=" * 80)
     
-    # Initialize Azure connection
-    logger.info("Connecting to Azure...")
+    # Initialize the cloud connection
+    logger.info("Connecting to cloud storage...")
     try:
-        azure_conn = AzureConnection()
-        logger.info("✓ Azure connection established")
+        cloud_conn = get_connection()
+        logger.info(f"✓ Cloud connection established ({cloud_conn.provider})")
     except Exception as e:
-        logger.error(f"✗ Failed to connect to Azure: {e}")
+        logger.error(f"✗ Failed to connect to cloud storage: {e}")
         return None
     
     # Discover all circuits
@@ -223,25 +226,20 @@ def upload_all_circuits(circuits_dir: Path, dry_run: bool = False, skip_existing
     with tqdm(total=stats['total'], desc="Uploading circuits") as pbar:
         for circuit_dir, circuit_id in circuit_dirs:
             try:
-                # Check if circuit already exists in Azure (if skip_existing is True)
+                # Check if the circuit already exists remotely (if skip_existing is True)
                 if skip_existing and not dry_run:
                     try:
-                        # Try to fetch metadata from table
-                        from inferq.remote.table import get_circuit_metadata_from_table
-                        existing = get_circuit_metadata_from_table(
-                            azure_conn.get_circuits_table_client(),
-                            circuit_id
-                        )
+                        existing = get_circuit_metadata(cloud_conn.metadata, circuit_id)
                         if existing:
-                            logger.info(f"⊘ Circuit {circuit_id} already exists in Azure, skipping")
+                            logger.info(f"⊘ Circuit {circuit_id} already exists remotely, skipping")
                             stats['skipped'] += 1
                             pbar.update(1)
                             continue
                     except Exception as e:
-                        logger.debug(f"Circuit {circuit_id} not found in Azure (will upload): {e}")
+                        logger.debug(f"Circuit {circuit_id} not found remotely (will upload): {e}")
                 
                 # Upload the circuit
-                success = upload_circuit(circuit_dir, circuit_id, azure_conn, dry_run, delete_after_upload)
+                success = upload_circuit(circuit_dir, circuit_id, cloud_conn, dry_run, delete_after_upload)
                 
                 if success:
                     stats['successful'] += 1
@@ -276,7 +274,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="Upload all local circuits to Azure Blob Storage and Table Storage"
+        description="Upload all local circuits to the configured cloud storage"
     )
     parser.add_argument(
         '--circuits-dir',
@@ -292,7 +290,7 @@ def main():
     parser.add_argument(
         '--force',
         action='store_true',
-        help='Upload all circuits even if they already exist in Azure (overwrite)'
+        help='Upload all circuits even if they already exist remotely (overwrite)'
     )
     parser.add_argument(
         '--verbose',
@@ -302,7 +300,7 @@ def main():
     parser.add_argument(
         '--delete-after-upload',
         action='store_true',
-        help='Delete local circuit folders after successful upload to Azure (saves disk space)'
+        help='Delete local circuit folders after a successful upload (saves disk space)'
     )
     
     args = parser.parse_args()

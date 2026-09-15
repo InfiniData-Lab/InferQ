@@ -4,7 +4,8 @@ InferQ generates, simulates and analyzes quantum circuits for benchmark and
 dataset construction. It combines a configurable circuit generator, a
 multiprocessing pipeline, Qiskit/Aer and InfiniQuantumSim simulation paths,
 static/graph/dynamic/SQL feature extraction, duplicate detection, a local
-content-addressed circuit store and optional Azure Blob + Table upload.
+content-addressed circuit store and optional cloud upload (Azure Blob + Table
+or Amazon S3 + DynamoDB).
 
 ## Layout
 
@@ -25,13 +26,13 @@ Inside `src/inferq/`:
 | --- | --- |
 | `paths` | The one place a filesystem path is resolved. |
 | `sql` | Query-mode lowering (`monolithic`, `monolithic_materialized`, `split`). Dependency-free leaf. |
-| `config` | Settings: pipeline bounds, generator selection, simulator limits, storage and Azure defaults. |
+| `config` | Settings: pipeline bounds, generator selection, simulator limits, storage and cloud defaults. |
 | `generators` | `base`, `params`, `registry`, `merger`, `composer`, plus `algorithms/` and `state_prep/`. |
 | `features` | Static, graph, dynamic and SQL feature extraction. |
 | `simulation` | Simulation backends and result processing. |
 | `storage` | QPY serialization, hashing, the local content-addressed store. |
-| `remote` | Azure Blob and Table clients. |
-| `transfer` | Bulk download/upload between the local store and Azure. |
+| `remote` | Provider-neutral object and metadata stores, with Azure and AWS backends. |
+| `transfer` | Bulk download/upload between the local store and cloud storage. |
 | `datasets` | Third-party corpora: the registry, the fetcher and the SupermarQ/MQT Bench/QASMBench loaders. |
 | `rerun` | Reprocessing a stage over circuits that already exist. |
 | `pipeline` | Multiprocessing orchestration and worker code. |
@@ -65,7 +66,9 @@ simulate with Aer, extract features and write circuits locally.
 
 | Install | Adds |
 | --- | --- |
-| `uv sync --extra azure` | Azure Blob + Table storage (`inferq.remote`, `inferq.transfer`). |
+| `uv sync --extra azure` | Azure Blob + Table backend for `inferq.remote`. |
+| `uv sync --extra aws` | Amazon S3 + DynamoDB backend for `inferq.remote`. |
+| `uv sync --extra cloud` | Only the provider-neutral transfer dependencies, pulled in by both backends. |
 | `uv sync --extra datasets` | SupermarQ and MQT Bench loaders. |
 | `uv sync --extra sql` | DuckDB, PostgreSQL and the einsum contraction planner. |
 | `uv sync --all-extras` | All of the above. |
@@ -86,19 +89,19 @@ does not run — so they are omitted from every simulation request.
 One console script replaces every `python <path>` invocation.
 
 ```
-inferq catalog    list circuits recorded in Azure Table Storage
+inferq catalog    list circuits recorded in the cloud metadata store
 inferq data       list, fetch and verify the registered benchmark datasets
-inferq download   download circuits from Azure Blob Storage
+inferq download   download circuits from cloud object storage
 inferq ingest     ingest circuits from an external benchmark suite
 inferq paths      show the resolved data, cache, state and output directories
 inferq rerun      reprocess stored circuits (simulations, SQL or dynamic features)
 inferq run        generate, simulate and store circuits
 inferq smoke      end-to-end check of the local install
-inferq upload     upload local circuits to Azure Blob Storage
+inferq upload     upload local circuits to cloud object storage
 ```
 
 Sub-command modules are imported only once the command is selected, so
-`inferq --help` does not pay for Qiskit, Aer or the Azure SDK.
+`inferq --help` does not pay for Qiskit, Aer or a cloud SDK.
 
 ## Data locations
 
@@ -120,9 +123,9 @@ Directories are created by the writer that needs them, never at import time.
 
 ## Configuration
 
-`src/inferq/config/` holds the defaults: pipeline batch sizes and worker counts,
+`src/inferq/config.py` holds the defaults: pipeline batch sizes and worker counts,
 circuit size limits, generator-selection behavior, synergy rules, simulator
-limits, InfiniQuantumSim method selection, storage and Azure settings, and OOC
+limits, InfiniQuantumSim method selection, storage and cloud settings, and OOC
 defaults. Many values accept an environment override; the source-of-truth
 defaults live in `PipelineConfig`.
 
@@ -136,8 +139,25 @@ Key sections:
 - `SIMULATION` — Aer limits and InfiniQuantumSim backend selection.
 - `OOC` — memory caps, engine list, temp paths, Docker image names.
 
-For Azure-backed runs, copy `.env.example` to `.env` and fill in the connection
-details.
+### Cloud storage
+
+`inferq.remote` exposes one interface over two backends: an object store for the
+circuit QPY payloads and a metadata store for their records.
+
+| Provider | Object store | Metadata store | Extra |
+| --- | --- | --- | --- |
+| `azure` | Blob Storage | Table Storage | `uv sync --extra azure` |
+| `aws` | Amazon S3 | DynamoDB | `uv sync --extra aws` |
+
+`INFERQ_CLOUD_PROVIDER` selects one. With it unset the provider is inferred from
+whichever provider's bucket/table names are configured, so an existing Azure
+`.env` keeps working untouched. Attribute names are normalized identically on
+both providers and pagination cursors are opaque and provider-independent, so a
+dataset can move between clouds without a schema change.
+
+For cloud-backed runs, copy `.env.example` to `.env` and fill in the provider's
+connection details. AWS prefers the default credential chain (instance profile,
+SSO, shared profile); explicit keys are only read when they are set.
 
 ## Benchmark datasets
 
@@ -172,7 +192,7 @@ inferq ingest --suites qasmbench
 
 The normal dataset-generation path: generate circuits, skip known duplicates,
 extract features, run the configured simulators, write local `.qpy` artifacts
-and metadata, and optionally upload new circuits to Azure. This is not the
+and metadata, and optionally upload new circuits to the cloud. This is not the
 out-of-core RDBMS experiment harness described further down.
 
 | Mode | Command | Use when |
@@ -183,7 +203,7 @@ out-of-core RDBMS experiment harness described further down.
 
 ```bash
 inferq run --workers 8 --batch-size 50 --iterations 10
-inferq run --azure-interval 500
+inferq run --cloud-interval 500
 inferq run --profile
 inferq run interactive --generate-only
 ```
@@ -326,7 +346,7 @@ that every artifact landed on disk.
 ```bash
 inferq smoke                              # 3 circuits, local only
 inferq smoke --circuits 5 --query-mode split
-inferq smoke --azure                      # include the upload step
+inferq smoke --cloud                      # include the upload step
 ```
 
 It first reports the interpreter and package versions, whether InfiniQuantumSim
@@ -337,7 +357,7 @@ named along with the reason and the variables that would configure it, then
 omitted so the simulation never blocks on a connection that will not open. A
 missing engine is reported, never fatal.
 
-Azure upload is off unless `--azure` is passed, so a smoke run never writes
+Cloud upload is off unless `--cloud` is passed, so a smoke run never writes
 throwaway circuits into shared storage. Generation limits are pinned low and
 each attempt uses a fresh seed, so repeat runs produce new circuits rather than
 colliding with duplicate detection.
@@ -376,7 +396,7 @@ lowering changed without `docs/query-structures/` being regenerated.
   actually executed. The mode that shaped it is recorded as `sql_query_mode` in
   `meta.json`. The query is a file rather than a metadata field because `split`
   runs to tens of kilobytes.
-- Duplicate detection uses local cache state and, when enabled, Azure metadata.
+- Duplicate detection uses local cache state and, when enabled, cloud metadata.
 - The parallel pipeline logs mostly batch-level status; worker-level debug output
   is suppressed unless logging is configured more verbosely.
 - `docs/provenance/` records the sha256 of large generated artifacts that were

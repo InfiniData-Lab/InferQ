@@ -25,7 +25,7 @@ import sys
 
 from inferq import paths
 from inferq.config import PipelineConfig
-from inferq.remote.connection import AzureConnection
+from inferq.remote import get_connection
 
 from .checkpoint_manager import CheckpointManager
 from .circuit_processor import (
@@ -44,8 +44,8 @@ MODES = ("simulations", "sql", "dynamic")
 SIMULATION_MODES = ["auto", "all", "rdbms"]
 
 _DESCRIPTIONS = {
-    "simulations": "Rerun simulations in parallel and update Azure Table.",
-    "sql": "Extract SQL features from circuits in parallel and update Azure Table.",
+    "simulations": "Rerun simulations in parallel and update the cloud metadata store.",
+    "sql": "Extract SQL features from circuits in parallel and update the cloud metadata store.",
     "dynamic": (
         "Rerun dynamic feature extraction (entropy, sparsity) from saved "
         "statevector simulations."
@@ -107,8 +107,7 @@ def process_simulation_folder(args):
             infiniquantum_config=sim_config.get("infiniquantum")
         )
 
-        azure_conn = AzureConnection()
-        table_client = azure_conn.circuits_table_client
+        metadata_store = get_connection().metadata
 
         checkpoint_manager = CheckpointManager(checkpoints_dir)
         circuit_processor = SimulationProcessor(
@@ -121,7 +120,7 @@ def process_simulation_folder(args):
 
         folder_processor = FolderProcessor(
             circuit_processor,
-            table_client,
+            metadata_store,
             checkpoint_manager
         )
         folder_processor.mode = mode  # Add mode for simulation
@@ -147,8 +146,7 @@ def process_sql_folder(args):
     folder_path, processed_hashes, checkpoints_dir, min_qubits, max_qubits, min_depth, max_depth = args
     try:
         # Initialize components in worker process
-        azure_conn = AzureConnection()
-        table_client = azure_conn.circuits_table_client
+        metadata_store = get_connection().metadata
 
         checkpoint_manager = CheckpointManager(checkpoints_dir)
         circuit_processor = SQLFeatureProcessor(
@@ -160,7 +158,7 @@ def process_sql_folder(args):
 
         folder_processor = FolderProcessor(
             circuit_processor,
-            table_client,
+            metadata_store,
             checkpoint_manager
         )
 
@@ -192,15 +190,14 @@ def process_dynamic_folder(args):
             infiniquantum_config=sim_config.get("infiniquantum")
         )
 
-        azure_conn = AzureConnection()
-        table_client = azure_conn.circuits_table_client
+        metadata_store = get_connection().metadata
 
         checkpoint_manager = CheckpointManager(checkpoints_dir)
         circuit_processor = DynamicFeatureProcessor(simulator, max_qubits, max_depth)
 
         folder_processor = FolderProcessor(
             circuit_processor,
-            table_client,
+            metadata_store,
             checkpoint_manager
         )
 
@@ -330,22 +327,21 @@ def print_size_limits(min_qubits, max_qubits, min_depth, max_depth) -> None:
     print(f"Max Depth: {max_depth if max_depth is not None else 'No limit'}")
 
 
-def connect_azure():
-    """Return the circuits table client, or None when the connection fails."""
+def connect_metadata_store():
+    """Return the circuit metadata store, or None when the connection fails."""
     try:
-        azure_conn = AzureConnection()
-        table_client = azure_conn.circuits_table_client
-        logger.info("Connected to Azure Table Storage")
-        return table_client
+        conn = get_connection()
+        logger.info("Connected to the %s metadata store", conn.provider)
+        return conn.metadata
     except Exception as e:
-        logger.error(f"Failed to connect to Azure: {e}")
+        logger.error(f"Failed to connect to cloud storage: {e}")
         return None
 
 
-def build_orchestrator(circuits_dir: str, checkpoints_dir: str, table_client):
+def build_orchestrator(circuits_dir: str, checkpoints_dir: str, metadata_store):
     """Build the orchestrator that fans folders out across worker processes."""
     checkpoint_manager = CheckpointManager(checkpoints_dir)
-    return PipelineOrchestrator(circuits_dir, checkpoint_manager, table_client)
+    return PipelineOrchestrator(circuits_dir, checkpoint_manager, metadata_store)
 
 
 # ---------------------------------------------------------------------------
@@ -385,11 +381,11 @@ def run_simulations(args) -> None:
         logger.error(f"Circuits directory not found: {circuits_dir}")
         return
 
-    table_client = connect_azure()
-    if table_client is None:
+    metadata_store = connect_metadata_store()
+    if metadata_store is None:
         return
 
-    orchestrator = build_orchestrator(circuits_dir, checkpoints_dir, table_client)
+    orchestrator = build_orchestrator(circuits_dir, checkpoints_dir, metadata_store)
 
     # Run pipeline with mode and checkpoints_dir passed through
     total_updated = orchestrator.run_parallel(
@@ -441,11 +437,11 @@ def run_sql_features(args) -> None:
         logger.error("InfiniQuantumSim is required but not installed. Please install it first.")
         return
 
-    table_client = connect_azure()
-    if table_client is None:
+    metadata_store = connect_metadata_store()
+    if metadata_store is None:
         return
 
-    orchestrator = build_orchestrator(circuits_dir, checkpoints_dir, table_client)
+    orchestrator = build_orchestrator(circuits_dir, checkpoints_dir, metadata_store)
 
     # Run pipeline with checkpoints_dir passed through
     total_updated = orchestrator.run_parallel(
@@ -531,11 +527,11 @@ def run_dynamic_features(args) -> None:
         logger.error(f"Circuits directory not found: {circuits_dir}")
         return
 
-    table_client = connect_azure()
-    if table_client is None:
+    metadata_store = connect_metadata_store()
+    if metadata_store is None:
         return
 
-    orchestrator = build_orchestrator(circuits_dir, checkpoints_dir, table_client)
+    orchestrator = build_orchestrator(circuits_dir, checkpoints_dir, metadata_store)
 
     # Run pipeline with dynamic feature extraction parameters
     try:

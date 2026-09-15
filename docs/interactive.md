@@ -58,10 +58,10 @@ normal processing path:
 - Feature extraction
 - Simulation through the configured Qiskit and InfiniQuantumSim settings
 - Local storage
-- Optional Azure upload, when enabled in configuration
+- Optional cloud upload, when enabled in configuration
 
 The same configuration sources apply as in other modes. Circuit bounds,
-measurement behavior, seeds, simulator settings, storage behavior, and Azure
+measurement behavior, seeds, simulator settings, storage behavior, and cloud
 settings are read from `config.py` through the existing helper functions.
 
 ## Example Session
